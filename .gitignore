@@ -1,0 +1,21 @@
+.DS_Store
+.idea
+Thumbs.db
+tmp/
+temp/
+node_modules
+coverage
+*.lcov
+.nyc_output
+*.log
+.env
+dist
+.history
+
+# Pi local/runtime state (secrets + machine-specific artifacts)
+agent/auth.json
+agent/models.json
+agent/sessions/
+agent/bin/
+agent/**/*.jsonl
+agent/**/*.log

@@ -1,0 +1,47 @@
+/**
+ * Minimal TypeScript configuration for Node.js
+ * - To choose between native ESM or CJS modules, simply change the "type" option in package.json.
+ *   ESM is the default option for the spence-s-starter-template, but the tscofig is set up to use commonjs when the package.json field is changed to "type": "commonjs", or removed.
+ */
+{
+  "compilerOptions": {
+    /** BUILD */
+    "rootDir": ".",
+    /** Build to the dist foler in the root dir */
+    "outDir": "dist",
+    /** Build stuffs - source maps and ts definitions for our library */
+    "sourceMap": true,
+    "declaration": true,
+
+    /** MODULES
+    /** Tells TS to use either cjs or esm modules based on package.json */
+    "module": "node20",
+    /** Use the latest version of ECMAScript */
+    "target": "es2023",
+    /** Use the latest version of ECMAScript modules */
+    "lib": ["esnext"],
+    /** For nodejs libs, for browser or other environments, this will change */
+    "types": ["node"],
+
+    /** TYPECHECKING */
+    /** Because we care about types being as strict as possible */
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+
+    /** OPTIMIZATION */
+    /** Skip unneeded typechecking of node-modules */
+    "skipLibCheck": true,
+    /** ensure we use type imports properly - also validated and autofixed by xo */
+    "verbatimModuleSyntax": true,
+    /** Allow only syntax that can be erased (no runtime impact) when transpiling to JS */
+    "erasableSyntaxOnly": true,
+    /** Rewrite relative imports to include file extensions for nodejs */
+    "rewriteRelativeImportExtensions": true,
+    /** Help ts know that we are only using modules (may need to change for cjs) */
+    "moduleDetection": "force",
+    /** Show the entire type in intellisense if possible */
+    "noErrorTruncation": true
+  },
+  "exclude": ["node_modules", "dist"]
+}
