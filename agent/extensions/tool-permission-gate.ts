@@ -82,7 +82,7 @@ function normalizeTarget(raw: string): string {
   return raw;
 }
 
-function classifyDanger(command: string): string[] {
+export function classifyDanger(command: string): string[] {
   const reasons: string[] = [];
   const tokens = tokenizeShellCommand(command);
 
@@ -129,7 +129,7 @@ function classifyDanger(command: string): string[] {
   return reasons;
 }
 
-async function onToolCall(
+export async function onToolCall(
   event: ToolCallEvent,
   ctx: ExtensionContext,
 ): Promise<ToolCallEventResult | void> {
@@ -158,6 +158,6 @@ async function onToolCall(
   }
 }
 
-export default function toolPermissionGate(pi: ExtensionAPI): void {
+export default function toolPermissionGate(pi: Pick<ExtensionAPI, 'on'>): void {
   pi.on('tool_call', onToolCall);
 }
