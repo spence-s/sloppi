@@ -1,30 +1,10 @@
-type ToolCallEvent = {
-  toolName?: string;
-  input?: {
-    command?: unknown;
-  };
-};
-
-type ToolCallContext = {
-  hasUI?: boolean;
-  ui?: {
-    confirm: (title: string, message: string) => Promise<boolean>;
-  };
-};
-
-type ToolCallHandlerResult = void | {
-  block: true;
-  reason: string;
-};
-
-type ToolCallHandler = (
-  event: ToolCallEvent,
-  ctx: ToolCallContext,
-) => Promise<ToolCallHandlerResult>;
-
-type PiExtensionApi = {
-  on: (eventName: 'tool_call', handler: ToolCallHandler) => void;
-};
+import {
+  isToolCallEventType,
+  type ExtensionAPI,
+  type ExtensionContext,
+  type ToolCallEvent,
+  type ToolCallEventResult,
+} from '@earendil-works/pi-coding-agent';
 
 const sensitivePathPatterns = [
   /^\/$/v, // root
@@ -48,36 +28,36 @@ function tokenizeShellCommand(command: string): string[] {
   let quote: '"' | "'" | undefined;
   let previous = '';
 
-  for (const ch of command) {
+  for (const character of command) {
     if (quote !== undefined) {
-      if (ch === quote && previous !== '\\') {
+      if (character === quote && previous !== '\\') {
         quote = undefined;
       } else {
-        current += ch;
+        current += character;
       }
 
-      previous = ch;
+      previous = character;
       continue;
     }
 
-    if ((ch === '"' || ch === "'") && previous !== '\\') {
-      quote = ch;
-      previous = ch;
+    if ((character === '"' || character === "'") && previous !== '\\') {
+      quote = character;
+      previous = character;
       continue;
     }
 
-    if (/\s/v.test(ch)) {
+    if (/\s/v.test(character)) {
       if (current.length > 0) {
         tokens.push(current);
         current = '';
       }
 
-      previous = ch;
+      previous = character;
       continue;
     }
 
-    current += ch;
-    previous = ch;
+    current += character;
+    previous = character;
   }
 
   if (current.length > 0) {
@@ -94,6 +74,7 @@ function normalizeTarget(raw: string): string {
 
   const isSingleQuoted = raw.startsWith("'") && raw.endsWith("'");
   const isDoubleQuoted = raw.startsWith('"') && raw.endsWith('"');
+
   if ((isSingleQuoted || isDoubleQuoted) && raw.length >= 2) {
     return raw.slice(1, -1);
   }
@@ -104,6 +85,7 @@ function normalizeTarget(raw: string): string {
 function classifyDanger(command: string): string[] {
   const reasons: string[] = [];
   const tokens = tokenizeShellCommand(command);
+
   if (tokens.length === 0) {
     return reasons;
   }
@@ -115,63 +97,67 @@ function classifyDanger(command: string): string[] {
   const rmIndex = tokens.findIndex(
     (token) => token === 'rm' || token.endsWith('/rm'),
   );
-  if (rmIndex !== -1) {
-    const rmTokens = tokens.slice(rmIndex + 1);
-    const hasRecursiveDelete = rmTokens.some(
-      (token) =>
-        token.startsWith('-') &&
-        (token.includes('r') || token.includes('R') || token.includes('f')),
-    );
 
-    if (hasRecursiveDelete) {
-      reasons.push('uses recursive/force rm flags');
-    }
+  if (rmIndex === -1) {
+    return reasons;
+  }
 
-    const targets = rmTokens
-      .filter((token) => !token.startsWith('-'))
-      .map((token) => normalizeTarget(token))
-      .filter((target) => target.length > 0);
+  const rmTokens = tokens.slice(rmIndex + 1);
+  const hasRecursiveDelete = rmTokens.some(
+    (token) =>
+      token.startsWith('-') &&
+      (token.includes('r') || token.includes('R') || token.includes('f')),
+  );
 
-    const sensitiveTargets = targets.filter((target) =>
-      sensitivePathPatterns.some((pattern) => pattern.test(target)),
-    );
+  if (hasRecursiveDelete) {
+    reasons.push('uses recursive/force rm flags');
+  }
 
-    if (sensitiveTargets.length > 0) {
-      reasons.push(
-        `rm target looks sensitive (${sensitiveTargets.join(', ')})`,
-      );
-    }
+  const targets = rmTokens
+    .filter((token) => !token.startsWith('-'))
+    .map((token) => normalizeTarget(token))
+    .filter((target) => target.length > 0);
+
+  const sensitiveTargets = targets.filter((target) =>
+    sensitivePathPatterns.some((pattern) => pattern.test(target)),
+  );
+
+  if (sensitiveTargets.length > 0) {
+    reasons.push(`rm target looks sensitive (${sensitiveTargets.join(', ')})`);
   }
 
   return reasons;
 }
 
-export default function toolPermissionGate(pi: PiExtensionApi): void {
-  pi.on('tool_call', async (event, ctx) => {
-    if (event.toolName !== 'bash') {
-      return;
-    }
+async function onToolCall(
+  event: ToolCallEvent,
+  ctx: ExtensionContext,
+): Promise<ToolCallEventResult | void> {
+  if (!isToolCallEventType('bash', event)) {
+    return;
+  }
 
-    const commandInput = event.input?.command;
-    const command = typeof commandInput === 'string' ? commandInput : '';
-    const reasons = classifyDanger(command);
-    if (reasons.length === 0) {
-      return;
-    }
+  const reasons = classifyDanger(event.input.command);
+  if (reasons.length === 0) {
+    return;
+  }
 
-    if (ctx.hasUI !== true || ctx.ui === undefined) {
-      return {
-        block: true,
-        reason: `Blocked risky command in non-interactive mode: ${reasons.join('; ')}`,
-      };
-    }
+  if (!ctx.hasUI) {
+    return {
+      block: true,
+      reason: `Blocked risky command in non-interactive mode: ${reasons.join('; ')}`,
+    };
+  }
 
-    const reasonText = reasons.map((reason) => `• ${reason}`).join('\n');
-    const message = `This bash command looks risky:\n\n${command}\n\n${reasonText}\n\nAllow it?`;
+  const reasonText = reasons.map((reason) => `• ${reason}`).join('\n');
+  const message = `This bash command looks risky:\n\n${event.input.command}\n\n${reasonText}\n\nAllow it?`;
 
-    const isAllowed = await ctx.ui.confirm('Approve risky tool call', message);
-    if (!isAllowed) {
-      return {block: true, reason: 'Blocked by extension approval gate'};
-    }
-  });
+  const isAllowed = await ctx.ui.confirm('Approve risky tool call', message);
+  if (!isAllowed) {
+    return {block: true, reason: 'Blocked by extension approval gate'};
+  }
+}
+
+export default function toolPermissionGate(pi: ExtensionAPI): void {
+  pi.on('tool_call', onToolCall);
 }
