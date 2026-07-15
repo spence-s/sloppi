@@ -1,7 +1,7 @@
 {
-  "name": "spence-s-starter-template",
+  "name": "my-pi",
   "version": "0.0.0",
-  "description": "An opinionated typescript + ESM starter template for new projects.",
+  "description": "Personal Pi configurations and extensions.",
   "homepage": "https://github.com/spence-s/spence-s-starter-template",
   "bugs": {
     "url": "https://github.com/spence-s/spence-s-starter-template/issues"
