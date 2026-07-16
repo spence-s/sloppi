@@ -1,151 +1,70 @@
 # AGENTS.md - Development Guidelines for AI Coding Agents
 
-This document provides essential information for AI coding agents working in this repository.
+This file defines how AI coding agents should work in this repository. Follow these rules unless explicitly instructed otherwise.
 
-## Project Overview
+## Pi Repository Context
 
-This is an opinionated TypeScript + ESM starter template for Node.js libraries. The project uses:
+- This repository is symlinked to `~/.pi`.
+- It contains pi-specific extensions and related configuration.
+- When working in this repository, agents should always read relevant pi documentation before making changes.
 
-- **Pure ESM** (ECMAScript Modules) - no CommonJS
-- **Node.js >=22** with native TypeScript type stripping
-- **XO** for linting and formatting
-- **Node.js native test runner** for testing
+## Core Workflow
 
-## Build, Test & Lint Commands
+1. Inspect relevant files first.
+2. Make a short plan.
+3. Apply minimal, targeted edits.
+4. Validate with the appropriate checks before finalizing.
 
-### Building
+Recommended validation commands:
 
-- `npm run build` - Clean dist folder and compile TypeScript to JavaScript with declarations
+- `npm run check`
+- `npm run lint`
+- `npm test` (or targeted tests when appropriate)
+
+## Commands
+
+- `npm run build` - Clean `dist` and compile TypeScript with declarations
 - `npm run check` - Type-check without building
-
-### Testing
-
 - `npm test` - Run all tests once
-- `npm run test:coverage` - Run tests with coverage report
+- `npm run test:coverage` - Run tests with coverage
 - `npm run test:watch` - Run tests in watch mode
+- `npm run lint` - Run XO lint/format checks
+- `npm run lint -- ---fix` - Auto-fix lint/format issues
+- `npm run dev` - Run in watch mode (auto-restart)
 
-#### Running a Single Test
+Single-test patterns:
 
 ```bash
-# Run a specific test file
 node --test test/index.test.ts
-
-# Run tests matching a pattern
 node --test test/**/*.test.ts
-
-# Run with watch mode for a single file
 node --test --watch test/index.test.ts
 ```
 
-### Linting & Formatting
+## Non-Negotiable TypeScript + ESM Rules
 
-- linting: `npm run lint` - Run XO linter
-- type-checking: `npm run check` - Run TypeScript type checker
-- formatting: `npm run lint -- ---fix` XO is also the formatter (auto-formats on fix)
+- Pure ESM only (`"type": "module"`); never use `require()`.
+- Always include `.ts` extension in local TypeScript imports.
+- Use `import type` for type-only imports.
+- Keep code compatible with strict TypeScript settings.
+- Handle values that may be `undefined` (`noUncheckedIndexedAccess`).
+- Do not use non-erasable TS features (for example, enums or namespaces).
 
-### Development
+## Testing Conventions
 
-- `npm run dev` - Run with watch mode (auto-restarts on changes)
+- Use Node.js native test runner (`node:test`) and `node:assert`.
+- Keep tests under `test/**/*.test.ts`.
+- Keep tests focused and deterministic.
 
-## Code Style Guidelines
+## Style & Safety
 
-### General Formatting
+- 2-space indentation, LF line endings, final newline.
+- Avoid `any` where possible.
+- Prefer self-documenting code; comments should explain "why" when needed.
 
-- **Indentation**: 2 spaces (enforced by .editorconfig)
-- **Line endings**: LF
-- **Trailing whitespace**: Remove
-- **Final newline**: Required
+## Source of Truth
 
-### TypeScript Configuration
+If this file ever conflicts with project config, treat these as authoritative:
 
-#### Module System
-
-- **Pure ESM only** - `"type": "module"` in package.json
-- Use `import`/`export`, never `require()`
-- Module setting: `"module": "node20"` (adapts based on package.json type field)
-- Target: ES2023
-
-#### Strict Type Checking
-
-The project uses maximum TypeScript strictness:
-
-- `"strict": true`
-- `"noUncheckedIndexedAccess": true` - Array/object access returns `T | undefined`
-- `"exactOptionalPropertyTypes": true` - Distinguish between `undefined` and missing properties
-- `"verbatimModuleSyntax": true` - Explicit type imports required
-
-#### Special TypeScript Features
-
-- **Type-only imports**: Use `import type` for types (enforced by `@typescript-eslint/no-import-type-side-effects`)
-- **Erasable syntax only**: `"erasableSyntaxOnly": true` - No enums, namespaces, or non-erasable features
-- **File extensions**: Always include `.ts` extensions in imports (e.g., `import {foo} from './bar.ts'`)
-  - This is enforced by `import-x/extensions` rule
-  - TypeScript rewrites these to `.js` via `"rewriteRelativeImportExtensions": true`
-
-### Import Style
-
-```typescript
-// ✅ Correct - Type imports with 'type' keyword
-import type {SomeType} from './types.ts';
-import {someFunction} from './utils.ts';
-
-// ✅ Correct - Always include .ts extension for local imports
-import {helloWorld} from '../src/index.ts';
-
-// ❌ Wrong - Missing type keyword
-import {SomeType} from './types.ts';
-
-// ❌ Wrong - Missing file extension
-import {someFunction} from './utils';
-
-// ❌ Wrong - Using .js extension in TypeScript files
-import {someFunction} from './utils.js';
-```
-
-### Naming Conventions
-
-- Use camelCase for variables, functions, and methods
-- Use PascalCase for types, interfaces, and classes
-- No enforced capitalized comments (disabled via xo.config.ts)
-- No enforced naming-convention rule (disabled via xo.config.ts for flexibility)
-
-### Testing Style
-
-Use Node.js native test runner with TypeScript:
-
-```typescript
-import {test, describe, type TestContext} from 'node:test';
-import assert from 'node:assert';
-
-void describe('feature name', async () => {
-  await test('test case description', (t: TestContext) => {
-    // Use t.mock for mocking
-    const mockFn = t.mock.method(object, 'method');
-
-    // Use node:assert for assertions
-    assert.equal(actual, expected);
-    assert.strictEqual(actual, expected);
-
-    // Clean up mocks
-    t.mock.reset();
-  });
-});
-```
-
-### Test File Organization
-
-- Test files: `test/**/*.test.ts`
-- Keep tests in the `test/` directory (separate from source)
-- Import source files with full path including `.ts` extension
-
-### Error Handling
-
-- Use explicit error types when possible
-- Avoid `any` types (strict mode enforced)
-- Handle potential `undefined` from array/object access due to `noUncheckedIndexedAccess`
-
-### Comments
-
-- No requirement for capitalized comments
-- Focus on "why" not "what" in comments
-- Prefer self-documenting code over excessive comments
+- `package.json` (scripts/runtime)
+- `tsconfig.json` (TypeScript behavior)
+- `xo.config.ts` (lint/format rules)
