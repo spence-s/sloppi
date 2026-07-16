@@ -7,6 +7,10 @@ This repo contains my local Pi configuration and custom extensions, currently fo
 ## Contents
 
 - `agent/extensions/` – custom Pi extensions
+  - `ask-mode.ts` – disable all tool calls for conversational mode
+  - `tool-permission-gate.ts` – interactive guard for risky bash commands
+  - `pipeline.ts` – multi-step scout → planner → worker → reviewer pipeline command
+- `agent/agents/` – agent role definitions used by the pipeline extension
 - `test/` – extension tests
 - `agent/settings.json` – local Pi settings
 
@@ -20,3 +24,9 @@ This repo contains my local Pi configuration and custom extensions, currently fo
 
 - Not published as a package.
 - Runtime/local agent state is gitignored.
+
+## Pipeline usage
+
+- `/pipeline plan <goal>` – run scout + planner only and draft plan output in editor.
+- `/pipeline run <goal>` – run full pipeline (scout → planner → worker → reviewer).
+- `/pipeline <goal>` – shorthand for run mode.
