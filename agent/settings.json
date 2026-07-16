@@ -1,7 +1,0 @@
-{
-  "lastChangelogVersion": "0.80.7",
-  "theme": "dark",
-  "defaultProvider": "github-copilot",
-  "defaultModel": "gpt-5.3-codex",
-  "defaultThinkingLevel": "medium"
-}

@@ -19,3 +19,5 @@ agent/sessions/
 agent/bin/
 agent/**/*.jsonl
 agent/**/*.log
+agent/models-store.json
+agent/settings.json
