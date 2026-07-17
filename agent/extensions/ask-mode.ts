@@ -12,8 +12,13 @@ type AskModeState = {
 
 const askModeStatusId = 'ask-mode';
 const askModeEntryType = 'ask-mode';
+const askModeAllowedTools = ['read'] as const;
+const askModeEnabledContext =
+  'Ask mode is active. You may only use the read tool. Do not call bash, edit, write, or other tools.';
+const askModeDisabledContext =
+  'Ask mode is inactive. You may call available tools normally.';
 const askModeBlockedReason =
-  'Ask mode is enabled: tool calls are disabled. Use /ask off to re-enable tools.';
+  'Ask mode is enabled: only file reads are allowed. Use /ask off to re-enable full tool access.';
 
 function parseAskCommandInput(
   args: string | undefined,
@@ -68,10 +73,10 @@ function restoreAskModeState(ctx: ExtensionContext): AskModeState {
 }
 
 export function onToolCall(
-  _event: ToolCallEvent,
+  event: ToolCallEvent,
   isAskModeEnabled: boolean,
 ): ToolCallEventResult | void {
-  if (!isAskModeEnabled) {
+  if (!isAskModeEnabled || event.toolName === 'read') {
     return;
   }
 
@@ -99,12 +104,12 @@ export default function askMode(pi: ExtensionAPI): void {
 
     toolsBeforeAskMode ??= pi.getActiveTools();
 
-    pi.setActiveTools([]);
+    pi.setActiveTools([...askModeAllowedTools]);
     isAskModeEnabled = true;
     updateAskModeStatus(isAskModeEnabled, ctx);
     persistAskModeState();
 
-    ctx.ui.notify('Ask mode enabled. Tool calls are now blocked.', 'info');
+    ctx.ui.notify('Ask mode enabled. Only file reads are allowed.', 'info');
   }
 
   function disableAskMode(ctx: ExtensionContext): void {
@@ -128,7 +133,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
     if (isAskModeEnabled) {
       toolsBeforeAskMode ??= pi.getActiveTools();
-      pi.setActiveTools([]);
+      pi.setActiveTools([...askModeAllowedTools]);
     }
 
     updateAskModeStatus(isAskModeEnabled, ctx);
@@ -136,7 +141,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
   pi.registerCommand('ask', {
     description:
-      'Toggle ask mode (blocks all tool calls). Usage: /ask [on|off|toggle|status]',
+      'Toggle ask mode (read-only tool access). Usage: /ask [on|off|toggle|status]',
     async handler(args, ctx) {
       const command = parseAskCommandInput(args);
 
@@ -168,20 +173,15 @@ export default function askMode(pi: ExtensionAPI): void {
     },
   });
 
-  pi.on('before_agent_start', async () => {
-    if (!isAskModeEnabled) {
-      return;
-    }
-
-    return {
-      message: {
-        customType: 'ask-mode-context',
-        content:
-          'Ask mode is active. Do not call any tools. Respond conversationally using only existing chat context.',
-        display: false,
-      },
-    };
-  });
+  pi.on('before_agent_start', async () => ({
+    message: {
+      customType: 'ask-mode-context',
+      content: isAskModeEnabled
+        ? askModeEnabledContext
+        : askModeDisabledContext,
+      display: false,
+    },
+  }));
 
   pi.on('tool_call', async (event) => onToolCall(event, isAskModeEnabled));
 

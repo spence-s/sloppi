@@ -7,7 +7,7 @@ This repo contains my local Pi configuration and custom extensions, currently fo
 ## Contents
 
 - `agent/extensions/` – custom Pi extensions
-  - `ask-mode.ts` – disable all tool calls for conversational mode
+  - `ask-mode.ts` – ask mode with read-only tool access (no bash/edit/write)
   - `tool-permission-gate.ts` – interactive guard for risky bash commands
   - `pipeline.ts` – multi-step scout → planner → worker → reviewer pipeline command
 - `agent/agents/` – agent role definitions used by the pipeline extension
