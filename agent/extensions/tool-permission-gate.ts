@@ -1,163 +1,67 @@
 import {
   isToolCallEventType,
   type ExtensionAPI,
-  type ExtensionContext,
-  type ToolCallEvent,
-  type ToolCallEventResult,
 } from '@earendil-works/pi-coding-agent';
 
-const sensitivePathPatterns = [
-  /^\/$/v, // root
-  /^~\/?$/v, // home dir shorthand
-  /^\.$/v, // current directory
-  /^\.\.$/v, // parent directory
-  /^\.git\/?/v,
-  /^\.env(?:\.|$)/v,
-  /^node_modules\/?/v,
-  /^\/etc(?:\/|$)/v,
-  /^\/usr(?:\/|$)/v,
-  /^\/bin(?:\/|$)/v,
-  /^\/sbin(?:\/|$)/v,
-  /^\/System(?:\/|$)/v,
-  /^\/Library(?:\/|$)/v,
-];
+// ponytail: regex heuristic; use filesystem sandboxing for a hard deletion boundary.
+const destructivePattern =
+  /\b(?:rm|rmdir)\b|\bfind\b.*\s-delete\b|\bgit\s+clean\b|\b(?:fs(?:\.promises)?\s*\.\s*)?(?:rm|rmSync|unlink|unlinkSync|rmdir|rmdirSync)\s*\(|\b(?:os\.(?:remove|unlink|rmdir)|shutil\.rmtree|File\.(?:delete|unlink)|FileUtils\.rm(?:_rf|_r|_f)|unlink|rmtree)\s*\(?/sv;
 
-function tokenizeShellCommand(command: string): string[] {
-  const tokens: string[] = [];
-  let current = '';
-  let quote: '"' | "'" | undefined;
-  let previous = '';
+export default function toolPermissionGate(
+  pi: Pick<ExtensionAPI, 'on' | 'sendMessage'>,
+): void {
+  let hasDeniedDeletion = false;
 
-  for (const character of command) {
-    if (quote !== undefined) {
-      if (character === quote && previous !== '\\') {
-        quote = undefined;
-      } else {
-        current += character;
-      }
-
-      previous = character;
-      continue;
+  pi.on('tool_call', async (event, ctx) => {
+    if (!isToolCallEventType('bash', event)) {
+      return;
     }
 
-    if ((character === '"' || character === "'") && previous !== '\\') {
-      quote = character;
-      previous = character;
-      continue;
+    const {command} = event.input;
+    const isDeletion = destructivePattern.test(command);
+    const isRisky = isDeletion || /\bsudo\b/v.test(command);
+
+    if (isDeletion && hasDeniedDeletion) {
+      return {
+        block: true,
+        reason:
+          'File deletion remains denied for this session. Obtain explicit new user approval before retrying.',
+      };
     }
 
-    if (/\s/v.test(character)) {
-      if (current.length > 0) {
-        tokens.push(current);
-        current = '';
-      }
-
-      previous = character;
-      continue;
+    if (!isRisky) {
+      return;
     }
 
-    current += character;
-    previous = character;
-  }
+    const isAllowed =
+      ctx.hasUI &&
+      (await ctx.ui.confirm(
+        'Approve risky tool call',
+        `This bash command may ${isDeletion ? 'delete files' : 'use sudo'}:\n\n${command}\n\nAllow it?`,
+      ));
 
-  if (current.length > 0) {
-    tokens.push(current);
-  }
+    if (isAllowed) {
+      return;
+    }
 
-  return tokens;
-}
+    if (isDeletion) {
+      hasDeniedDeletion = true;
+      pi.sendMessage(
+        {
+          customType: 'tool-permission-gate',
+          content:
+            'The user denied file deletion. Do not retry it or use another command, script, interpreter, filesystem API, or workaround to achieve the same result. Ask for explicit new approval if deletion is still needed.',
+          display: true,
+        },
+        {deliverAs: 'steer'},
+      );
+    }
 
-function normalizeTarget(raw: string): string {
-  if (raw === '--') {
-    return '';
-  }
-
-  const isSingleQuoted = raw.startsWith("'") && raw.endsWith("'");
-  const isDoubleQuoted = raw.startsWith('"') && raw.endsWith('"');
-
-  if ((isSingleQuoted || isDoubleQuoted) && raw.length >= 2) {
-    return raw.slice(1, -1);
-  }
-
-  return raw;
-}
-
-export function classifyDanger(command: string): string[] {
-  const reasons: string[] = [];
-  const tokens = tokenizeShellCommand(command);
-
-  if (tokens.length === 0) {
-    return reasons;
-  }
-
-  if (tokens.includes('sudo')) {
-    reasons.push('uses sudo');
-  }
-
-  const rmIndex = tokens.findIndex(
-    (token) => token === 'rm' || token.endsWith('/rm'),
-  );
-
-  if (rmIndex === -1) {
-    return reasons;
-  }
-
-  const rmTokens = tokens.slice(rmIndex + 1);
-  const hasRecursiveDelete = rmTokens.some(
-    (token) =>
-      token.startsWith('-') &&
-      (token.includes('r') || token.includes('R') || token.includes('f')),
-  );
-
-  if (hasRecursiveDelete) {
-    reasons.push('uses recursive/force rm flags');
-  }
-
-  const targets = rmTokens
-    .filter((token) => !token.startsWith('-'))
-    .map((token) => normalizeTarget(token))
-    .filter((target) => target.length > 0);
-
-  const sensitiveTargets = targets.filter((target) =>
-    sensitivePathPatterns.some((pattern) => pattern.test(target)),
-  );
-
-  if (sensitiveTargets.length > 0) {
-    reasons.push(`rm target looks sensitive (${sensitiveTargets.join(', ')})`);
-  }
-
-  return reasons;
-}
-
-export async function onToolCall(
-  event: ToolCallEvent,
-  ctx: ExtensionContext,
-): Promise<ToolCallEventResult | void> {
-  if (!isToolCallEventType('bash', event)) {
-    return;
-  }
-
-  const reasons = classifyDanger(event.input.command);
-  if (reasons.length === 0) {
-    return;
-  }
-
-  if (!ctx.hasUI) {
     return {
       block: true,
-      reason: `Blocked risky command in non-interactive mode: ${reasons.join('; ')}`,
+      reason: ctx.hasUI
+        ? 'Blocked by extension approval gate'
+        : 'Blocked risky command in non-interactive mode',
     };
-  }
-
-  const reasonText = reasons.map((reason) => `• ${reason}`).join('\n');
-  const message = `This bash command looks risky:\n\n${event.input.command}\n\n${reasonText}\n\nAllow it?`;
-
-  const isAllowed = await ctx.ui.confirm('Approve risky tool call', message);
-  if (!isAllowed) {
-    return {block: true, reason: 'Blocked by extension approval gate'};
-  }
-}
-
-export default function toolPermissionGate(pi: Pick<ExtensionAPI, 'on'>): void {
-  pi.on('tool_call', onToolCall);
+  });
 }
