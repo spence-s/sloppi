@@ -63,6 +63,7 @@ type StepResult = {
 };
 
 const pipelineEntryType = 'pipeline-run';
+const pipelineStatusId = '0:pipeline';
 
 export function parsePipelineCommandInput(raw: string): ParsedPipelineInput {
   const trimmed = raw.trim();
@@ -424,7 +425,7 @@ async function runPipeline(
     }
 
     ctx.ui.setStatus(
-      'pipeline',
+      pipelineStatusId,
       `${ctx.ui.theme.fg('accent', '🧠 pipeline')} ${ctx.ui.theme.fg('muted', `${index + 1}/${steps.length}`)} ${ctx.ui.theme.fg('warning', step.step)}`,
     );
 
@@ -447,7 +448,7 @@ async function runPipeline(
     });
 
     if (result.isError) {
-      ctx.ui.setStatus('pipeline', undefined);
+      ctx.ui.setStatus(pipelineStatusId, undefined);
       return {
         ok: false,
         summary: `Pipeline failed at ${result.step}: ${result.error ?? 'unknown error'}`,
@@ -457,7 +458,7 @@ async function runPipeline(
     outputs[result.step] = result.output;
   }
 
-  ctx.ui.setStatus('pipeline', undefined);
+  ctx.ui.setStatus(pipelineStatusId, undefined);
 
   if (mode === 'plan') {
     return {

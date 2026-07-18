@@ -10,7 +10,7 @@ type AskModeState = {
   toolsBeforeAskMode: string[] | undefined;
 };
 
-const askModeStatusId = 'ask-mode';
+const askModeStatusId = '0:ask-mode';
 const askModeEntryType = 'ask-mode';
 const askModeAllowedTools = ['read'] as const;
 const askModeEnabledContext =

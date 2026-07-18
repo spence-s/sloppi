@@ -4,6 +4,7 @@ import type {
 } from '@earendil-works/pi-coding-agent';
 
 const planTools = ['read', 'grep', 'find', 'ls', 'rg'];
+const planModeStatusId = '0:plan-mode';
 
 export default function planMode(pi: ExtensionAPI): void {
   let isEnabled = false;
@@ -15,12 +16,17 @@ export default function planMode(pi: ExtensionAPI): void {
     if (isEnabled) {
       savedTools = pi.getActiveTools();
       pi.setActiveTools(planTools);
+      ctx.ui.setStatus(
+        planModeStatusId,
+        `${ctx.ui.theme.fg('accent', '📝')} ${ctx.ui.theme.fg('warning', 'plan mode')}`,
+      );
       ctx.ui.notify('Plan mode enabled. Read-only tools available.', 'info');
       return;
     }
 
     pi.setActiveTools(savedTools ?? pi.getActiveTools());
     savedTools = undefined;
+    ctx.ui.setStatus(planModeStatusId, undefined);
     ctx.ui.notify('Plan mode disabled. Tool access restored.', 'info');
   }
 

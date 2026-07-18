@@ -30,14 +30,22 @@ function createHarness(initialTools: string[]) {
     },
   } as unknown as Parameters<typeof planMode>[0]);
 
+  const statuses: Array<[string, string | undefined]> = [];
   const ctx = {
     ui: {
+      theme: {
+        fg: (_token: string, content: string) => content,
+      },
+      setStatus(id: string, status: string | undefined) {
+        statuses.push([id, status]);
+      },
       notify: () => undefined,
     },
   } as unknown as ExtensionContext;
 
   return {
     ctx,
+    getStatuses: () => [...statuses],
     getActiveTools: () => [...activeTools],
     getCommand() {
       if (command === undefined) {
@@ -65,6 +73,10 @@ void test('plan mode restricts tools, adds planning prompt, then restores tools'
     'grep',
     'find',
     'ls',
+    'rg',
+  ]);
+  t.assert.deepStrictEqual(harness.getStatuses(), [
+    ['0:plan-mode', '📝 plan mode'],
   ]);
   t.assert.match(
     harness.getBeforeAgentStart()({systemPrompt: 'Base prompt'})
@@ -83,4 +95,8 @@ void test('plan mode restricts tools, adds planning prompt, then restores tools'
     harness.getBeforeAgentStart()({systemPrompt: 'Base prompt'}),
     undefined,
   );
+  t.assert.deepStrictEqual(harness.getStatuses(), [
+    ['0:plan-mode', '📝 plan mode'],
+    ['0:plan-mode', undefined],
+  ]);
 });
