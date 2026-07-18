@@ -12,65 +12,12 @@ type AskModeState = {
 
 const askModeStatusId = '0:ask-mode';
 const askModeEntryType = 'ask-mode';
-const askModeAllowedTools = ['read'] as const;
 const askModeEnabledContext =
   'Ask mode is active. You may only use the read tool. Do not call bash, edit, write, or other tools.';
 const askModeDisabledContext =
   'Ask mode is inactive. You may call available tools normally.';
 const askModeBlockedReason =
   'Ask mode is enabled: only file reads are allowed. Use /ask off to re-enable full tool access.';
-
-function parseAskCommandInput(
-  args: string | undefined,
-): 'on' | 'off' | 'toggle' | 'status' {
-  const normalized = args?.trim().toLowerCase();
-
-  if (normalized === undefined || normalized.length === 0) {
-    return 'toggle';
-  }
-
-  const validCommands = ['on', 'off', 'toggle', 'status'] as const;
-  if (validCommands.includes(normalized as (typeof validCommands)[number])) {
-    return normalized as (typeof validCommands)[number];
-  }
-
-  return 'status';
-}
-
-function updateAskModeStatus(isEnabled: boolean, ctx: ExtensionContext): void {
-  if (isEnabled) {
-    ctx.ui.setStatus(
-      askModeStatusId,
-      `${ctx.ui.theme.fg('accent', '💬')} ${ctx.ui.theme.fg('warning', 'ask mode')}`,
-    );
-    return;
-  }
-
-  ctx.ui.setStatus(askModeStatusId, undefined);
-}
-
-function restoreAskModeState(ctx: ExtensionContext): AskModeState {
-  const state: AskModeState = {
-    isEnabled: false,
-    toolsBeforeAskMode: undefined,
-  };
-
-  for (const entry of ctx.sessionManager.getBranch()) {
-    if (entry.type !== 'custom' || entry.customType !== askModeEntryType) {
-      continue;
-    }
-
-    const data = entry.data as AskModeState | undefined;
-    if (data === undefined) {
-      continue;
-    }
-
-    state.isEnabled = data.isEnabled;
-    state.toolsBeforeAskMode = data.toolsBeforeAskMode;
-  }
-
-  return state;
-}
 
 export function onToolCall(
   event: ToolCallEvent,
@@ -90,85 +37,114 @@ export default function askMode(pi: ExtensionAPI): void {
   let isAskModeEnabled = false;
   let toolsBeforeAskMode: string[] | undefined;
 
-  function persistAskModeState(): void {
+  const setAskMode = (
+    isEnabled: boolean,
+    ctx: ExtensionContext,
+    shouldNotify: boolean,
+  ): void => {
+    if (isEnabled === isAskModeEnabled) {
+      return;
+    }
+
+    if (isEnabled) {
+      toolsBeforeAskMode ??= pi.getActiveTools();
+      pi.setActiveTools(['read']);
+    } else {
+      pi.setActiveTools(toolsBeforeAskMode ?? pi.getActiveTools());
+      toolsBeforeAskMode = undefined;
+    }
+
+    isAskModeEnabled = isEnabled;
     pi.appendEntry<AskModeState>(askModeEntryType, {
       isEnabled: isAskModeEnabled,
       toolsBeforeAskMode,
     });
-  }
 
-  function enableAskMode(ctx: ExtensionContext): void {
-    if (isAskModeEnabled) {
+    ctx.ui.setStatus(
+      askModeStatusId,
+      isAskModeEnabled
+        ? `${ctx.ui.theme.fg('accent', '💬')} ${ctx.ui.theme.fg('warning', 'ask mode')}`
+        : undefined,
+    );
+
+    if (!shouldNotify) {
       return;
     }
 
-    toolsBeforeAskMode ??= pi.getActiveTools();
+    ctx.ui.notify(
+      isAskModeEnabled
+        ? 'Ask mode enabled. Only file reads are allowed.'
+        : 'Ask mode disabled. Tool access restored.',
+      'info',
+    );
+  };
 
-    pi.setActiveTools([...askModeAllowedTools]);
-    isAskModeEnabled = true;
-    updateAskModeStatus(isAskModeEnabled, ctx);
-    persistAskModeState();
+  const syncFromSession = (ctx: ExtensionContext): void => {
+    const branch = ctx.sessionManager.getBranch();
 
-    ctx.ui.notify('Ask mode enabled. Only file reads are allowed.', 'info');
-  }
+    for (let index = branch.length - 1; index >= 0; index -= 1) {
+      const entry = branch[index];
+      if (entry?.type !== 'custom' || entry.customType !== askModeEntryType) {
+        continue;
+      }
 
-  function disableAskMode(ctx: ExtensionContext): void {
-    if (!isAskModeEnabled) {
-      return;
+      const state = entry.data as AskModeState | undefined;
+      if (state === undefined) {
+        break;
+      }
+
+      isAskModeEnabled = state.isEnabled;
+      toolsBeforeAskMode = state.toolsBeforeAskMode;
+      break;
     }
-
-    pi.setActiveTools(toolsBeforeAskMode ?? pi.getActiveTools());
-    isAskModeEnabled = false;
-    toolsBeforeAskMode = undefined;
-    updateAskModeStatus(isAskModeEnabled, ctx);
-    persistAskModeState();
-
-    ctx.ui.notify('Ask mode disabled. Tool access restored.', 'info');
-  }
-
-  function syncAskModeOnSessionEvent(ctx: ExtensionContext): void {
-    const state = restoreAskModeState(ctx);
-    isAskModeEnabled = state.isEnabled;
-    toolsBeforeAskMode = state.toolsBeforeAskMode;
 
     if (isAskModeEnabled) {
       toolsBeforeAskMode ??= pi.getActiveTools();
-      pi.setActiveTools([...askModeAllowedTools]);
+      pi.setActiveTools(['read']);
     }
 
-    updateAskModeStatus(isAskModeEnabled, ctx);
-  }
+    ctx.ui.setStatus(
+      askModeStatusId,
+      isAskModeEnabled
+        ? `${ctx.ui.theme.fg('accent', '💬')} ${ctx.ui.theme.fg('warning', 'ask mode')}`
+        : undefined,
+    );
+  };
 
   pi.registerCommand('ask', {
     description:
       'Toggle ask mode (read-only tool access). Usage: /ask [on|off|toggle|status]',
     async handler(args, ctx) {
-      const command = parseAskCommandInput(args);
+      const normalized = args?.trim().toLowerCase();
+      const command =
+        normalized === undefined || normalized.length === 0
+          ? 'toggle'
+          : normalized;
 
-      if (command === 'status') {
-        ctx.ui.notify(
-          isAskModeEnabled
-            ? 'Ask mode is currently enabled.'
-            : 'Ask mode is currently disabled.',
-          'info',
-        );
-        return;
-      }
+      switch (command) {
+        case 'on': {
+          setAskMode(true, ctx, true);
+          return;
+        }
 
-      if (command === 'on') {
-        enableAskMode(ctx);
-        return;
-      }
+        case 'off': {
+          setAskMode(false, ctx, true);
+          return;
+        }
 
-      if (command === 'off') {
-        disableAskMode(ctx);
-        return;
-      }
+        case 'toggle': {
+          setAskMode(!isAskModeEnabled, ctx, true);
+          return;
+        }
 
-      if (isAskModeEnabled) {
-        disableAskMode(ctx);
-      } else {
-        enableAskMode(ctx);
+        default: {
+          ctx.ui.notify(
+            isAskModeEnabled
+              ? 'Ask mode is currently enabled.'
+              : 'Ask mode is currently disabled.',
+            'info',
+          );
+        }
       }
     },
   });
@@ -186,10 +162,10 @@ export default function askMode(pi: ExtensionAPI): void {
   pi.on('tool_call', async (event) => onToolCall(event, isAskModeEnabled));
 
   pi.on('session_start', async (_event, ctx) => {
-    syncAskModeOnSessionEvent(ctx);
+    syncFromSession(ctx);
   });
 
   pi.on('session_tree', async (_event, ctx) => {
-    syncAskModeOnSessionEvent(ctx);
+    syncFromSession(ctx);
   });
 }

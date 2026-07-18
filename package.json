@@ -38,9 +38,9 @@
     "prepare": "husky",
     "release": "np",
     "start": "node dist/src/index.js",
-    "test": "node --test",
-    "test:coverage": "node --test --experimental-test-coverage",
-    "test:watch": "node --test --watch",
+    "test": "node --test test/**/*",
+    "test:coverage": "node --test --experimental-test-coverage test/**/*",
+    "test:watch": "node --test --watch test/**/*",
     "update": "ncu -i"
   },
   "prettier": {
