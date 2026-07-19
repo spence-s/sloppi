@@ -10,17 +10,20 @@ void describe('startup-banner', () => {
     const banner = getBannerLines(72, theme).join('\n');
 
     t.assert.ok(banner.includes('███████╗██╗      ██████╗'));
+    t.assert.ok(banner.includes('╭╮    ╭╮'));
+    t.assert.ok(banner.includes('╲╲'));
+    t.assert.ok(banner.includes('╔════════════════╗'));
     t.assert.ok(!banner.toLowerCase().includes('spencer'));
   });
 
   void test('uses the SLOPPI name in compact banners', (t: TestContext) => {
     t.assert.deepStrictEqual(getBannerLines(48, theme), [
-      '✦ SLOPPI  personal coding command center',
+      '✦ SLOPPI  🍜 personal coding command center',
       '/pipeline <goal>  ·  /ask [on|off]  ·  /hotkeys',
       '',
     ]);
     t.assert.deepStrictEqual(getBannerLines(47, theme), [
-      '✦ SLOPPI',
+      '✦ SLOPPI 🍜',
       '/hotkeys for commands',
       '',
     ]);

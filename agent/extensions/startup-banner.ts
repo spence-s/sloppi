@@ -3,12 +3,12 @@ import type {ExtensionAPI, Theme} from '@earendil-works/pi-coding-agent';
 type BannerTheme = Pick<Theme, 'fg'>;
 
 const wideLogo = [
-  '  ███████╗██╗      ██████╗ ██████╗ ██████╗ ██╗',
-  '  ██╔════╝██║     ██╔═══██╗██╔══██╗██╔══██╗██║',
-  '  ███████╗██║     ██║   ██║██████╔╝██████╔╝██║',
-  '  ╚════██║██║     ██║   ██║██╔═══╝ ██╔═══╝ ██║',
-  '  ███████║███████╗╚██████╔╝██║     ██║     ██║',
-  '  ╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝     ╚═╝',
+  '  ███████╗██╗      ██████╗ ██████╗ ██████╗ ██╗       ╭╮    ╭╮           ╲╲',
+  '  ██╔════╝██║     ██╔═══██╗██╔══██╗██╔══██╗██║       ╰╯    ╰╯            ╲╲',
+  '  ███████╗██║     ██║   ██║██████╔╝██████╔╝██║     ╔════════════════╗     ╲╲',
+  '  ╚════██║██║     ██║   ██║██╔═══╝ ██╔═══╝ ██║     ║ ██  ≋≋≋  ██  ≋≋ ║',
+  '  ███████║███████╗╚██████╔╝██║     ██║     ██║      ╚██████████████╝',
+  '  ╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝     ╚═╝        ████████████',
 ];
 
 export function getBannerLines(width: number, theme: BannerTheme): string[] {
@@ -29,13 +29,14 @@ export function getBannerLines(width: number, theme: BannerTheme): string[] {
 
   if (width >= 48) {
     return [
-      accent(fit('✦ SLOPPI  ')) + muted(fit('personal coding command center')),
+      accent(fit('✦ SLOPPI  🍜 ')) +
+        muted(fit('personal coding command center')),
       dim(fit('/pipeline <goal>  ·  /ask [on|off]  ·  /hotkeys')),
       '',
     ];
   }
 
-  return [accent(fit('✦ SLOPPI')), dim(fit('/hotkeys for commands')), ''];
+  return [accent(fit('✦ SLOPPI 🍜')), dim(fit('/hotkeys for commands')), ''];
 }
 
 export default function startupBanner(pi: ExtensionAPI): void {
