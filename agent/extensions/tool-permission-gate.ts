@@ -48,7 +48,8 @@ export default function toolPermissionGate(pi: Pick<ExtensionAPI, 'on' | 'sendMe
         {
           customType: 'tool-permission-gate',
           content:
-            'The user denied file deletion. Do not retry it or use another command, script, interpreter, filesystem API, or workaround to achieve the same result. Ask for explicit new approval if deletion is still needed.',
+            'The user denied file deletion. Do not retry it or use another command, script, interpreter, filesystem API, or workaround to achieve the same result. '
+            + 'Ask for explicit new approval if deletion is still needed.',
           display: true,
         },
         {deliverAs: 'steer'},
