@@ -10,7 +10,7 @@ void describe('startup-banner', () => {
     const banner = getBannerLines(72, theme).join('\n');
 
     t.assert.ok(banner.includes('███████╗██╗      ██████╗'));
-    t.assert.ok(banner.includes('╭╮    ╭╮'));
+    t.assert.ok(banner.includes('╭╮  )(  ╭╮   )'));
     t.assert.ok(banner.includes('╲╲'));
     t.assert.ok(banner.includes('╔════════════════╗'));
     t.assert.ok(!banner.toLowerCase().includes('spencer'));
