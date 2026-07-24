@@ -14,14 +14,14 @@ type PipelineMode = 'plan' | 'run';
 
 type ParsedPipelineInput =
   | {
-      ok: true;
-      mode: PipelineMode;
-      goal: string;
-    }
+    ok: true;
+    mode: PipelineMode;
+    goal: string;
+  }
   | {
-      ok: false;
-      reason: string;
-    };
+    ok: false;
+    reason: string;
+  };
 
 type AgentConfig = {
   name: string;
@@ -40,13 +40,13 @@ type PipelineStep = {
 
 type JsonMessageContent =
   | {
-      type: 'text';
-      text: string;
-    }
+    type: 'text';
+    text: string;
+  }
   | {
-      type: string;
-      [key: string]: unknown;
-    };
+    type: string;
+    [key: string]: unknown;
+  };
 
 type JsonAssistantMessage = {
   role?: string;
@@ -148,16 +148,14 @@ async function loadAgentsFromDirectory(
 
     const {frontmatter, body} =
       parseFrontmatter<Record<string, string>>(content);
-    if (
-      frontmatter.name === undefined ||
-      frontmatter.description === undefined
-    ) {
+
+    if (frontmatter.name === undefined || frontmatter.description === undefined) {
       continue;
     }
 
     const tools = frontmatter.tools
       ?.split(',')
-      .map((item) => item.trim())
+      .map(item => item.trim())
       .filter(Boolean);
 
     const agentConfig: AgentConfig = {
@@ -235,10 +233,8 @@ function extractFinalAssistantText(stdout: string): {
     }
 
     const text = event.message.content
-      ?.filter(
-        (part): part is {type: 'text'; text: string} => part.type === 'text',
-      )
-      .map((part) => part.text)
+      ?.filter((part): part is {type: 'text'; text: string} => part.type === 'text')
+      .map(part => part.text)
       .join('\n')
       .trim();
 
@@ -326,9 +322,7 @@ async function runAgentStep(
   step: PipelineStep,
   timeoutMs: number,
 ): Promise<StepResult> {
-  const temporaryDirectory = await fs.mkdtemp(
-    path.join(os.tmpdir(), 'pi-pipeline-'),
-  );
+  const temporaryDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'pi-pipeline-'));
   const systemPromptPath = path.join(temporaryDirectory, `${agent.name}.md`);
 
   try {
@@ -348,11 +342,8 @@ async function runAgentStep(
     const execution = await pi.exec('pi', args, {timeout: timeoutMs});
 
     const parsed = extractFinalAssistantText(execution.stdout);
-    if (
-      execution.code !== 0 ||
-      parsed.stopReason === 'error' ||
-      parsed.stopReason === 'aborted'
-    ) {
+
+    if (execution.code !== 0 || parsed.stopReason === 'error' || parsed.stopReason === 'aborted') {
       const stderr = execution.stderr.trim();
       const stderrMessage = stderr.length > 0 ? stderr : undefined;
 
@@ -361,9 +352,9 @@ async function runAgentStep(
         output: parsed.output,
         isError: true,
         error:
-          parsed.errorMessage ??
-          stderrMessage ??
-          `Agent step failed with exit code ${String(execution.code)}`,
+          parsed.errorMessage
+          ?? stderrMessage
+          ?? `Agent step failed with exit code ${String(execution.code)}`,
       };
     }
 
@@ -400,9 +391,8 @@ async function runPipeline(
       ? (['scout', 'planner'] as const)
       : (['scout', 'planner', 'worker', 'reviewer'] as const);
 
-  const missingAgents = requiredAgents.filter(
-    (name) => !discoveredAgents.has(name),
-  );
+  const missingAgents = requiredAgents.filter(name => !discoveredAgents.has(name));
+
   if (missingAgents.length > 0) {
     return {
       ok: false,
@@ -411,7 +401,7 @@ async function runPipeline(
   }
 
   const outputs: Partial<Record<PipelineStep['step'], string>> = {};
-  const steps: PipelineStep[] = requiredAgents.map((step) => ({
+  const steps: PipelineStep[] = requiredAgents.map(step => ({
     step,
     prompt: buildStepPrompt(step, goal, outputs),
   }));
@@ -464,18 +454,18 @@ async function runPipeline(
     return {
       ok: true,
       summary:
-        outputs.planner ??
-        outputs.scout ??
-        'Plan pipeline completed with no output.',
+        outputs.planner
+        ?? outputs.scout
+        ?? 'Plan pipeline completed with no output.',
     };
   }
 
   return {
     ok: true,
     summary:
-      outputs.reviewer ??
-      outputs.worker ??
-      'Pipeline completed with no output.',
+      outputs.reviewer
+      ?? outputs.worker
+      ?? 'Pipeline completed with no output.',
   };
 }
 

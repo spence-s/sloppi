@@ -135,7 +135,7 @@ void describe('ask-mode', () => {
     t.assert.deepStrictEqual(result, {
       block: true,
       reason:
-        'Ask mode is enabled: only file reads and searches are allowed. Use /ask off to re-enable full tool access.',
+        'Ask mode is enabled: only file reads and searches with rg are allowed. Use /ask off to re-enable full tool access.',
     });
   });
 
@@ -169,7 +169,7 @@ void describe('ask-mode', () => {
     const beforeAgentStartResult = await harness.getBeforeAgentStart()();
     t.assert.strictEqual(
       beforeAgentStartResult.message.content,
-      'Ask mode is inactive. You may call available tools normally.',
+      'Ask mode is inactive. You may call available tools normally, including  bash, edit, write, or other tools.',
     );
   });
 

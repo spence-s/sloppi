@@ -7,9 +7,7 @@ import {
 const destructivePattern =
   /\b(?:rm|rmdir)\b|\bfind\b.*\s-delete\b|\bgit\s+clean\b|\b(?:fs(?:\.promises)?\s*\.\s*)?(?:rm|rmSync|unlink|unlinkSync|rmdir|rmdirSync)\s*\(|\b(?:os\.(?:remove|unlink|rmdir)|shutil\.rmtree|File\.(?:delete|unlink)|FileUtils\.rm(?:_rf|_r|_f)|unlink|rmtree)\s*\(?/sv;
 
-export default function toolPermissionGate(
-  pi: Pick<ExtensionAPI, 'on' | 'sendMessage'>,
-): void {
+export default function toolPermissionGate(pi: Pick<ExtensionAPI, 'on' | 'sendMessage'>): void {
   let hasDeniedDeletion = false;
 
   pi.on('tool_call', async (event, ctx) => {
@@ -34,8 +32,8 @@ export default function toolPermissionGate(
     }
 
     const isAllowed =
-      ctx.hasUI &&
-      (await ctx.ui.confirm(
+      ctx.hasUI
+      && (await ctx.ui.confirm(
         'Approve risky tool call',
         `This bash command may ${isDeletion ? 'delete files' : 'use sudo'}:\n\n${command}\n\nAllow it?`,
       ));

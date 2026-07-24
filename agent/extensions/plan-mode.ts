@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from '@earendil-works/pi-coding-agent';
+import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
 
 const planTools = ['read', 'grep', 'find', 'ls', 'rg'];
 const planModeStatusId = '0:plan-mode';
@@ -37,7 +34,7 @@ export default function planMode(pi: ExtensionAPI): void {
     },
   });
 
-  pi.on('before_agent_start', (event) => {
+  pi.on('before_agent_start', event => {
     if (!isEnabled) {
       return;
     }

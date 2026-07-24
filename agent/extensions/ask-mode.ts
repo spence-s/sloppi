@@ -159,7 +159,7 @@ export default function askMode(pi: ExtensionAPI): void {
     },
   }));
 
-  pi.on('tool_call', async (event) => onToolCall(event, isAskModeEnabled));
+  pi.on('tool_call', async event => onToolCall(event, isAskModeEnabled));
 
   pi.on('session_start', async (_event, ctx) => {
     syncFromSession(ctx);

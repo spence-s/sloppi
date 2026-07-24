@@ -18,7 +18,7 @@ export function getBannerLines(width: number, theme: BannerTheme): string[] {
 
   if (width >= 72) {
     return [
-      ...wideLogo.map((line) => accent(line)),
+      ...wideLogo.map(line => accent(line)),
       muted('  personal coding command center'),
       dim('  /pipeline <goal>  ·  /ask [on|off]  ·  /hotkeys'),
       '',
@@ -29,8 +29,8 @@ export function getBannerLines(width: number, theme: BannerTheme): string[] {
 
   if (width >= 48) {
     return [
-      accent(fit('✦ SLOPPI  🍜 ')) +
-        muted(fit('personal coding command center')),
+      accent(fit('✦ SLOPPI  🍜 '))
+      + muted(fit('personal coding command center')),
       dim(fit('/pipeline <goal>  ·  /ask [on|off]  ·  /hotkeys')),
       '',
     ];

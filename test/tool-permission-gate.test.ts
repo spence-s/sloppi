@@ -83,9 +83,7 @@ void describe('tool-permission-gate', () => {
 
     const denied = await handler(createBashToolCall('rm file.txt'), context);
     const bypass = await handler(
-      createBashToolCall(
-        "node -e \"require('node:fs').unlinkSync('file.txt')\"",
-      ),
+      createBashToolCall('node -e "require(\'node:fs\').unlinkSync(\'file.txt\')"'),
       context,
     );
 
