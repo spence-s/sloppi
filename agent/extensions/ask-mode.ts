@@ -13,17 +13,17 @@ type AskModeState = {
 const askModeStatusId = '0:ask-mode';
 const askModeEntryType = 'ask-mode';
 const askModeEnabledContext =
-  'Ask mode is active. You may only use the read tool. Do not call bash, edit, write, or other tools.';
+  'Ask mode is active. You may only use the read and rg tools. Do not call bash, edit, write, or other tools.';
 const askModeDisabledContext =
-  'Ask mode is inactive. You may call available tools normally.';
+  'Ask mode is inactive. You may call available tools normally, including  bash, edit, write, or other tools.';
 const askModeBlockedReason =
-  'Ask mode is enabled: only file reads are allowed. Use /ask off to re-enable full tool access.';
+  'Ask mode is enabled: only file reads and searches with rg are allowed. Use /ask off to re-enable full tool access.';
 
 export function onToolCall(
   event: ToolCallEvent,
   isAskModeEnabled: boolean,
 ): ToolCallEventResult | void {
-  if (!isAskModeEnabled || event.toolName === 'read') {
+  if (!isAskModeEnabled || ['read', 'rg'].includes(event.toolName)) {
     return;
   }
 
@@ -48,7 +48,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
     if (isEnabled) {
       toolsBeforeAskMode ??= pi.getActiveTools();
-      pi.setActiveTools(['read']);
+      pi.setActiveTools(['read', 'rg']);
     } else {
       pi.setActiveTools(toolsBeforeAskMode ?? pi.getActiveTools());
       toolsBeforeAskMode = undefined;
@@ -73,7 +73,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
     ctx.ui.notify(
       isAskModeEnabled
-        ? 'Ask mode enabled. Only file reads are allowed.'
+        ? 'Ask mode enabled. File reads and searches are allowed.'
         : 'Ask mode disabled. Tool access restored.',
       'info',
     );
@@ -100,7 +100,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
     if (isAskModeEnabled) {
       toolsBeforeAskMode ??= pi.getActiveTools();
-      pi.setActiveTools(['read']);
+      pi.setActiveTools(['read', 'rg']);
     }
 
     ctx.ui.setStatus(
@@ -113,7 +113,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
   pi.registerCommand('ask', {
     description:
-      'Toggle ask mode (read-only tool access). Usage: /ask [on|off|toggle|status]',
+      'Toggle ask mode (read and search tool access). Usage: /ask [on|off|toggle|status]',
     async handler(args, ctx) {
       const normalized = args?.trim().toLowerCase();
       const command =
