@@ -1,3 +1,5 @@
+# Extended directions for coding agents
+
 Write code like a book: the reader should be able to follow its behavior top to bottom and left to right.
 
 Prioritize readability over abstraction, extensibility, and unit-test convenience. Keep the main path linear and obvious. Prefer guard clauses, early returns, and simple conditionals to nested branches. Keep related logic together and use the least indentation that preserves clarity.
