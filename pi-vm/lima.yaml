@@ -1,0 +1,39 @@
+minimumLimaVersion: 2.0.0
+base: template:default
+
+vmType: vz
+mountType: virtiofs
+containerd:
+  system: false
+  user: false
+
+ssh:
+  forwardAgent: false
+  loadDotSSHPubKeys: false
+
+propagateProxyEnv: false
+
+portForwards:
+  - guestIP: "0.0.0.0"
+    proto: any
+    ignore: true
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/bash
+      set -euxo pipefail
+
+      if ! command -v n >/dev/null; then
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install --yes nodejs npm
+        npm install --global --ignore-scripts n
+      fi
+
+      if ! node --version | grep --quiet '^v22\.'; then
+        n 22
+      fi
+
+      if ! command -v pi >/dev/null; then
+        npm install --global --ignore-scripts @earendil-works/pi-coding-agent
+      fi
