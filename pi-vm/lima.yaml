@@ -24,15 +24,46 @@ provision:
       #!/bin/bash
       set -euxo pipefail
 
-      if ! command -v n >/dev/null; then
+      if [ ! -f /var/lib/pi-vm/toolbelt-v1 ]; then
         apt-get update
-        DEBIAN_FRONTEND=noninteractive apt-get install --yes nodejs npm
-        npm install --global --ignore-scripts n
+        DEBIAN_FRONTEND=noninteractive apt-get install --yes \
+          bat \
+          build-essential \
+          curl \
+          eza \
+          fd-find \
+          fzf \
+          git \
+          jq \
+          python3 \
+          python3-pip \
+          ripgrep \
+          tmux \
+          tree \
+          unzip \
+          wget \
+          zip \
+          zoxide
+        mkdir --parents /var/lib/pi-vm
+        touch /var/lib/pi-vm/toolbelt-v1
       fi
 
-      if ! node --version | grep --quiet '^v24\.'; then
-        n 24
+      ln --force --symbolic /usr/bin/batcat /usr/local/bin/bat
+      ln --force --symbolic /usr/bin/fdfind /usr/local/bin/fd
+
+  - mode: user
+    script: |
+      #!/bin/bash
+      set -euxo pipefail
+
+      export N_PREFIX="$HOME/n"
+      export PATH="$N_PREFIX/bin:$PATH"
+
+      if ! command -v n >/dev/null; then
+        curl -L https://bit.ly/n-install | bash -s -- -y -
       fi
+
+      n lts
 
       if ! command -v pi >/dev/null; then
         npm install --global --ignore-scripts @earendil-works/pi-coding-agent

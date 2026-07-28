@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import {createHash} from 'node:crypto';
 import {realpath, stat} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {homedir} from 'node:os';
@@ -9,7 +10,6 @@ import {parseArgs} from 'node:util';
 import {$} from 'execa';
 
 const terminal = $({stdio: 'inherit'});
-const ignoreFailures = $({stdio: 'ignore', reject: false});
 const template = fileURLToPath(new URL('lima.yaml', import.meta.url));
 
 const help = `Usage:
@@ -17,7 +17,7 @@ const help = `Usage:
   pi-vm destroy
   pi-vm doctor
 
-Run Pi in a disposable Lima VM. The first directory is Pi's working directory.
+Run Pi in a stopped Lima VM. The first directory is Pi's working directory.
 Every directory, plus ~/.pi, is mounted read-write in the VM.
 
 Examples:
@@ -60,7 +60,12 @@ if (command === 'destroy') {
     throw new Error('pi-vm destroy does not accept directories or Pi options.');
   }
 
-  await terminal({reject: false})`limactl delete --force pi-vm`;
+  const {stdout} = await $`limactl list --quiet`;
+  const instances = stdout.split('\n').filter(instance => instance === 'pi-vm' || instance.startsWith('pi-vm-'));
+  if (instances.length > 0) {
+    await terminal`limactl delete --force ${instances}`;
+  }
+
   process.exit(0);
 } else if (command === 'doctor') {
   if (positionals.length > 1 || piArguments.length > 0) {
@@ -104,13 +109,24 @@ for (const [index, directory] of mountDirectories.entries()) {
 }
 
 const mounts = mountDirectories.flatMap(directory => ['--mount-only', `${directory}:w`]);
+const instance = `pi-vm-${createHash('sha256').update(mountDirectories.join('\0')).digest('hex').slice(0, 12)}`;
+const {stdout: existingInstance} = await $({reject: false})`limactl list --quiet ${instance}`;
 
-await ignoreFailures`limactl delete --force pi-vm`;
+if (existingInstance === instance) {
+  await terminal`limactl start ${instance}`;
+} else {
+  await terminal`limactl start --name ${instance} --image-variant minimal ${mounts} ${template}`;
+}
+
+const {stdout: guestHome} = await $`limactl shell ${instance} -- sh -lc ${'printf %s "$HOME"'}`;
+const nBin = `${guestHome}/n/bin`;
+const pi = `${nBin}/pi`;
+const path = `PATH=${nBin}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
+const configDirectory = `PI_CODING_AGENT_DIR=${piDirectory}/agent`;
 
 try {
-  await terminal`limactl start --name pi-vm --image-variant minimal ${mounts} ${template}`;
-  await terminal`limactl shell --workdir ${directories[0]!} pi-vm -- env ${`PI_CODING_AGENT_DIR=${piDirectory}/agent`} PI_OFFLINE=1 pi --no-approve ${piArguments}`;
+  await terminal`limactl shell --workdir ${directories[0]!} ${instance} -- env ${path} ${configDirectory} PI_OFFLINE=1 ${pi} --no-approve ${piArguments}`;
 } finally {
-  await terminal({reject: false})`limactl delete --force pi-vm`;
+  await terminal({reject: false})`limactl stop ${instance}`;
 }
 
