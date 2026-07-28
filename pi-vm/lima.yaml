@@ -30,8 +30,8 @@ provision:
         npm install --global --ignore-scripts n
       fi
 
-      if ! node --version | grep --quiet '^v22\.'; then
-        n 22
+      if ! node --version | grep --quiet '^v24\.'; then
+        n 24
       fi
 
       if ! command -v pi >/dev/null; then

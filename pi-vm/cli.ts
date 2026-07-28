@@ -27,96 +27,90 @@ Examples:
   pi-vm destroy
 `;
 
-async function launch(requestedDirectories: string[], piArguments: string[]): Promise<void> {
-  const directories = await Promise.all(requestedDirectories.map(async directory => {
-    const location = await realpath(resolve(directory));
-    const details = await stat(location);
-    if (!details.isDirectory()) {
-      throw new Error(`${directory} is not a directory.`);
-    }
+const separator = process.argv.indexOf('--');
+const cliArguments = separator === -1 ? process.argv.slice(2) : process.argv.slice(2, separator);
+const piArguments = separator === -1 ? [] : process.argv.slice(separator + 1);
+const {values, positionals} = parseArgs({
+  args: cliArguments,
+  allowPositionals: true,
+  options: {
+    help: {type: 'boolean', short: 'h'},
+    version: {type: 'boolean', short: 'v'},
+  },
+});
 
-    return location;
-  }));
-  const piDirectory = await realpath(resolve(homedir(), '.pi'));
-  const piDirectoryDetails = await stat(piDirectory);
-  if (!piDirectoryDetails.isDirectory()) {
-    throw new Error(`${piDirectory} is not a directory.`);
+if (values.help) {
+  process.stdout.write(help);
+  process.exit(0);
+}
+
+if (values.version) {
+  process.stdout.write('pi-vm 0.0.0\n');
+  process.exit(0);
+}
+
+if (process.platform !== 'darwin') {
+  throw new Error('pi-vm currently requires macOS and Lima.');
+}
+
+const command = positionals[0];
+
+if (command === 'destroy') {
+  if (positionals.length > 1 || piArguments.length > 0) {
+    throw new Error('pi-vm destroy does not accept directories or Pi options.');
   }
 
-  const mountDirectories = directories.includes(piDirectory) ? directories : [...directories, piDirectory];
-
-  for (const [index, directory] of mountDirectories.entries()) {
-    for (const otherDirectory of mountDirectories.slice(index + 1)) {
-      const pathBetweenDirectories = relative(directory, otherDirectory);
-      const reversePathBetweenDirectories = relative(otherDirectory, directory);
-      const isDirectoryContainsOther = !pathBetweenDirectories.startsWith('..') && !isAbsolute(pathBetweenDirectories);
-      const isOtherDirectoryContainsDirectory = !reversePathBetweenDirectories.startsWith('..') && !isAbsolute(reversePathBetweenDirectories);
-      if (pathBetweenDirectories === '' || isDirectoryContainsOther || isOtherDirectoryContainsDirectory) {
-        throw new Error(`Mounts overlap: ${directory} and ${otherDirectory}.`);
-      }
-    }
+  await terminal({reject: false})`limactl delete --force pi-vm`;
+  process.exit(0);
+} else if (command === 'doctor') {
+  if (positionals.length > 1 || piArguments.length > 0) {
+    throw new Error('pi-vm doctor does not accept directories or Pi options.');
   }
 
-  const mounts = mountDirectories.flatMap(directory => ['--mount-only', `${directory}:w`]);
+  await terminal`limactl --version`;
+  await terminal`limactl list`;
+  process.exit(0);
+}
 
-  await ignoreFailures`limactl delete --force pi-vm`;
+const requestedDirectories = positionals.length === 0 ? [process.cwd()] : positionals;
 
-  try {
-    await terminal`limactl start --name pi-vm --image-variant minimal ${mounts} ${template}`;
-    await terminal`limactl shell --workdir ${directories[0]!} pi-vm -- env ${`PI_CODING_AGENT_DIR=${piDirectory}/agent`} PI_OFFLINE=1 pi --no-approve ${piArguments}`;
-  } finally {
-    await terminal({reject: false})`limactl delete --force pi-vm`;
+const directories = await Promise.all(requestedDirectories.map(async directory => {
+  const location = await realpath(resolve(directory));
+  const details = await stat(location);
+  if (!details.isDirectory()) {
+    throw new Error(`${directory} is not a directory.`);
+  }
+
+  return location;
+}));
+const piDirectory = await realpath(resolve(homedir(), '.pi'));
+const piDirectoryDetails = await stat(piDirectory);
+if (!piDirectoryDetails.isDirectory()) {
+  throw new Error(`${piDirectory} is not a directory.`);
+}
+
+const mountDirectories = directories.includes(piDirectory) ? directories : [...directories, piDirectory];
+
+for (const [index, directory] of mountDirectories.entries()) {
+  for (const otherDirectory of mountDirectories.slice(index + 1)) {
+    const pathBetweenDirectories = relative(directory, otherDirectory);
+    const reversePathBetweenDirectories = relative(otherDirectory, directory);
+    const isDirectoryContainsOther = !pathBetweenDirectories.startsWith('..') && !isAbsolute(pathBetweenDirectories);
+    const isOtherDirectoryContainsDirectory = !reversePathBetweenDirectories.startsWith('..') && !isAbsolute(reversePathBetweenDirectories);
+    if (pathBetweenDirectories === '' || isDirectoryContainsOther || isOtherDirectoryContainsDirectory) {
+      throw new Error(`Mounts overlap: ${directory} and ${otherDirectory}.`);
+    }
   }
 }
 
-async function main(): Promise<void> {
-  const separator = process.argv.indexOf('--');
-  const cliArguments = separator === -1 ? process.argv.slice(2) : process.argv.slice(2, separator);
-  const piArguments = separator === -1 ? [] : process.argv.slice(separator + 1);
-  const {values, positionals} = parseArgs({
-    args: cliArguments,
-    allowPositionals: true,
-    options: {
-      help: {type: 'boolean', short: 'h'},
-      version: {type: 'boolean', short: 'v'},
-    },
-  });
+const mounts = mountDirectories.flatMap(directory => ['--mount-only', `${directory}:w`]);
 
-  if (values.help) {
-    process.stdout.write(help);
-    return;
-  }
+await ignoreFailures`limactl delete --force pi-vm`;
 
-  if (values.version) {
-    process.stdout.write('pi-vm 0.0.0\n');
-    return;
-  }
-
-  if (process.platform !== 'darwin') {
-    throw new Error('pi-vm currently requires macOS and Lima.');
-  }
-
-  const command = positionals[0];
-  if (command === 'destroy') {
-    if (positionals.length > 1 || piArguments.length > 0) {
-      throw new Error('pi-vm destroy does not accept directories or Pi options.');
-    }
-
-    await terminal({reject: false})`limactl delete --force pi-vm`;
-    return;
-  }
-
-  if (command === 'doctor') {
-    if (positionals.length > 1 || piArguments.length > 0) {
-      throw new Error('pi-vm doctor does not accept directories or Pi options.');
-    }
-
-    await terminal`limactl --version`;
-    await terminal`limactl list`;
-    return;
-  }
-
-  await launch(positionals.length === 0 ? [process.cwd()] : positionals, piArguments);
+try {
+  await terminal`limactl start --name pi-vm --image-variant minimal ${mounts} ${template}`;
+  await terminal`limactl shell --workdir ${directories[0]!} pi-vm -- env ${`PI_CODING_AGENT_DIR=${piDirectory}/agent`} PI_OFFLINE=1 pi --no-approve ${piArguments}`;
+} finally {
+  await terminal({reject: false})`limactl delete --force pi-vm`;
 }
 
-await main();
