@@ -1,0 +1,37 @@
+base: template:default
+
+user:
+  shell: /usr/bin/zsh
+
+mounts:
+  - location: ~/Projects
+    writable: true
+  - location: ~/.zsh
+    mountPoint: "{{.Home}}/.zsh"
+  - location: ~/.zshrc
+    mountPoint: /mnt/host-zshrc
+
+provision:
+  - mode: system
+    script: |
+      #!/bin/sh
+      apt-get update
+      apt-get install -y zsh git curl
+
+  - mode: user
+    script: |
+      #!/bin/sh
+      export N_PREFIX="$HOME/n"
+      export PATH="$N_PREFIX/bin:$PATH"
+      curl -L https://bit.ly/n-install | bash -s -- -y -
+      n lts
+      npm install -g --ignore-scripts @earendil-works/pi-coding-agent
+      git clone --depth=1 https://github.com/ohmyzsh/ohmyzsh.git "$HOME/.oh-my-zsh"
+      git clone --depth=1 https://github.com/romkatv/powerlevel10k.git "$HOME/.oh-my-zsh/custom/themes/powerlevel10k"
+      cat > "$HOME/.zshrc" <<'EOF'
+      source() {
+        [ "$1" = "$HOME/.zsh/completions.zsh" ] || builtin source "$@"
+      }
+      builtin source /mnt/host-zshrc
+      unfunction source
+      EOF

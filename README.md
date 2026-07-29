@@ -29,6 +29,18 @@ This repo contains my local Pi configuration and custom extensions, currently fo
 - `npm run lint` – lint code
 - `npm run check` – type-check
 
+## Pi development VM
+
+`npm run pi-dev` starts Pi in a persistent Lima VM. `~/Projects` is its only read-write host mount; Pi state, credentials, npm cache, and `node_modules` remain in the VM.
+
+- `npm run pi-dev` – run Pi from a project under `~/Projects`
+- `npm run pi-dev -- up` – start the VM
+- `npm run pi-dev -- shell` – open a shell in the VM
+- `npm run pi-dev -- down` – stop the VM
+- `npm run pi-dev -- destroy` – delete the VM
+
+Host zsh configuration is mounted read-only: `~/.zsh` is shared live and `~/.zshrc` syncs before each VM launch. The VM uses zsh by default.
+
 ## Notes
 
 - Not published as a package.
