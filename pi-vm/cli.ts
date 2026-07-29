@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import {createHash} from 'node:crypto';
-import {realpath, stat} from 'node:fs/promises';
+import {readFile, realpath, stat} from 'node:fs/promises';
 import {fileURLToPath} from 'node:url';
 import {homedir} from 'node:os';
 import {isAbsolute, relative, resolve} from 'node:path';
@@ -119,12 +119,40 @@ if (existingInstance === instance) {
 }
 
 const {stdout: guestHome} = await $`limactl shell ${instance} -- sh -lc ${'printf %s "$HOME"'}`;
+const {stdout: guestUid} = await $`limactl shell ${instance} -- id --user`;
+const {stdout: guestGid} = await $`limactl shell ${instance} -- id --group`;
 const nBin = `${guestHome}/n/bin`;
 const pi = `${nBin}/pi`;
 const path = `PATH=${nBin}:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin`;
 const configDirectory = `PI_CODING_AGENT_DIR=${piDirectory}/agent`;
 
 try {
+  await Promise.all(directories.map(async directory => {
+    const nodeModules = `${directory}/node_modules`;
+    const guestNodeModules = `/var/lib/pi-vm/node_modules/${createHash('sha256').update(directory).digest('hex').slice(0, 12)}`;
+
+    await terminal`limactl shell ${instance} -- sudo install --directory --owner ${guestUid} --group ${guestGid} ${guestNodeModules}`;
+    await terminal`limactl shell ${instance} -- mkdir --parents ${nodeModules}`;
+
+    const mounted = await $({reject: false})`limactl shell ${instance} -- sudo mountpoint --quiet ${nodeModules}`;
+    if (mounted.exitCode !== 0) {
+      await terminal`limactl shell ${instance} -- sudo mount --bind ${guestNodeModules} ${nodeModules}`;
+    }
+
+    const packageLock = await readFile(`${directory}/package-lock.json`).catch(() => undefined);
+    if (packageLock === undefined) {
+      return;
+    }
+
+    const lockHash = createHash('sha256').update(packageLock).digest('hex');
+    const marker = `${guestNodeModules}/.pi-vm-lock-${lockHash}`;
+    const dependenciesInstalled = await $({reject: false})`limactl shell ${instance} -- test -e ${marker}`;
+    if (dependenciesInstalled.exitCode !== 0) {
+      await terminal`limactl shell --workdir ${directory} ${instance} -- env ${path} npm ci`;
+      await terminal`limactl shell ${instance} -- touch ${marker}`;
+    }
+  }));
+
   await terminal`limactl shell --workdir ${directories[0]!} ${instance} -- env ${path} ${configDirectory} PI_OFFLINE=1 ${pi} --no-approve ${piArguments}`;
 } finally {
   await terminal({reject: false})`limactl stop ${instance}`;
