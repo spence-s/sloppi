@@ -1,8 +1,5 @@
 base: template:default
 
-user:
-  shell: /usr/bin/zsh
-
 mounts:
   - location: ~/Projects
     writable: true
@@ -14,7 +11,7 @@ provision:
       apt-get update
       apt-get install -y \
         bat build-essential curl eza fd-find fzf git jq python3 python3-pip \
-        ripgrep tmux tree unzip wget zip zoxide zsh
+        ripgrep tmux tree unzip wget zip zoxide
       ln -sf /usr/bin/batcat /usr/local/bin/bat
       ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
@@ -26,4 +23,4 @@ provision:
       curl -L https://bit.ly/n-install | bash -s -- -y -
       n lts
       npm install -g --ignore-scripts @earendil-works/pi-coding-agent
-      EOF
+      sudo ln -sf "$N_PREFIX/bin/"* /usr/local/bin/

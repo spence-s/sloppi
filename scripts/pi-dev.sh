@@ -10,4 +10,4 @@ else
   limactl start --name "$instance" "$config"
 fi
 
-exec limactl shell --workdir "$PWD" "$instance" -- zsh -ic 'exec pi "$@"' -- "$@"
+exec limactl shell --workdir "$PWD" "$instance" -- pi "$@"
