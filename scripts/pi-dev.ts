@@ -5,14 +5,14 @@ import {$} from 'execa';
 
 const instance = 'pi-dev';
 
-const config = path.join(import.meta.dirname, 'lima.yaml');
+const configPath = path.join(import.meta.dirname, 'lima.yaml');
 
-const {stdout} = await $`limactl list --quiet`;
+const {stdout: limaInstanceList} = await $`limactl list --quiet`;
 
-if (stdout.split('\n').map(line => line.trim()).includes(instance)) {
+if (limaInstanceList.split('\n').map(line => line.trim()).includes(instance)) {
   await $`limactl start ${instance}`;
 } else {
-  await $`limactl start --name ${instance} ${config}`;
+  await $`limactl start --name ${instance} ${configPath}`;
 }
 
 await $`limactl shell --workdir ${process.cwd()} ${instance} -- pi ${process.argv.slice(2)}`;
