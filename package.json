@@ -39,7 +39,7 @@
     "prepare": "husky",
     "release": "np",
     "start": "node dist/src/index.js",
-    "test": "node --test test/**/*",
+    "test": "PI_DEV=false node --test test/**/*",
     "test:coverage": "node --test --experimental-test-coverage test/**/*",
     "test:watch": "node --test --watch test/**/*",
     "update": "ncu -i"
@@ -50,8 +50,8 @@
     ]
   },
   "dependencies": {
-    "@earendil-works/pi-coding-agent": "^0.82.1",
-    "@earendil-works/pi-tui": "0.82.1",
+    "@earendil-works/pi-coding-agent": "^0.83.0",
+    "@earendil-works/pi-tui": "^0.83.0",
     "execa": "^10.0.0"
   },
   "devDependencies": {
