@@ -31,7 +31,8 @@
     "sloppi": "./scripts/pi-dev.ts"
   },
   "files": [
-    "dist"
+    "dist",
+    "scripts"
   ],
   "scripts": {
     "build": "rimraf dist && tsc -p tsconfig.build.json",

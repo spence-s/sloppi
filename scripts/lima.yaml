@@ -11,7 +11,6 @@ mounts:
     mountPoint: /home/spencer.guest/.pi
     writable: true
 
-
 provision:
   - mode: system
     script: |
@@ -33,3 +32,7 @@ provision:
       n lts
       npm install -g --ignore-scripts @earendil-works/pi-coding-agent
       sudo ln -sf "$N_PREFIX/bin/"* /usr/local/bin/
+
+      git config --global user.name 'Pi Agent'
+      git config --global user.email 'pi-agent@localhost'
+      git config --global commit.gpgsign false
