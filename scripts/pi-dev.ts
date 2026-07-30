@@ -22,9 +22,19 @@ Options:
 
 const {positionals, values} = parseArgs({
   allowPositionals: true,
-  options: {help: {type: 'boolean', short: 'h'}},
-  strict: false,
+  options: {
+    help: {
+      type: 'boolean',
+      short: 'h',
+      default: false,
+    },
+  },
 });
+
+if (values.help) {
+  console.log(help);
+  process.exit(0);
+}
 
 const command = (positionals[0] ?? '').toLowerCase().trim();
 
@@ -38,11 +48,6 @@ if (!isValidCommand) {
 }
 
 switch (command) {
-  case 'help': {
-    process.stdout.write(help);
-    break;
-  }
-
   case 'destroy': {
     await $$`limactl delete --force ${instance}`;
     break;
