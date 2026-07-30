@@ -1,4 +1,10 @@
-import {describe, test, type TestContext} from 'node:test';
+import process from 'node:process';
+import {
+  afterEach,
+  describe,
+  test,
+  type TestContext,
+} from 'node:test';
 import type {
   ExtensionContext,
   ToolCallEvent,
@@ -10,6 +16,20 @@ type ToolCallHandler = (
   event: ToolCallEvent,
   ctx: ExtensionContext,
 ) => Promise<ToolCallEventResult | void>;
+
+type RegisteredCommand = {
+  handler: (args: string, ctx: ExtensionContext) => Promise<void>;
+};
+
+const initialPiDev = process.env.PI_DEV;
+
+afterEach(() => {
+  if (initialPiDev === undefined) {
+    delete process.env.PI_DEV;
+  } else {
+    process.env.PI_DEV = initialPiDev;
+  }
+});
 
 function createBashToolCall(command: string): ToolCallEvent {
   return {
@@ -26,13 +46,19 @@ function createContext(
 ): ExtensionContext {
   return {
     hasUI,
-    ui: {confirm},
+    ui: {
+      confirm,
+      notify() {
+        return undefined;
+      },
+    },
   } as unknown as ExtensionContext;
 }
 
 function createGate() {
   let handler: unknown;
   const messages: unknown[] = [];
+  const commands = new Map<string, unknown>();
 
   toolPermissionGate({
     on(event, registeredHandler) {
@@ -43,9 +69,23 @@ function createGate() {
     sendMessage(message) {
       messages.push(message);
     },
+    registerCommand(name, command) {
+      commands.set(name, command);
+    },
   });
 
-  return {handler: handler as ToolCallHandler, messages};
+  return {
+    handler: handler as ToolCallHandler,
+    messages,
+    getCommand(name: string): RegisteredCommand {
+      const command = commands.get(name);
+      if (command === undefined) {
+        throw new Error(`Command not found: ${name}`);
+      }
+
+      return command as RegisteredCommand;
+    },
+  };
 }
 
 void describe('tool-permission-gate', () => {
@@ -61,6 +101,37 @@ void describe('tool-permission-gate', () => {
       createContext(async () => false),
     );
     t.assert.strictEqual(result, undefined);
+  });
+
+  void test('is disabled by default under pi-dev', async (t: TestContext) => {
+    // eslint-disable-next-line node-test/no-process-env-mutation -- restored by afterEach.
+    process.env.PI_DEV = 'true';
+
+    const confirm = t.mock.fn(async () => false);
+    const {handler} = createGate();
+    const result = await handler(createBashToolCall('rm file.txt'), createContext(confirm));
+
+    t.assert.strictEqual(result, undefined);
+    t.assert.strictEqual(confirm.mock.calls.length, 0);
+  });
+
+  void test('/permissions turns risky command confirmation off and on', async (t: TestContext) => {
+    const confirm = t.mock.fn(async () => false);
+    const {handler, getCommand} = createGate();
+    const context = createContext(confirm);
+
+    await getCommand('permissions').handler('off', context);
+    const disabledResult = await handler(createBashToolCall('rm file.txt'), context);
+
+    await getCommand('permissions').handler('on', context);
+    const enabledResult = await handler(createBashToolCall('rm file.txt'), context);
+
+    t.assert.strictEqual(disabledResult, undefined);
+    t.assert.deepStrictEqual(enabledResult, {
+      block: true,
+      reason: 'Blocked by extension approval gate',
+    });
+    t.assert.strictEqual(confirm.mock.calls.length, 1);
   });
 
   void test('blocks deletion in non-interactive mode', async (t: TestContext) => {

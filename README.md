@@ -17,7 +17,7 @@ This repo contains my local Pi configuration and custom extensions, currently fo
 
 - `agent/extensions/` – custom Pi extensions
   - `ask-mode.ts` – ask mode with read and ripgrep access (no bash/edit/write)
-  - `tool-permission-gate.ts` – interactive guard for risky bash commands
+  - `tool-permission-gate.ts` – interactive guard for risky bash commands (`/permissions on|off|toggle|status`)
   - `pipeline.ts` – multi-step scout → planner → worker → reviewer pipeline command
 - `agent/agents/` – agent role definitions used by the pipeline extension
 - `test/` – extension tests
@@ -28,6 +28,7 @@ This repo contains my local Pi configuration and custom extensions, currently fo
 - `npm test` – run tests
 - `npm run lint` – lint code
 - `npm run check` – type-check
+- `npm run pi-dev` – launch Pi in Lima with risky-command confirmation disabled by default. It keeps Linux `node_modules` on the VM disk, so macOS and Linux native dependencies never overwrite each other.
 
 ## Notes
 

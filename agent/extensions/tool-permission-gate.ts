@@ -1,3 +1,4 @@
+import process from 'node:process';
 import {
   isToolCallEventType,
   type ExtensionAPI,
@@ -5,10 +6,33 @@ import {
 
 // ponytail: regex heuristic; use filesystem sandboxing for a hard deletion boundary.
 const destructivePattern =
+  // eslint-disable-next-line @stylistic/max-len -- deletion patterns must remain one regex.
   /\b(?:rm|rmdir)\b|\bfind\b.*\s-delete\b|\bgit\s+clean\b|\b(?:fs(?:\.promises)?\s*\.\s*)?(?:rm|rmSync|unlink|unlinkSync|rmdir|rmdirSync)\s*\(|\b(?:os\.(?:remove|unlink|rmdir)|shutil\.rmtree|File\.(?:delete|unlink)|FileUtils\.rm(?:_rf|_r|_f)|unlink|rmtree)\s*\(?/sv;
 
-export default function toolPermissionGate(pi: Pick<ExtensionAPI, 'on' | 'sendMessage'>): void {
+export default function toolPermissionGate(pi: Pick<ExtensionAPI, 'on' | 'sendMessage' | 'registerCommand'>): void {
+  let isEnabled = process.env.PI_DEV !== 'true';
   let hasDeniedDeletion = false;
+
+  pi.registerCommand('permissions', {
+    description: 'Toggle risky bash command confirmation. Usage: /permissions [on|off|toggle|status]',
+    async handler(args, ctx) {
+      const requestedCommand = args?.trim().toLowerCase();
+      const command = requestedCommand === '' || requestedCommand === undefined
+        ? 'toggle'
+        : requestedCommand;
+
+      if (['on', 'off', 'toggle'].includes(command)) {
+        isEnabled = command === 'toggle' ? !isEnabled : command === 'on';
+        ctx.ui.notify(`Risky bash command confirmation ${isEnabled ? 'enabled' : 'disabled'}.`, 'info');
+        return;
+      }
+
+      ctx.ui.notify(
+        `Risky bash command confirmation is currently ${isEnabled ? 'enabled' : 'disabled'}.`,
+        'info',
+      );
+    },
+  });
 
   pi.on('tool_call', async (event, ctx) => {
     if (!isToolCallEventType('bash', event)) {
@@ -27,7 +51,7 @@ export default function toolPermissionGate(pi: Pick<ExtensionAPI, 'on' | 'sendMe
       };
     }
 
-    if (!isRisky) {
+    if (!isEnabled || !isRisky) {
       return;
     }
 
