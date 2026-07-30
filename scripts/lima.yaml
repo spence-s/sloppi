@@ -1,10 +1,14 @@
 base: template:default
 
+env:
+  COLORTERM: truecolor
+
 mounts:
   - location: ~/Projects
     writable: true
 
   - location: ~/.pi
+    mountPoint: /home/spencer.guest/.pi
     writable: true
 
 provision:
