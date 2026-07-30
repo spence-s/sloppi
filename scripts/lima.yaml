@@ -1,4 +1,4 @@
-base: template:default
+base: template:_images/ubuntu
 
 env:
   COLORTERM: truecolor
