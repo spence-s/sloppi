@@ -1,5 +1,5 @@
 {
-  "name": "my-pi",
+  "name": "sloppi",
   "version": "0.0.0",
   "description": "Personal Pi configurations and extensions.",
   "homepage": "https://github.com/spence-s/spence-s-starter-template",
@@ -27,6 +27,9 @@
   },
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
+  "bin": {
+    "sloppi": "./scripts/pi-dev.ts"
+  },
   "files": [
     "dist"
   ],
