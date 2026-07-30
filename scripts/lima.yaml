@@ -4,6 +4,9 @@ mounts:
   - location: ~/Projects
     writable: true
 
+  - location: ~/.pi
+    writable: true
+
 provision:
   - mode: system
     script: |
