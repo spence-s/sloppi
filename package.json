@@ -35,7 +35,7 @@
     "check": "tsc -p tsconfig.json",
     "dev": "node --watch src/index.ts",
     "lint": "xo",
-    "pi-dev": "./scripts/pi-dev.sh",
+    "pi-dev": "./scripts/pi-dev.ts",
     "prepare": "husky",
     "release": "np",
     "start": "node dist/src/index.js",

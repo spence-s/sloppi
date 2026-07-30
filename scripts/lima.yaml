@@ -11,6 +11,10 @@ mounts:
     mountPoint: /home/spencer.guest/.pi
     writable: true
 
+  - location: ~/.lima-git
+    mountPoint: /home/spencer.guest/.lima-git
+    writable: false
+
 provision:
   - mode: system
     script: |
@@ -31,3 +35,4 @@ provision:
       n lts
       npm install -g --ignore-scripts @earendil-works/pi-coding-agent
       sudo ln -sf "$N_PREFIX/bin/"* /usr/local/bin/
+      printf '[include]\n\tpath = %s/.lima-git/config\n' "$HOME" > "$HOME/.gitconfig"
