@@ -22,203 +22,52 @@ mounts:
     writable: true
 
 provision:
+  - mode: data
+    path: /usr/local/sbin/sloppi-mount-node-modules
+    file:
+      url: ./provision/mount-node-modules.py
+    permissions: 755
+
+  - mode: data
+    path: /etc/sudoers.d/90-cloud-init-users
+    file:
+      url: ./config/sudoers.conf
+    permissions: 440
+
+  - mode: data
+    path: /etc/sysctl.d/90-sloppi-hardening.conf
+    file:
+      url: ./config/sysctl.conf
+    permissions: 644
+
+  - mode: data
+    path: /etc/security/limits.d/90-sloppi-hardening.conf
+    file:
+      url: ./config/limits.conf
+    permissions: 644
+
+  - mode: data
+    path: /etc/systemd/coredump.conf.d/90-sloppi-hardening.conf
+    file:
+      url: ./config/coredump.conf
+    permissions: 644
+
+  - mode: data
+    path: /etc/ssh/sshd_config.d/90-sloppi-hardening.conf
+    file:
+      url: ./config/sshd.conf
+    permissions: 644
+
+  - mode: data
+    path: /etc/nftables.conf
+    file:
+      url: ./config/nftables.conf
+    permissions: 644
+
   - mode: system
-    script: |
-      #!/bin/sh
-      set -eu
-
-      apt-get update
-      apt-get install -y \
-        bat build-essential curl dnsutils eza fd-find file fzf git jq lsof \
-        netcat-openbsd nftables postgresql-client procps psmisc python3 python3-pip \
-        ripgrep shellcheck sqlite3 tmux tree unattended-upgrades unzip wget yq zip zoxide
-      ln -sf /usr/bin/batcat /usr/local/bin/bat
-      ln -sf /usr/bin/fdfind /usr/local/bin/fd
-
-      for command in n node npm npx pi; do
-        ln -sf "{{.Home}}/n/bin/$command" "/usr/local/bin/$command"
-      done
-
-      cat > /usr/local/sbin/sloppi-mount-node-modules <<'PYTHON'
-      #!/usr/bin/python3 -I
-      import hashlib
-      import os
-      from pathlib import Path
-      import pwd
-      import subprocess
-      import sys
-
-      def fail(message):
-          raise SystemExit(f"sloppi-mount-node-modules: {message}")
-
-      if len(sys.argv) != 1:
-          fail("arguments are not allowed")
-
-      user = os.environ.get("SUDO_USER")
-      if user != "{{.User}}":
-          fail("must be run by the Lima user")
-
-      account = pwd.getpwnam(user)
-      project = Path.cwd().resolve(strict=True)
-      filesystem = subprocess.run(
-          ["/usr/bin/findmnt", "-n", "-o", "FSTYPE", "--target", project],
-          check=True,
-          capture_output=True,
-          text=True,
-      ).stdout.strip()
-      if filesystem not in {"9p", "fuse.sshfs", "virtiofs"}:
-          fail("the project is not on a Lima host mount")
-
-      digest = hashlib.sha256(os.fsencode(project)).hexdigest()
-      source = Path(account.pw_dir) / ".cache" / "pi-dev" / "node_modules" / digest
-      target = project / "node_modules"
-
-      for directory in (source, target):
-          if directory.resolve(strict=True) != directory or directory.stat().st_uid != account.pw_uid:
-              fail(f"unsafe directory: {directory}")
-
-      if subprocess.run(["/usr/bin/mountpoint", "-q", target]).returncode == 0:
-          raise SystemExit(0)
-
-      flags = os.O_PATH | os.O_DIRECTORY | os.O_NOFOLLOW
-      source_fd = os.open(source, flags)
-      target_fd = os.open(target, flags)
-      try:
-          subprocess.run(
-              [
-                  "/usr/bin/mount",
-                  "--bind",
-                  "--no-canonicalize",
-                  f"/proc/self/fd/{source_fd}",
-                  f"/proc/self/fd/{target_fd}",
-              ],
-              check=True,
-              pass_fds=(source_fd, target_fd),
-          )
-      finally:
-          os.close(source_fd)
-          os.close(target_fd)
-      PYTHON
-      chown root:root /usr/local/sbin/sloppi-mount-node-modules
-      chmod 0755 /usr/local/sbin/sloppi-mount-node-modules
-
-      cat > /etc/sudoers.d/90-cloud-init-users <<'EOF'
-      {{.User}} ALL=(root) NOPASSWD: /usr/local/sbin/sloppi-mount-node-modules ""
-      EOF
-      chmod 0440 /etc/sudoers.d/90-cloud-init-users
-      /usr/sbin/visudo -cf /etc/sudoers
-
-      # Persist kernel and filesystem hardening across boots.
-      cat > /etc/sysctl.d/90-sloppi-hardening.conf <<'EOF'
-      # Protect FIFOs in shared sticky directories, including group-owned ones.
-      fs.protected_fifos = 2
-      # Prevent hard links to files the caller does not own or control.
-      fs.protected_hardlinks = 1
-      # Protect regular files in user- and group-writable sticky directories.
-      fs.protected_regular = 2
-      # Refuse unsafe symlink traversal in shared sticky directories.
-      fs.protected_symlinks = 1
-      # Keep privilege-changing programs from leaking memory through core dumps.
-      fs.suid_dumpable = 0
-      # Hide kernel logs from unprivileged users.
-      kernel.dmesg_restrict = 1
-      # Hide kernel pointer addresses, including from privileged readers.
-      kernel.kptr_restrict = 2
-      # Restrict performance counters that can expose processes and kernel state.
-      kernel.perf_event_paranoid = 3
-      # Disable unprivileged BPF until reboot; privileged BPF remains available.
-      kernel.unprivileged_bpf_disabled = 1
-      # Allow tracing descendants, but not arbitrary same-user processes.
-      kernel.yama.ptrace_scope = 1
-      EOF
-      # Apply now instead of waiting for the next boot.
-      sysctl -p /etc/sysctl.d/90-sloppi-hardening.conf
-
-      cat > /etc/security/limits.d/90-sloppi-hardening.conf <<'EOF'
-      * hard core 0
-      * soft core 0
-      EOF
-      mkdir -p /etc/systemd/coredump.conf.d
-      cat > /etc/systemd/coredump.conf.d/90-sloppi-hardening.conf <<'EOF'
-      [Coredump]
-      Storage=none
-      ProcessSizeMax=0
-      EOF
-
-      mkdir -p /etc/ssh/sshd_config.d
-      cat > /etc/ssh/sshd_config.d/90-sloppi-hardening.conf <<'EOF'
-      AllowAgentForwarding no
-      GatewayPorts no
-      KbdInteractiveAuthentication no
-      PasswordAuthentication no
-      PermitRootLogin no
-      PermitTunnel no
-      X11Forwarding no
-      EOF
-      /usr/sbin/sshd -t
-      systemctl reload ssh
-
-      cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
-      APT::Periodic::Update-Package-Lists "1";
-      APT::Periodic::Unattended-Upgrade "1";
-      APT::Periodic::AutocleanInterval "7";
-      Unattended-Upgrade::Automatic-Reboot "false";
-      EOF
-
-      cat > /etc/nftables.conf <<'EOF'
-      #!/usr/sbin/nft -f
-      flush ruleset
-
-      table inet sloppi {
-        set private_ipv4 {
-          type ipv4_addr
-          flags interval
-          elements = { 10.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16 }
-        }
-
-        set private_ipv6 {
-          type ipv6_addr
-          flags interval
-          elements = { fc00::/7, fe80::/10 }
-        }
-
-        chain input {
-          type filter hook input priority filter; policy drop;
-          ct state invalid drop
-          ct state established,related accept
-          iifname "lo" accept
-          meta l4proto { icmp, ipv6-icmp } accept
-          udp sport 67 udp dport 68 accept
-          udp sport 547 udp dport 546 accept
-          tcp dport 22 accept
-          reject with icmpx type port-unreachable
-        }
-
-        chain output {
-          type filter hook output priority filter; policy accept;
-          ct state established,related accept
-          ip daddr @private_ipv4 meta l4proto { tcp, udp } th dport 53 accept
-          ip6 daddr @private_ipv6 meta l4proto { tcp, udp } th dport 53 accept
-          udp dport { 67, 68, 546, 547 } accept
-          ip daddr 192.168.5.2 tcp dport 5432 accept
-          ip daddr @private_ipv4 reject with icmp type admin-prohibited
-          ip6 daddr @private_ipv6 reject with icmpv6 type admin-prohibited
-        }
-      }
-      EOF
-      nft --check --file /etc/nftables.conf
-      systemctl enable nftables
-      systemctl restart nftables
+    file:
+      url: ./provision/system.sh
 
   - mode: user
-    script: |
-      #!/bin/sh
-      export N_PREFIX="$HOME/n"
-      export PATH="$N_PREFIX/bin:$PATH"
-      curl -L https://bit.ly/n-install | bash -s -- -y -
-      n lts
-      npm install -g --ignore-scripts @earendil-works/pi-coding-agent
-
-      git config --global user.name 'Pi Agent'
-      git config --global user.email 'pi-agent@localhost'
-      git config --global commit.gpgsign false
+    file:
+      url: ./provision/user.sh
