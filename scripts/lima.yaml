@@ -3,6 +3,16 @@ base: template:_images/ubuntu
 env:
   COLORTERM: truecolor
 
+containerd:
+  system: false
+  user: false
+
+ssh:
+  loadDotSSHPubKeys: false
+  forwardAgent: false
+  forwardX11: false
+  forwardX11Trusted: false
+
 mounts:
   - location: ~/Projects
     writable: true
@@ -15,13 +25,116 @@ provision:
   - mode: system
     script: |
       #!/bin/sh
+      set -eu
+
       apt-get update
       apt-get install -y \
         bat build-essential curl dnsutils eza fd-find file fzf git jq lsof \
-        netcat-openbsd procps psmisc python3 python3-pip ripgrep shellcheck \
-        sqlite3 tmux tree unzip wget yq zip zoxide
+        netcat-openbsd nftables procps psmisc python3 python3-pip ripgrep shellcheck \
+        sqlite3 tmux tree unattended-upgrades unzip wget yq zip zoxide
       ln -sf /usr/bin/batcat /usr/local/bin/bat
       ln -sf /usr/bin/fdfind /usr/local/bin/fd
+
+      # Persist kernel and filesystem hardening across boots.
+      cat > /etc/sysctl.d/90-sloppi-hardening.conf <<'EOF'
+      # Protect FIFOs in shared sticky directories, including group-owned ones.
+      fs.protected_fifos = 2
+      # Prevent hard links to files the caller does not own or control.
+      fs.protected_hardlinks = 1
+      # Protect regular files in user- and group-writable sticky directories.
+      fs.protected_regular = 2
+      # Refuse unsafe symlink traversal in shared sticky directories.
+      fs.protected_symlinks = 1
+      # Keep privilege-changing programs from leaking memory through core dumps.
+      fs.suid_dumpable = 0
+      # Hide kernel logs from unprivileged users.
+      kernel.dmesg_restrict = 1
+      # Hide kernel pointer addresses, including from privileged readers.
+      kernel.kptr_restrict = 2
+      # Restrict performance counters that can expose processes and kernel state.
+      kernel.perf_event_paranoid = 3
+      # Disable unprivileged BPF until reboot; privileged BPF remains available.
+      kernel.unprivileged_bpf_disabled = 1
+      # Allow tracing descendants, but not arbitrary same-user processes.
+      kernel.yama.ptrace_scope = 1
+      EOF
+      # Apply now instead of waiting for the next boot.
+      sysctl -p /etc/sysctl.d/90-sloppi-hardening.conf
+
+      cat > /etc/security/limits.d/90-sloppi-hardening.conf <<'EOF'
+      * hard core 0
+      * soft core 0
+      EOF
+      mkdir -p /etc/systemd/coredump.conf.d
+      cat > /etc/systemd/coredump.conf.d/90-sloppi-hardening.conf <<'EOF'
+      [Coredump]
+      Storage=none
+      ProcessSizeMax=0
+      EOF
+
+      mkdir -p /etc/ssh/sshd_config.d
+      cat > /etc/ssh/sshd_config.d/90-sloppi-hardening.conf <<'EOF'
+      AllowAgentForwarding no
+      GatewayPorts no
+      KbdInteractiveAuthentication no
+      PasswordAuthentication no
+      PermitRootLogin no
+      PermitTunnel no
+      X11Forwarding no
+      EOF
+      /usr/sbin/sshd -t
+      systemctl reload ssh
+
+      cat > /etc/apt/apt.conf.d/20auto-upgrades <<'EOF'
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+      APT::Periodic::AutocleanInterval "7";
+      Unattended-Upgrade::Automatic-Reboot "false";
+      EOF
+
+      cat > /etc/nftables.conf <<'EOF'
+      #!/usr/sbin/nft -f
+      flush ruleset
+
+      table inet sloppi {
+        set private_ipv4 {
+          type ipv4_addr
+          flags interval
+          elements = { 10.0.0.0/8, 169.254.0.0/16, 172.16.0.0/12, 192.168.0.0/16 }
+        }
+
+        set private_ipv6 {
+          type ipv6_addr
+          flags interval
+          elements = { fc00::/7, fe80::/10 }
+        }
+
+        chain input {
+          type filter hook input priority filter; policy drop;
+          ct state invalid drop
+          ct state established,related accept
+          iifname "lo" accept
+          meta l4proto { icmp, ipv6-icmp } accept
+          udp sport 67 udp dport 68 accept
+          udp sport 547 udp dport 546 accept
+          tcp dport 22 accept
+          reject with icmpx type port-unreachable
+        }
+
+        chain output {
+          type filter hook output priority filter; policy accept;
+          ct state established,related accept
+          ip daddr @private_ipv4 meta l4proto { tcp, udp } th dport 53 accept
+          ip6 daddr @private_ipv6 meta l4proto { tcp, udp } th dport 53 accept
+          udp dport { 67, 68, 546, 547 } accept
+          ip daddr @private_ipv4 reject with icmp type admin-prohibited
+          ip6 daddr @private_ipv6 reject with icmpv6 type admin-prohibited
+        }
+      }
+      EOF
+      nft --check --file /etc/nftables.conf
+      systemctl enable nftables
+      systemctl restart nftables
 
   - mode: user
     script: |
