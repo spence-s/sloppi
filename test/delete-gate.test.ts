@@ -10,7 +10,7 @@ import type {
   ToolCallEvent,
   ToolCallEventResult,
 } from '@earendil-works/pi-coding-agent';
-import toolPermissionGate from '../agent/extensions/tool-permission-gate.ts';
+import deleteGate from '../agent/extensions/delete-gate.ts';
 
 type ToolCallHandler = (
   event: ToolCallEvent,
@@ -43,6 +43,7 @@ function createBashToolCall(command: string): ToolCallEvent {
 function createContext(
   confirm: () => Promise<boolean>,
   hasUI = true,
+  setStatus: (id: string, status: string) => void = () => undefined,
 ): ExtensionContext {
   return {
     hasUI,
@@ -50,6 +51,10 @@ function createContext(
       confirm,
       notify() {
         return undefined;
+      },
+      setStatus,
+      theme: {
+        fg: (_token: string, content: string) => content,
       },
     },
   } as unknown as ExtensionContext;
@@ -60,7 +65,7 @@ function createGate() {
   const messages: unknown[] = [];
   const commands = new Map<string, unknown>();
 
-  toolPermissionGate({
+  deleteGate({
     on(event, registeredHandler) {
       if (event === 'tool_call') {
         handler = registeredHandler;
@@ -88,7 +93,7 @@ function createGate() {
   };
 }
 
-void describe('tool-permission-gate', () => {
+void describe('delete-gate', () => {
   void test('registers a tool_call handler', (t: TestContext) => {
     const {handler} = createGate();
     t.assert.strictEqual(typeof handler, 'function');
@@ -123,22 +128,27 @@ void describe('tool-permission-gate', () => {
     t.assert.strictEqual(confirm.mock.calls.length, 0);
   });
 
-  void test('/permissions turns risky command confirmation off and on', async (t: TestContext) => {
+  void test('/delete changes confirmation and footer status', async (t: TestContext) => {
     const confirm = t.mock.fn(async () => false);
+    const setStatus = t.mock.fn((_id: string, _status: string) => undefined);
     const {handler, getCommand} = createGate();
-    const context = createContext(confirm);
+    const context = createContext(confirm, true, setStatus);
 
-    await getCommand('permissions').handler('off', context);
+    await getCommand('delete').handler('off', context);
     const disabledResult = await handler(createBashToolCall('rm file.txt'), context);
 
-    await getCommand('permissions').handler('on', context);
+    await getCommand('delete').handler('on', context);
     const enabledResult = await handler(createBashToolCall('rm file.txt'), context);
 
     t.assert.strictEqual(disabledResult, undefined);
     t.assert.deepStrictEqual(enabledResult, {
       block: true,
-      reason: 'Blocked by extension approval gate',
+      reason: 'Blocked by delete gate',
     });
+    t.assert.deepStrictEqual(
+      setStatus.mock.calls.map(call => call.arguments[1]),
+      ['delete: allowed', 'delete: ask'],
+    );
     t.assert.strictEqual(confirm.mock.calls.length, 1);
   });
 
@@ -168,7 +178,7 @@ void describe('tool-permission-gate', () => {
 
     t.assert.deepStrictEqual(denied, {
       block: true,
-      reason: 'Blocked by extension approval gate',
+      reason: 'Blocked by delete gate',
     });
     t.assert.deepStrictEqual(bypass, {
       block: true,
