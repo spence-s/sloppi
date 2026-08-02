@@ -104,7 +104,7 @@ void describe('sudo-gate', () => {
     t.assert.match(harness.messages[0]?.content ?? '', /Try another approach/v);
   });
 
-  void test('allows non-shell tools and ignores partial words', async (t: TestContext) => {
+  void test('allows sudo text outside bash tool calls', async (t: TestContext) => {
     const harness = createHarness();
     const readResult = await harness.handler(
       createToolCall('read', {path: 'agent/extensions/sudo-gate.ts'}),
@@ -114,14 +114,72 @@ void describe('sudo-gate', () => {
       createToolCall('write', {content: 'sudo reboot', path: 'script.sh'}),
       harness.ctx,
     );
-    const ordinaryResult = await harness.handler(
-      createToolCall('bash', {command: 'echo pseudonym'}),
-      harness.ctx,
-    );
 
     t.assert.strictEqual(readResult, undefined);
     t.assert.strictEqual(writeResult, undefined);
-    t.assert.strictEqual(ordinaryResult, undefined);
+  });
+
+  void test('allows harmless sudo text in bash arguments and file names', async (t: TestContext) => {
+    const harness = createHarness();
+    const commands = [
+      'rg sudo .',
+      'rg "sudo apt" test',
+      'grep sudo README.md',
+      'echo sudo',
+      String.raw`printf "%s\n" sudo`,
+      'git diff -- test/sudo-gate.test.ts',
+      'ls agent/extensions/sudo-gate.ts',
+      'cat /tmp/sudo',
+      'touch feature-sudo-support.md',
+      'echo pseudonym sudoers',
+      'echo $sudo',
+      'WORD=sudo rg "$WORD" .',
+    ];
+
+    const results = await Promise.all(commands.map(async command =>
+      harness.handler(createToolCall('bash', {command}), harness.ctx)));
+
+    t.assert.deepStrictEqual(results, commands.map(() => undefined));
+  });
+
+  void test('blocks sudo in direct and nested shell command positions', async (t: TestContext) => {
+    const harness = createHarness();
+    const commands = [
+      'sudo',
+      ' sudo apt update',
+      '\tsudo -n true',
+      'echo ready && sudo apt update',
+      'false||sudo apt update',
+      'echo ready;sudo apt update',
+      'echo ready\nsudo apt update',
+      'echo data | sudo tee /root/data',
+      'sudo apt update & echo waiting',
+      '(sudo apt update)',
+      '{ sudo apt update; }',
+      'echo $(sudo whoami)',
+      'echo `sudo whoami`',
+    ];
+
+    const results = await Promise.all(commands.map(async command =>
+      harness.handler(createToolCall('bash', {command}), harness.ctx)));
+
+    t.assert.deepStrictEqual(results.map(result => result?.block), commands.map(() => true));
+  });
+
+  void test('blocks path-based sudo executables', async (t: TestContext) => {
+    const harness = createHarness();
+    const commands = [
+      '/usr/bin/sudo apt update',
+      '/usr/local/bin/sudo apt update',
+      './sudo apt update',
+      '../bin/sudo apt update',
+      'echo ready && /usr/bin/sudo apt update',
+    ];
+
+    const results = await Promise.all(commands.map(async command =>
+      harness.handler(createToolCall('bash', {command}), harness.ctx)));
+
+    t.assert.deepStrictEqual(results.map(result => result?.block), commands.map(() => true));
   });
 
   void test('ask mode allows one approved call and denies a rejected call', async (t: TestContext) => {

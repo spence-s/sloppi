@@ -7,7 +7,6 @@ import {
 type SudoMode = 'deny' | 'ask' | 'allow';
 
 const sudoModes: SudoMode[] = ['deny', 'ask', 'allow'];
-const sudoPattern = /\bsudo\b/iv;
 const sudoStatusId = '0:sudo-gate';
 const deniedMessage =
   'Sudo is not allowed by default. Try another approach that does not require elevated privileges. '
@@ -88,11 +87,15 @@ export default function sudoGate(pi: ExtensionAPI): void {
   });
 
   pi.on('tool_call', async (event, ctx) => {
-    if (
-      !isToolCallEventType('bash', event)
-      || !sudoPattern.test(event.input.command)
-      || mode === 'allow'
-    ) {
+    if (!isToolCallEventType('bash', event) || mode === 'allow') {
+      return;
+    }
+
+    const hasSudo = event.input.command
+      .split(/[\n\u{26}\u{28}\u{29}\u{3B}\u{60}\u{7B}\u{7C}\u{7D}]/v)
+      .some(segment => segment.trimStart().split(/\s/v, 1)[0]?.split('/').at(-1) === 'sudo');
+
+    if (!hasSudo) {
       return;
     }
 
