@@ -13,7 +13,8 @@ const help = `
 Usage: sloppi [command] [pi options]
 
 Commands:
-destroy  Delete the pi-dev VM
+start (default) Start the pi-dev VM and run the pi command with the given options
+destroy         Delete the pi-dev VM
 
 Options:
 -h, --help  Show this help
@@ -36,9 +37,9 @@ if (values.help) {
   process.exit(0);
 }
 
-const command = (positionals[0] ?? '').toLowerCase().trim();
+const command = (positionals[0] ?? 'start').toLowerCase().trim();
 
-const isValidCommand = ['destroy', 'help', ''].includes(command);
+const isValidCommand = ['destroy', 'help', 'list', 'start'].includes(command);
 
 if (!isValidCommand) {
   console.log(`Invalid command: ${command}`);
@@ -48,6 +49,11 @@ if (!isValidCommand) {
 }
 
 switch (command) {
+  case 'list': {
+    await $$`limactl list`;
+    break;
+  }
+
   case 'destroy': {
     await $$`limactl delete --force ${instance}`;
     break;
