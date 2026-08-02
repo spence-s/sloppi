@@ -77,7 +77,7 @@ function createHarness(options: {
         statuses.push(status);
       },
       theme: {
-        fg: (_token: string, content: string) => content,
+        fg: (token: string, content: string) => `[${token}]${content}`,
       },
     },
   } as unknown as ExtensionContext;
@@ -235,7 +235,7 @@ void describe('sudo-gate', () => {
     const harness = createHarness({select: async () => 'allow'});
     await harness.command.handler(undefined, harness.ctx);
 
-    t.assert.deepStrictEqual(harness.statuses, ['sudo: allowed']);
+    t.assert.deepStrictEqual(harness.statuses, ['[dim]sudo: allowed']);
     const result = await harness.handler(
       createToolCall('bash', {command: 'sudo apt update'}),
       harness.ctx,

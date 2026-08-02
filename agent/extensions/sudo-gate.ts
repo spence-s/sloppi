@@ -17,16 +17,16 @@ export default function sudoGate(pi: ExtensionAPI): void {
 
   const updateStatus = (ctx: ExtensionContext): void => {
     if (mode === 'deny') {
-      ctx.ui.setStatus(sudoStatusId, ctx.ui.theme.fg('success', 'sudo: denied'));
+      ctx.ui.setStatus(sudoStatusId, ctx.ui.theme.fg('dim', 'sudo: denied'));
       return;
     }
 
     if (mode === 'ask') {
-      ctx.ui.setStatus(sudoStatusId, ctx.ui.theme.fg('warning', 'sudo: ask'));
+      ctx.ui.setStatus(sudoStatusId, ctx.ui.theme.fg('dim', 'sudo: ask'));
       return;
     }
 
-    ctx.ui.setStatus(sudoStatusId, ctx.ui.theme.fg('error', 'sudo: allowed'));
+    ctx.ui.setStatus(sudoStatusId, ctx.ui.theme.fg('dim', 'sudo: allowed'));
   };
 
   const setMode = (nextMode: SudoMode, ctx: ExtensionContext): void => {

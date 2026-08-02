@@ -54,7 +54,7 @@ function createContext(
       },
       setStatus,
       theme: {
-        fg: (_token: string, content: string) => content,
+        fg: (token: string, content: string) => `[${token}]${content}`,
       },
     },
   } as unknown as ExtensionContext;
@@ -147,7 +147,7 @@ void describe('delete-gate', () => {
     });
     t.assert.deepStrictEqual(
       setStatus.mock.calls.map(call => call.arguments[1]),
-      ['delete: allowed', 'delete: ask'],
+      ['[dim]delete: allowed', '[dim]delete: ask'],
     );
     t.assert.strictEqual(confirm.mock.calls.length, 1);
   });

@@ -27,9 +27,7 @@ export default function deleteGate(pi: Pick<ExtensionAPI, 'on' | 'sendMessage' |
   let hasDeniedDeletion = false;
 
   const updateStatus = (ctx: ExtensionContext): void => {
-    const status = isEnabled
-      ? ctx.ui.theme.fg('warning', 'delete: ask')
-      : ctx.ui.theme.fg('error', 'delete: allowed');
+    const status = ctx.ui.theme.fg('dim', isEnabled ? 'delete: ask' : 'delete: allowed');
     ctx.ui.setStatus(statusId, status);
   };
 
