@@ -1,6 +1,5 @@
 import process from 'node:process';
-import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
-import {truncateToWidth, visibleWidth} from '@earendil-works/pi-tui';
+import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
 
 type GitStatus = {
   staged: number;
@@ -57,13 +56,12 @@ function formatGitStatus(status: GitStatus | undefined): string {
 }
 
 export default function statusLine(pi: ExtensionAPI): void {
-  let gitStatus: GitStatus | undefined;
-  let requestRender: (() => void) | undefined;
+  const refreshStatus = async (ctx: ExtensionContext): Promise<void> => {
+    let gitStatus: GitStatus | undefined;
 
-  const refreshGitStatus = async (cwd: string): Promise<void> => {
     try {
       const result = await pi.exec('git', ['status', '--porcelain=v1'], {
-        cwd,
+        cwd: ctx.cwd,
         timeout: 2000,
       });
 
@@ -72,58 +70,23 @@ export default function statusLine(pi: ExtensionAPI): void {
       gitStatus = undefined;
     }
 
-    requestRender?.();
+    const {theme} = ctx.ui;
+    const gitState = formatGitStatus(gitStatus);
+    const git = gitStatus === undefined
+      ? ''
+      : `  ${theme.fg('accent', '')} ${theme.fg(gitState === '✓' ? 'success' : 'warning', gitState)}`;
+    ctx.ui.setStatus('0:0-status-line', `${theme.fg('accent', getOsLabel())}${git} ${theme.fg('dim', '|')}`);
   };
 
   pi.on('session_start', async (_event, ctx) => {
-    if (ctx.mode !== 'tui') {
-      return;
+    if (ctx.mode === 'tui') {
+      await refreshStatus(ctx);
     }
-
-    await refreshGitStatus(ctx.cwd);
-
-    ctx.ui.setFooter((tui, theme, footerData) => {
-      requestRender = () => {
-        tui.requestRender();
-      };
-
-      const unsubscribe = footerData.onBranchChange(requestRender);
-
-      return {
-        dispose: unsubscribe,
-        invalidate(): void {
-          return undefined;
-        },
-        render(width: number): string[] {
-          const os = theme.fg('accent', getOsLabel());
-          const branch = footerData.getGitBranch();
-          const gitState = formatGitStatus(gitStatus);
-          const git = branch === null
-            ? ''
-            : `  ${theme.fg('accent', '')} ${theme.fg('muted', branch)} ${theme.fg(gitState === '✓' ? 'success' : 'warning', gitState)}`;
-          const statuses: string[] = [];
-          for (const [, status] of footerData.getExtensionStatuses()) {
-            statuses.push(status);
-          }
-
-          const extensions = statuses.length > 0
-            ? `${theme.fg('dim', ' │ ')}${statuses.join(' ')}`
-            : '';
-          const left = `${os}${git}${extensions}`;
-          const model = ctx.model === undefined
-            ? 'no model'
-            : `${ctx.model.id} • ${ctx.thinkingLevel}`;
-          const padding = ' '.repeat(Math.max(1, width - visibleWidth(left) - model.length));
-
-          return [truncateToWidth(`${left}${padding}${theme.fg('dim', model)}`, width)];
-        },
-      };
-    });
   });
 
   pi.on('turn_end', async (_event, ctx) => {
     if (ctx.mode === 'tui') {
-      await refreshGitStatus(ctx.cwd);
+      await refreshStatus(ctx);
     }
   });
 }

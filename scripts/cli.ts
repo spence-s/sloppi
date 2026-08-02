@@ -63,9 +63,9 @@ switch (command) {
     const {stdout: limaInstanceList} = await $`limactl list --quiet`;
 
     if (limaInstanceList.split('\n').map(line => line.trim()).includes(instance)) {
-      await $$`limactl start ${instance}`;
+      await $$`limactl start ${instance} -y`;
     } else {
-      await $$`limactl start --name ${instance} ${configPath}`;
+      await $$`limactl start --name ${instance} ${configPath} -y`;
     }
 
     const installDependencies = String.raw`
