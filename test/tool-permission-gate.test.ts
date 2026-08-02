@@ -94,13 +94,21 @@ void describe('tool-permission-gate', () => {
     t.assert.strictEqual(typeof handler, 'function');
   });
 
-  void test('allows ordinary commands', async (t: TestContext) => {
+  void test('allows ordinary commands and leaves sudo to its dedicated gate', async (t: TestContext) => {
+    const confirm = t.mock.fn(async () => false);
     const {handler} = createGate();
-    const result = await handler(
+    const ordinaryResult = await handler(
       createBashToolCall('echo hello'),
-      createContext(async () => false),
+      createContext(confirm),
     );
-    t.assert.strictEqual(result, undefined);
+    const sudoResult = await handler(
+      createBashToolCall('sudo apt update'),
+      createContext(confirm),
+    );
+
+    t.assert.strictEqual(ordinaryResult, undefined);
+    t.assert.strictEqual(sudoResult, undefined);
+    t.assert.strictEqual(confirm.mock.calls.length, 0);
   });
 
   void test('is disabled by default under pi-dev', async (t: TestContext) => {
