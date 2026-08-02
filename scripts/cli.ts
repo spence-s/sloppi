@@ -69,14 +69,13 @@ switch (command) {
     }
 
     const installDependencies = String.raw`
-      modules="$HOME/.cache/pi-dev/node_modules/$(printf %s "$PWD" | sha256sum | cut -d ' ' -f 1)"
+      project="$(pwd -P)"
+      modules="$HOME/.cache/pi-dev/node_modules/$(printf %s "$project" | sha256sum | cut -d ' ' -f 1)"
       stamp="$modules/.package-lock"
       signature="$(sha256sum package-lock.json | cut -d ' ' -f 1)-$(node --version)-$(uname -sm)"
 
       mkdir -p "$modules" node_modules
-      if ! mountpoint -q node_modules; then
-        sudo mount --bind "$modules" node_modules
-      fi
+      sudo -n /usr/local/sbin/sloppi-mount-node-modules
 
       if [ ! -f "$stamp" ] || [ "$(cat "$stamp")" != "$signature" ]; then
         npm i

@@ -104,8 +104,12 @@ void describe('sudo-gate', () => {
     t.assert.match(harness.messages[0]?.content ?? '', /Try another approach/v);
   });
 
-  void test('checks every tool input and ignores partial words', async (t: TestContext) => {
+  void test('allows non-shell tools and ignores partial words', async (t: TestContext) => {
     const harness = createHarness();
+    const readResult = await harness.handler(
+      createToolCall('read', {path: 'agent/extensions/sudo-gate.ts'}),
+      harness.ctx,
+    );
     const writeResult = await harness.handler(
       createToolCall('write', {content: 'sudo reboot', path: 'script.sh'}),
       harness.ctx,
@@ -115,7 +119,8 @@ void describe('sudo-gate', () => {
       harness.ctx,
     );
 
-    t.assert.strictEqual(writeResult?.block, true);
+    t.assert.strictEqual(readResult, undefined);
+    t.assert.strictEqual(writeResult, undefined);
     t.assert.strictEqual(ordinaryResult, undefined);
   });
 

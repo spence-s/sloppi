@@ -1,4 +1,8 @@
-import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
+import {
+  isToolCallEventType,
+  type ExtensionAPI,
+  type ExtensionContext,
+} from '@earendil-works/pi-coding-agent';
 
 type SudoMode = 'deny' | 'ask' | 'allow';
 
@@ -84,8 +88,11 @@ export default function sudoGate(pi: ExtensionAPI): void {
   });
 
   pi.on('tool_call', async (event, ctx) => {
-    const input = JSON.stringify(event.input) ?? '';
-    if (!sudoPattern.test(input) || mode === 'allow') {
+    if (
+      !isToolCallEventType('bash', event)
+      || !sudoPattern.test(event.input.command)
+      || mode === 'allow'
+    ) {
       return;
     }
 
@@ -95,7 +102,7 @@ export default function sudoGate(pi: ExtensionAPI): void {
 
     const isAllowed = await ctx.ui.confirm(
       'Approve sudo tool call',
-      `The ${event.toolName} tool input contains sudo:\n\n${input}\n\nAllow it once?`,
+      `The bash command contains sudo:\n\n${event.input.command}\n\nAllow it once?`,
     );
 
     return isAllowed ? undefined : deny();
