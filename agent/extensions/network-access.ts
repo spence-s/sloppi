@@ -7,8 +7,8 @@ export default function networkAccess(pi: ExtensionAPI): void {
   pi.registerTool({
     name: 'request_network_access',
     label: 'Request network access',
-    description: 'Ask the user to allow one HTTP request scope through the VM proxy for 60 seconds.',
-    promptSnippet: 'Request temporary outbound access for a blocked HTTP method, domain, and path',
+    description: 'Ask the user to allow a blocked request once, permanently for its method/path, or permanently for its domain.',
+    promptSnippet: 'Request one-shot outbound access for a blocked HTTP method, domain, and path',
     promptGuidelines: [
       'When the network proxy returns a denial, pass its exact method, domain, and path to request_network_access, then retry after approval.',
     ],
@@ -30,21 +30,31 @@ export default function networkAccess(pi: ExtensionAPI): void {
       const normalizedDomain = domain.trim().toLowerCase().replace(/\.$/v, '');
       const normalizedPath = path.trim();
       const scope = normalizedPath === '*' ? normalizedDomain : `${normalizedDomain}${normalizedPath}`;
-      const isApproved = await ctx.ui.confirm(
-        'Allow temporary network access?',
-        `Allow ${normalizedMethod} ${scope} for ${durationSeconds} seconds?`,
-      );
+      const choices = [
+        `Allow ${normalizedMethod} ${scope} once`,
+        `Always allow ${normalizedMethod} ${scope}`,
+        `Always allow all requests to ${normalizedDomain}`,
+        'Deny',
+      ];
+      const choice = await ctx.ui.select('Network request denied', choices);
 
-      if (!isApproved) {
+      if (choice === undefined || !choices.includes(choice) || choice === choices[3]) {
         return {
           content: [{type: 'text' as const, text: `Network access for ${normalizedMethod} ${scope} was denied.`}],
           details: {},
         };
       }
 
+      let mode = 'domain';
+      if (choice === choices[0]) {
+        mode = 'once';
+      } else if (choice === choices[1]) {
+        mode = 'request';
+      }
+
       const result = await pi.exec(
         'sudo',
-        ['-n', '/usr/local/sbin/sloppi-allow-request', normalizedMethod, normalizedDomain, normalizedPath],
+        ['-n', '/usr/local/sbin/sloppi-allow-request', mode, normalizedMethod, normalizedDomain, normalizedPath],
         signal === undefined ? {} : {signal},
       );
 
@@ -64,6 +74,7 @@ export default function networkAccess(pi: ExtensionAPI): void {
           domain: normalizedDomain,
           path: normalizedPath,
           durationSeconds,
+          mode,
         },
       };
     },

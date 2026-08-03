@@ -7,6 +7,7 @@ import time
 
 RULES_PATH = Path("/etc/sloppi/egress-domains")
 GRANTS_PATH = Path("/run/sloppi-proxy-grants")
+PERMANENT_RULES_PATH = Path("/var/lib/sloppi-proxy/permanent-rules.json")
 SAFE_METHODS = {"GET", "HEAD"}
 
 
@@ -35,36 +36,43 @@ def domain_matches(host, domain):
     return host == domain or host.endswith(f".{domain}")
 
 
-def request_is_allowed(method, host, path, upgrade, rules, grants, now):
+def request_is_allowed(method, host, path, upgrade, rules):
     if upgrade:
         return False
     if method in SAFE_METHODS:
         return True
-    if any(
+    return any(
         domain_matches(host, domain)
         and rule_method in {"*", method}
         and rule_path in {"*", path}
         for domain, rule_method, rule_path in rules
-    ):
-        return True
-    return any(
-        grant.get("expires", 0) > now
-        and grant.get("method") == method
-        and grant.get("domain") == host
-        and grant.get("path", "*") in {"*", path}
-        for grant in grants
     )
+
+
+def scope_matches(method, host, path, rule):
+    return (
+        rule.get("method") in {"*", method}
+        and rule.get("domain") == host
+        and rule.get("path", "*") in {"*", path}
+    )
+
+
+def grant_matches(method, host, path, grant, now):
+    return grant.get("expires", 0) > now and scope_matches(method, host, path, grant)
 
 
 def self_test():
     rules = parse_rules(["example.com POST /safe", "trusted.test"])
-    assert request_is_allowed("GET", "other.test", "/", "", rules, [], 0)
-    assert request_is_allowed("POST", "api.example.com", "/safe", "", rules, [], 0)
-    assert not request_is_allowed("POST", "api.example.com", "/unsafe", "", rules, [], 0)
-    assert not request_is_allowed("GET", "example.com", "/socket", "websocket", rules, [], 0)
+    assert request_is_allowed("GET", "other.test", "/", "", rules)
+    assert request_is_allowed("POST", "api.example.com", "/safe", "", rules)
+    assert not request_is_allowed("POST", "api.example.com", "/unsafe", "", rules)
+    assert not request_is_allowed("GET", "example.com", "/socket", "websocket", rules)
     grant = {"domain": "other.test", "method": "POST", "path": "/once", "expires": 60}
-    assert request_is_allowed("POST", "other.test", "/once", "", rules, [grant], 0)
-    assert not request_is_allowed("POST", "other.test", "/once", "", rules, [grant], 60)
+    assert grant_matches("POST", "other.test", "/once", grant, 0)
+    assert not grant_matches("POST", "other.test", "/once", grant, 60)
+    domain_rule = {"domain": "other.test", "method": "*", "path": "*"}
+    assert scope_matches("DELETE", "other.test", "/anything", domain_rule)
+    assert not scope_matches("DELETE", "sub.other.test", "/anything", domain_rule)
 
 
 if "--self-test" in sys.argv:
@@ -83,23 +91,37 @@ class EgressPolicy:
         method = request.method.upper()
         host = request.host.lower().removesuffix(".")
         path = request.path.partition("?")[0]
-        grants = []
-        for grant_path in GRANTS_PATH.glob("*.json"):
-            try:
-                grants.append(json.loads(grant_path.read_text()))
-            except (OSError, ValueError):
-                continue
-
-        if request_is_allowed(
-            method,
-            host,
-            path,
-            request.headers.get("upgrade", "").lower(),
-            self.rules,
-            grants,
-            time.time(),
-        ):
+        upgrade = request.headers.get("upgrade", "").lower()
+        if request_is_allowed(method, host, path, upgrade, self.rules):
             return
+
+        if not upgrade:
+            try:
+                permanent_rules = json.loads(PERMANENT_RULES_PATH.read_text())
+            except (OSError, ValueError):
+                permanent_rules = []
+            if isinstance(permanent_rules, list) and any(
+                isinstance(rule, dict) and scope_matches(method, host, path, rule)
+                for rule in permanent_rules
+            ):
+                return
+
+            now = time.time()
+            for grant_path in GRANTS_PATH.glob("*.json"):
+                try:
+                    grant = json.loads(grant_path.read_text())
+                except (OSError, ValueError):
+                    continue
+                if grant.get("expires", 0) <= now:
+                    grant_path.unlink(missing_ok=True)
+                    continue
+                if not grant_matches(method, host, path, grant, now):
+                    continue
+                try:
+                    grant_path.unlink()
+                except FileNotFoundError:
+                    continue
+                return
 
         body = json.dumps({
             "error": "network request denied",

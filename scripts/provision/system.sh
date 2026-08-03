@@ -29,6 +29,7 @@ if ! id sloppi-proxy >/dev/null 2>&1; then
   useradd --system --home-dir /var/lib/sloppi-proxy --shell /usr/sbin/nologin sloppi-proxy
 fi
 
+/usr/local/sbin/sloppi-allow-request restore
 /usr/bin/python3 /etc/sloppi/proxy.py --self-test
 /usr/sbin/visudo -cf /etc/sudoers
 sysctl -p /etc/sysctl.d/90-sloppi-hardening.conf
@@ -63,7 +64,24 @@ curl --silent --max-time 15 --proxy "$proxy" \
   --cacert /usr/local/share/ca-certificates/sloppi-proxy.crt \
   --request POST --dump-header "$headers" --output /dev/null https://example.com/
 grep -qi '^X-Sloppi-Network-Policy: denied' "$headers"
-rm "$headers"
+
+sudo -u "{{.User}}" sudo -n /usr/local/sbin/sloppi-allow-request once POST example.com /
+curl --silent --max-time 15 --proxy "$proxy" \
+  --cacert /usr/local/share/ca-certificates/sloppi-proxy.crt \
+  --request POST --dump-header "$headers" --output /dev/null https://example.com/
+if grep -qi '^X-Sloppi-Network-Policy: denied' "$headers"; then
+  echo 'Temporary network grant was ignored' >&2
+  exit 1
+fi
+curl --silent --max-time 15 --proxy "$proxy" \
+  --cacert /usr/local/share/ca-certificates/sloppi-proxy.crt \
+  --request POST --dump-header "$headers" --output /dev/null https://example.com/
+if ! grep -qi '^X-Sloppi-Network-Policy: denied' "$headers"; then
+  echo 'Temporary network grant was reused' >&2
+  exit 1
+fi
+
+rm -f /run/sloppi-proxy-grants/*.json "$headers"
 if curl --silent --max-time 5 --noproxy '*' https://example.com/ >/dev/null 2>&1; then
   echo 'Direct public egress bypassed the proxy' >&2
   exit 1

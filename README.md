@@ -30,7 +30,7 @@ This repo contains my local Pi configuration and custom extensions, currently fo
 - `npm run lint` – lint code
 - `npm run check` – type-check
 - `npm run pi-dev` – launch Pi in Lima with risky-command confirmation disabled by default. It keeps Linux `node_modules` on the VM disk, so macOS and Linux native dependencies never overwrite each other.
-- Outbound HTTP GET/HEAD requests pass through the VM policy proxy. Other methods require a matching `domain [METHOD [exact-path]]` rule in `scripts/config/egress-domains.conf` or an interactive 60-second grant. Direct public egress is blocked; clients with certificate pinning will not work through the TLS-inspecting proxy.
+- Outbound HTTP GET/HEAD requests pass through the VM policy proxy. Other methods require a matching `domain [METHOD [exact-path]]` rule in `scripts/config/egress-domains.conf` or interactive approval. Approval can allow one request, permanently allow its method/domain/path, or permanently allow every request to its domain. Permanent rules are stored in `~/.pi/agent/network-access.json` and restored when the VM is rebuilt. Direct public egress is blocked; clients with certificate pinning will not work through the TLS-inspecting proxy.
 
 ## Notes
 
