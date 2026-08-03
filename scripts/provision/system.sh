@@ -28,12 +28,6 @@ done
 if ! id sloppi-proxy >/dev/null 2>&1; then
   useradd --system --home-dir /var/lib/sloppi-proxy --shell /usr/sbin/nologin sloppi-proxy
 fi
-if [ ! -f /etc/sloppi/mitmweb-environment ]; then
-  umask 027
-  printf 'WEB_PASSWORD=%s\n' "$(openssl rand -hex 16)" > /etc/sloppi/mitmweb-environment
-fi
-chown root:"{{.User}}" /etc/sloppi/mitmweb-environment
-chmod 640 /etc/sloppi/mitmweb-environment
 
 /usr/bin/python3 /etc/sloppi/proxy.py --self-test
 /usr/sbin/visudo -cf /etc/sudoers
@@ -56,15 +50,12 @@ install -m 644 /var/lib/sloppi-proxy/mitmproxy-ca-cert.pem \
 update-ca-certificates
 
 cat > /etc/apt/apt.conf.d/90sloppi-proxy <<'EOF'
-Acquire::http::Proxy "http://127.0.0.1:39081";
-Acquire::https::Proxy "http://127.0.0.1:39081";
+Acquire::http::Proxy "http://127.0.0.1:39080";
+Acquire::https::Proxy "http://127.0.0.1:39080";
 EOF
 
-# shellcheck source=/dev/null
-. /etc/sloppi/mitmweb-environment
-curl --fail --silent --show-error --max-time 15 --get \
-  --data-urlencode "token=$WEB_PASSWORD" http://127.0.0.1:8081/ >/dev/null
-proxy=http://127.0.0.1:39081
+curl --fail --silent --show-error --max-time 15 http://127.0.0.1:39081/ >/dev/null
+proxy=http://127.0.0.1:39080
 curl --fail --silent --show-error --max-time 15 --proxy "$proxy" \
   --cacert /usr/local/share/ca-certificates/sloppi-proxy.crt https://example.com/ >/dev/null
 headers=$(mktemp)

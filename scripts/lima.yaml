@@ -18,11 +18,8 @@ ssh:
   forwardX11Trusted: false
 
 portForwards:
-  - guestPort: 39081
+  - guestPort: 39080
     ignore: true
-  - guestPort: 8081
-    hostIP: 127.0.0.1
-    hostPort: 8081
 
 mounts:
   - location: ~/Projects
