@@ -12,6 +12,9 @@ if [ ! -f /var/lib/sloppi/packages-installed ]; then
     bat build-essential curl dnsutils eza fd-find file fzf git jq lsof \
     netcat-openbsd nftables postgresql-client procps psmisc python3 python3-pip \
     ripgrep shellcheck sqlite3 tmux tree unzip wget yq zip zoxide
+  curl --fail --silent --show-error --location \
+    https://downloads.mitmproxy.org/12.2.3/mitmproxy-12.2.3-linux-aarch64.tar.gz \
+    | tar -xz -C /usr/local/bin mitmdump mitmproxy mitmweb
   mkdir -p /var/lib/sloppi
   touch /var/lib/sloppi/packages-installed
 fi
@@ -22,10 +25,55 @@ for command in n node npm npx pi; do
   ln -sf "{{.Home}}/n/bin/$command" "/usr/local/bin/$command"
 done
 
+if ! id sloppi-proxy >/dev/null 2>&1; then
+  useradd --system --home-dir /var/lib/sloppi-proxy --shell /usr/sbin/nologin sloppi-proxy
+fi
+if [ ! -f /etc/sloppi/mitmweb-environment ]; then
+  umask 027
+  printf 'WEB_PASSWORD=%s\n' "$(openssl rand -hex 16)" > /etc/sloppi/mitmweb-environment
+fi
+chown root:"{{.User}}" /etc/sloppi/mitmweb-environment
+chmod 640 /etc/sloppi/mitmweb-environment
+
+/usr/bin/python3 /etc/sloppi/proxy.py --self-test
 /usr/sbin/visudo -cf /etc/sudoers
 sysctl -p /etc/sysctl.d/90-sloppi-hardening.conf
 /usr/sbin/sshd -t
 systemctl reload ssh
+systemctl daemon-reload
 nft --check --file /etc/nftables.conf
-systemctl enable nftables
-systemctl restart nftables
+systemctl enable nftables sloppi-proxy
+systemctl restart nftables sloppi-proxy
+
+attempt=0
+while [ ! -s /var/lib/sloppi-proxy/mitmproxy-ca-cert.pem ] && [ "$attempt" -lt 30 ]; do
+  attempt=$((attempt + 1))
+  sleep 1
+done
+test -s /var/lib/sloppi-proxy/mitmproxy-ca-cert.pem
+install -m 644 /var/lib/sloppi-proxy/mitmproxy-ca-cert.pem \
+  /usr/local/share/ca-certificates/sloppi-proxy.crt
+update-ca-certificates
+
+cat > /etc/apt/apt.conf.d/90sloppi-proxy <<'EOF'
+Acquire::http::Proxy "http://127.0.0.1:39081";
+Acquire::https::Proxy "http://127.0.0.1:39081";
+EOF
+
+# shellcheck source=/dev/null
+. /etc/sloppi/mitmweb-environment
+curl --fail --silent --show-error --max-time 15 --get \
+  --data-urlencode "token=$WEB_PASSWORD" http://127.0.0.1:8081/ >/dev/null
+proxy=http://127.0.0.1:39081
+curl --fail --silent --show-error --max-time 15 --proxy "$proxy" \
+  --cacert /usr/local/share/ca-certificates/sloppi-proxy.crt https://example.com/ >/dev/null
+headers=$(mktemp)
+curl --silent --max-time 15 --proxy "$proxy" \
+  --cacert /usr/local/share/ca-certificates/sloppi-proxy.crt \
+  --request POST --dump-header "$headers" --output /dev/null https://example.com/
+grep -qi '^X-Sloppi-Network-Policy: denied' "$headers"
+rm "$headers"
+if curl --silent --max-time 5 --noproxy '*' https://example.com/ >/dev/null 2>&1; then
+  echo 'Direct public egress bypassed the proxy' >&2
+  exit 1
+fi

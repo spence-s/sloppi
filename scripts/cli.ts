@@ -69,6 +69,10 @@ switch (command) {
     }
 
     const installDependencies = String.raw`
+      set -a
+      . /etc/sloppi/proxy-environment
+      set +a
+
       project="$(pwd -P)"
       modules="$HOME/.cache/pi-dev/node_modules/$(printf %s "$project" | sha256sum | cut -d ' ' -f 1)"
       stamp="$modules/.package-lock"
@@ -84,6 +88,13 @@ switch (command) {
     `;
 
     await $$`limactl shell --workdir ${process.cwd()} ${instance} -- sh -ceu ${installDependencies}`;
-    await $$`limactl shell --workdir ${process.cwd()} ${instance} -- env PI_DEV=true pi ${process.argv.slice(2)}`;
+
+    const runPi = `
+      set -a
+      . /etc/sloppi/proxy-environment
+      set +a
+      exec env PI_DEV=true pi "$@"
+    `;
+    await $$`limactl shell --workdir ${process.cwd()} ${instance} -- sh -ceu ${runPi} sh ${process.argv.slice(2)}`;
   }
 }

@@ -1,4 +1,8 @@
 #!/bin/sh
+set -a
+# shellcheck source=/dev/null
+. /etc/sloppi/proxy-environment
+set +a
 export N_PREFIX="$HOME/n"
 export PATH="$N_PREFIX/bin:$PATH"
 curl -L https://bit.ly/n-install | bash -s -- -y -

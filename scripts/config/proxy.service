@@ -1,0 +1,26 @@
+[Unit]
+Description=Sloppi HTTP egress policy proxy
+After=network-online.target nftables.service
+Wants=network-online.target
+Requires=nftables.service
+
+[Service]
+Type=simple
+User=sloppi-proxy
+Group=sloppi-proxy
+StateDirectory=sloppi-proxy
+StateDirectoryMode=0750
+RuntimeDirectory=sloppi-proxy-grants
+RuntimeDirectoryMode=0750
+UMask=0077
+EnvironmentFile=/etc/sloppi/mitmweb-environment
+ExecStart=/usr/local/bin/mitmweb --listen-host 127.0.0.1 --listen-port 39081 --web-host 127.0.0.1 --web-port 8081 --scripts /etc/sloppi/proxy.py --set block_private=true --set confdir=/var/lib/sloppi-proxy --set connection_strategy=lazy --set flow_detail=0 --set onboarding=false --set rawtcp=false --set termlog_verbosity=warn --set upstream_cert=false --set web_open_browser=false --set web_password=${WEB_PASSWORD} --set websocket=false
+Restart=on-failure
+RestartSec=1
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+
+[Install]
+WantedBy=multi-user.target

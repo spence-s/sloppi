@@ -7,11 +7,22 @@ containerd:
   system: false
   user: false
 
+hostResolver:
+  enabled: true
+  ipv6: false
+
 ssh:
   loadDotSSHPubKeys: false
   forwardAgent: false
   forwardX11: false
   forwardX11Trusted: false
+
+portForwards:
+  - guestPort: 39081
+    ignore: true
+  - guestPort: 8081
+    hostIP: 127.0.0.1
+    hostPort: 8081
 
 mounts:
   - location: ~/Projects
@@ -26,6 +37,12 @@ provision:
     path: /usr/local/sbin/sloppi-mount-node-modules
     file:
       url: ./provision/mount-node-modules.py
+    permissions: 755
+
+  - mode: data
+    path: /usr/local/sbin/sloppi-allow-request
+    file:
+      url: ./provision/allow-request.py
     permissions: 755
 
   - mode: data
@@ -62,6 +79,30 @@ provision:
     path: /etc/nftables.conf
     file:
       url: ./config/nftables.conf
+    permissions: 644
+
+  - mode: data
+    path: /etc/sloppi/egress-domains
+    file:
+      url: ./config/egress-domains.conf
+    permissions: 644
+
+  - mode: data
+    path: /etc/sloppi/proxy-environment
+    file:
+      url: ./config/proxy-environment.conf
+    permissions: 644
+
+  - mode: data
+    path: /etc/sloppi/proxy.py
+    file:
+      url: ./config/proxy.py
+    permissions: 644
+
+  - mode: data
+    path: /etc/systemd/system/sloppi-proxy.service
+    file:
+      url: ./config/proxy.service
     permissions: 644
 
   - mode: system
