@@ -1,6 +1,7 @@
 import {Buffer} from 'node:buffer';
 import process from 'node:process';
 import {$} from 'execa';
+import PQueue from 'p-queue';
 import {
   createBashTool,
   createEditTool,
@@ -22,6 +23,7 @@ import {
 const remoteTools = new Set(['bash', 'edit', 'find', 'grep', 'ls', 'read', 'write']);
 // These provider-backed tools intentionally stay on the credential-holding host.
 const hostTools = new Set(['fetch_content', 'get_search_content', 'source_check', 'web_search']);
+const limaConcurrency = 4;
 
 // Pi passes cancellation and time limits through to the guest process.
 type RunOptions = {
@@ -31,13 +33,20 @@ type RunOptions = {
 };
 
 export const registerLimaTools = (pi: ExtensionAPI, instance: string, cwd: string): void => {
-  // Every filesystem operation crosses this Lima boundary; failures never run locally.
-  const shell = async (arguments_: string[], options: RunOptions = {}) => $({
-    reject: false,
-    ...(options.input !== undefined && {input: options.input}),
-    ...(options.signal !== undefined && {cancelSignal: options.signal}),
-    ...(options.timeout !== undefined && {timeout: options.timeout * 1000}),
-  })`limactl shell --tty=false --workdir ${cwd} ${instance} -- ${arguments_}`;
+  // The agent may request any number of tools; only Lima process launches are bounded.
+  const queue = new PQueue({concurrency: limaConcurrency});
+  const shell = async (arguments_: string[], options: RunOptions = {}) => queue.add(async () => {
+    if (options.signal?.aborted) {
+      throw options.signal.reason instanceof Error ? options.signal.reason : new Error('Lima command aborted before execution.');
+    }
+
+    return $({
+      reject: false,
+      ...(options.input !== undefined && {input: options.input}),
+      ...(options.signal !== undefined && {cancelSignal: options.signal}),
+      ...(options.timeout !== undefined && {timeout: options.timeout * 1000}),
+    })`limactl shell --tty=false --workdir ${cwd} ${instance} -- ${arguments_}`;
+  });
 
   const run = async (arguments_: string[], options?: RunOptions) => {
     const result = await shell(arguments_, options);
