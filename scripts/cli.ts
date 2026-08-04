@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import {createHash} from 'node:crypto';
 import path from 'node:path';
 import process from 'node:process';
 import {parseArgs} from 'node:util';
@@ -6,15 +7,19 @@ import {$} from 'execa';
 
 const $$ = $({stdio: 'inherit'});
 
-const instance = 'pi-dev';
+const project = process.cwd();
+const suffix = createHash('sha256').update(project).digest('hex').slice(0, 8);
+const name = path.basename(project).toLowerCase().replaceAll(/[^0-9a-z]+/gv, '-');
+const instance = `sloppi-${name}-${suffix}`;
 const configPath = path.join(import.meta.dirname, 'lima.yaml');
 
 const help = `
 Usage: sloppi [command] [pi options]
 
 Commands:
-start (default) Start the pi-dev VM and run the pi command with the given options
-destroy         Delete the pi-dev VM
+start (default) Start the project VM and run host Pi with tools routed into Lima
+destroy         Delete this project's VM
+list            List Lima VMs
 
 Options:
 -h, --help  Show this help
@@ -37,7 +42,7 @@ if (values.help) {
   process.exit(0);
 }
 
-const command = (positionals[0] ?? 'start').toLowerCase().trim();
+const command = positionals[0] ?? 'start';
 
 const isValidCommand = ['destroy', 'help', 'list', 'start'].includes(command);
 
@@ -65,10 +70,11 @@ switch (command) {
     if (limaInstanceList.split('\n').map(line => line.trim()).includes(instance)) {
       await $$`limactl start ${instance} -y`;
     } else {
-      await $$`limactl start --name ${instance} ${configPath} -y`;
+      await $$`limactl start --name ${instance} --mount-only ${`${project}:w`} ${configPath} -y`;
     }
 
     const installDependencies = String.raw`
+    if [ -f package-lock.json ]; then
       project="$(pwd -P)"
       modules="$HOME/.cache/pi-dev/node_modules/$(printf %s "$project" | sha256sum | cut -d ' ' -f 1)"
       stamp="$modules/.package-lock"
@@ -81,9 +87,22 @@ switch (command) {
         npm i
         printf '%s\n' "$signature" > "$stamp"
       fi
+    fi
     `;
 
     await $$`limactl shell --workdir ${process.cwd()} ${instance} -- sh -ceu ${installDependencies}`;
-    await $$`limactl shell --workdir ${process.cwd()} ${instance} -- env PI_DEV=true pi ${process.argv.slice(2)}`;
+    const piArguments = process.argv.slice(2);
+    if (process.argv[2] === command) {
+      piArguments.shift();
+    }
+
+    await $({
+      env: {
+        ...process.env,
+        PI_DEV: 'true',
+        SLOPPI_LIMA_INSTANCE: instance,
+      },
+      stdio: 'inherit',
+    })`pi ${piArguments}`;
   }
 }

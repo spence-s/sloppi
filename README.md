@@ -29,7 +29,6 @@ This repo contains my local Pi configuration and custom extensions, currently fo
 - `npm test` – run tests
 - `npm run lint` – lint code
 - `npm run check` – type-check
-- `npm run pi-dev` – launch Pi in Lima with risky-command confirmation disabled by default. It keeps Linux `node_modules` on the VM disk, so macOS and Linux native dependencies never overwrite each other.
 
 ## Notes
 

@@ -18,7 +18,7 @@ fi
 ln -sf /usr/bin/batcat /usr/local/bin/bat
 ln -sf /usr/bin/fdfind /usr/local/bin/fd
 
-for command in n node npm npx pi; do
+for command in n node npm npx; do
   ln -sf "{{.Home}}/n/bin/$command" "/usr/local/bin/$command"
 done
 

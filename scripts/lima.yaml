@@ -7,19 +7,13 @@ containerd:
   system: false
   user: false
 
+propagateProxyEnv: false
+
 ssh:
   loadDotSSHPubKeys: false
   forwardAgent: false
   forwardX11: false
   forwardX11Trusted: false
-
-mounts:
-  - location: ~/Projects
-    writable: true
-
-  - location: ~/.pi
-    mountPoint: /home/spencer.guest/.pi
-    writable: true
 
 provision:
   - mode: data

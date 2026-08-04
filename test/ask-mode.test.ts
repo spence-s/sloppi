@@ -126,7 +126,7 @@ void describe('ask-mode', () => {
 
   void test('onToolCall allows reads and searches when ask mode is enabled', (t: TestContext) => {
     t.assert.strictEqual(onToolCall(createToolCall('read'), true), undefined);
-    t.assert.strictEqual(onToolCall(createToolCall('rg'), true), undefined);
+    t.assert.strictEqual(onToolCall(createToolCall('grep'), true), undefined);
   });
 
   void test('onToolCall blocks non-read tools when ask mode is enabled', (t: TestContext) => {
@@ -135,21 +135,21 @@ void describe('ask-mode', () => {
     t.assert.deepStrictEqual(result, {
       block: true,
       reason:
-        'Ask mode is enabled: only file reads and searches with rg are allowed. Use /ask off to re-enable full tool access.',
+        'Ask mode is enabled: only file reads and searches are allowed. Use /ask off to re-enable full tool access.',
     });
   });
 
-  void test('ask on restricts active tools to read and rg and sets enabled LLM context', async (t: TestContext) => {
+  void test('ask on restricts active tools to reads and searches and sets enabled LLM context', async (t: TestContext) => {
     const harness = createHarness(['read', 'bash', 'edit', 'write']);
 
     await harness.getCommand('ask').handler('on', harness.ctx);
 
-    t.assert.deepStrictEqual(harness.getActiveTools(), ['read', 'rg']);
+    t.assert.deepStrictEqual(harness.getActiveTools(), ['read', 'grep', 'find', 'ls']);
 
     const beforeAgentStartResult = await harness.getBeforeAgentStart()();
     t.assert.strictEqual(
       beforeAgentStartResult.message.content,
-      'Ask mode is active. You may only use the read and rg tools. Do not call bash, edit, write, or other tools.',
+      'Ask mode is active. You may only use read-only tools. Do not call bash, edit, write, or other tools.',
     );
   });
 
@@ -177,7 +177,7 @@ void describe('ask-mode', () => {
     const harness = createHarness(['read', 'bash', 'edit', 'write']);
 
     await harness.getCommand('ask').handler('toggle', harness.ctx);
-    t.assert.deepStrictEqual(harness.getActiveTools(), ['read', 'rg']);
+    t.assert.deepStrictEqual(harness.getActiveTools(), ['read', 'grep', 'find', 'ls']);
 
     await harness.getCommand('ask').handler('toggle', harness.ctx);
     t.assert.deepStrictEqual(harness.getActiveTools(), [
