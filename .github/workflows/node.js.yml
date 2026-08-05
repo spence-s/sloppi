@@ -11,14 +11,27 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
 
     strategy:
       matrix:
+        os: [macos-latest]
         node-version: [22, 24, 26]
-    name: Node ${{ matrix.node-version }}
+        include:
+          - os: ubuntu-latest
+            node-version: 22
+    name: ${{ matrix.os }} / Node ${{ matrix.node-version }}
     steps:
       - uses: actions/checkout@v4
+      - name: Install macOS sandbox dependency
+        if: runner.os == 'macOS'
+        run: brew install ripgrep
+      - name: Install Linux sandbox dependencies
+        if: runner.os == 'Linux'
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          sudo apt-get update
+          sudo apt-get install --yes bubblewrap ripgrep socat
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
