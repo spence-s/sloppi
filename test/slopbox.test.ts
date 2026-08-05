@@ -14,6 +14,7 @@ import {$} from 'execa';
 import slopbox, {
   createSandboxConfig,
   formatSandboxError,
+  getFindArguments,
   getAllowedDirectories,
   resolveAllowedDirectory,
   resolveSandboxReadPath,
@@ -111,4 +112,31 @@ void test('registers /slopbox to allow directories during a session', (t: TestCo
   } as unknown as Parameters<typeof slopbox>[0]);
 
   t.assert.deepStrictEqual(commands, ['slopbox']);
+});
+
+void test('uses native find arguments on macOS', (t: TestContext) => {
+  t.assert.deepStrictEqual(
+    getFindArguments({
+      platform: 'darwin',
+      pattern: '*.test.ts',
+      path: 'test',
+      ignore: ['**/node_modules/**', '**/.git/**'],
+      limit: 100,
+    }),
+    [
+      'find',
+      'test',
+      '-type',
+      'f',
+      '!',
+      '-path',
+      '***/node_modules/**',
+      '!',
+      '-path',
+      '***/.git/**',
+      '-name',
+      '*.test.ts',
+      '-print',
+    ],
+  );
 });

@@ -101,6 +101,44 @@ export function formatSandboxError(message: string, fallback: string): string {
   return `${error}\n\n${sandboxGuidance}`;
 }
 
+type FindArgumentsInput = {
+  platform: string;
+  pattern: string;
+  path: string;
+  ignore: readonly string[];
+  limit: number;
+};
+
+export function getFindArguments({platform, pattern, path, ignore, limit}: FindArgumentsInput): string[] {
+  if (platform === 'darwin') {
+    const name = pattern.includes('/') ? '-path' : '-name';
+    const match = name === '-path' ? `*${pattern}` : pattern;
+    return [
+      'find',
+      path,
+      '-type',
+      'f',
+      ...ignore.flatMap(entry => ['!', '-path', `*${entry}`]),
+      name,
+      match,
+      '-print',
+    ];
+  }
+
+  return [
+    'fd',
+    '--glob',
+    '--color=never',
+    '--hidden',
+    ...ignore.flatMap(entry => ['--exclude', entry]),
+    '--max-results',
+    String(limit),
+    '--',
+    pattern,
+    path,
+  ];
+}
+
 export function createSandboxConfig(
   cwd: string,
   scratchPath: string,
@@ -276,19 +314,15 @@ export default function slopbox(pi: ExtensionAPI): void {
       return result.exitCode === 0;
     },
     async glob(pattern, path, {ignore, limit}) {
-      const output = await run([
-        'fd',
-        '--glob',
-        '--color=never',
-        '--hidden',
-        ...ignore.flatMap(entry => ['--exclude', entry]),
-        '--max-results',
-        String(limit),
-        '--',
+      const output = await run(getFindArguments({
+        platform: process.platform,
         pattern,
         path,
-      ]);
-      return output.trim().split('\n').filter(Boolean);
+        ignore,
+        limit,
+      }));
+      const results = output.trim().split('\n').filter(Boolean);
+      return process.platform === 'darwin' ? results.slice(0, limit) : results;
     },
   };
   const ls: LsOperations = {
