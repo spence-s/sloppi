@@ -52,8 +52,7 @@
     "@anthropic-ai/sandbox-runtime": "^0.0.70",
     "@earendil-works/pi-coding-agent": "^0.83.0",
     "@earendil-works/pi-tui": "^0.83.0",
-    "execa": "^10.0.1",
-    "p-queue": "^9.3.3"
+    "execa": "^10.0.1"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.1",

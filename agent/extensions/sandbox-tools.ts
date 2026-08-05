@@ -10,7 +10,6 @@ import {homedir, tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
 import {$} from 'execa';
-import PQueue from 'p-queue';
 import type {SandboxRuntimeConfig} from '@anthropic-ai/sandbox-runtime';
 import {
   createBashTool,
@@ -34,8 +33,25 @@ import {
 const sandboxedTools = new Set(['bash', 'edit', 'find', 'grep', 'ls', 'read', 'write']);
 // These provider-backed tools intentionally stay on the credential-holding host.
 const hostTools = new Set(['fetch_content', 'get_search_content', 'source_check', 'web_search']);
-const sandboxConcurrency = 4;
+// Resolve ~/.pi symlinks: Seatbelt evaluates the physical path, not the alias.
+export function resolveSandboxReadPath(path: string): string {
+  try {
+    return realpathSync(path);
+  } catch {
+    return path;
+  }
+}
+
+const skillsPaths = [
+  join(homedir(), '.pi', 'agent', 'skills'),
+  join(homedir(), '.pi', 'agent', 'git'),
+].map(path => resolveSandboxReadPath(path));
 const srtPath = resolve(import.meta.dirname, '../../node_modules/.bin/srt');
+const sandboxGuidance = [
+  'Sandbox restriction: work in the current project, use mktemp for private temporary files,',
+  'and treat global skills as read-only. Network access is disabled.',
+  'Do not retry an outside path or seek a host-execution workaround.',
+].join(' ');
 
 type RunOptions = {
   input?: string | undefined;
@@ -53,13 +69,22 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+export function formatSandboxError(message: string, fallback: string): string {
+  const error = message.length > 0 ? message : fallback;
+  if (!/operation not permitted|<sandbox_violations>|connection blocked by network allowlist/iv.test(error)) {
+    return error;
+  }
+
+  return `${error}\n\n${sandboxGuidance}`;
+}
+
 export function createSandboxConfig(cwd: string, scratchPath: string): SandboxRuntimeConfig {
   return {
-    network: {allowedDomains: [], deniedDomains: ['*']},
+    network: {allowedDomains: [], deniedDomains: []},
     filesystem: {
-      // System files remain readable so developer tools can run; user files do not.
+      // System files and global skills remain readable; user files do not.
       denyRead: [dirname(homedir())],
-      allowRead: [cwd],
+      allowRead: [cwd, ...skillsPaths],
       allowWrite: [cwd, scratchPath],
       denyWrite: [],
     },
@@ -85,7 +110,6 @@ async function removeSandboxSession(session: SandboxSession | undefined): Promis
 
 export default function sandboxTools(pi: ExtensionAPI): void {
   const cwd = realpathSync(process.cwd());
-  const queue = new PQueue({concurrency: sandboxConcurrency});
   let session: SandboxSession | undefined;
 
   const ensureSession = async (): Promise<SandboxSession> => {
@@ -93,7 +117,7 @@ export default function sandboxTools(pi: ExtensionAPI): void {
     return session;
   };
 
-  const shell = async (arguments_: string[], options: RunOptions = {}) => queue.add(async () => {
+  const shell = async (arguments_: string[], options: RunOptions = {}) => {
     if (options.signal?.aborted) {
       throw options.signal.reason instanceof Error ? options.signal.reason : new Error('Sandbox command aborted before execution.');
     }
@@ -114,13 +138,15 @@ export default function sandboxTools(pi: ExtensionAPI): void {
       ...(options.signal !== undefined && {cancelSignal: options.signal}),
       ...(options.timeout !== undefined && {timeout: options.timeout * 1000}),
     })`${srtPath} --settings ${currentSession.settingsPath} -- ${arguments_}`;
-  });
+  };
 
   const run = async (arguments_: string[], options?: RunOptions) => {
     const result = await shell(arguments_, options);
     if (result.exitCode !== 0) {
-      const message = result.stderr.trim();
-      throw new Error(message.length > 0 ? message : `Sandbox command failed (${String(result.exitCode)})`);
+      throw new Error(formatSandboxError(
+        result.stderr.trim(),
+        `Sandbox command failed (${String(result.exitCode)})`,
+      ));
     }
 
     return result.stdout;
@@ -159,7 +185,10 @@ export default function sandboxTools(pi: ExtensionAPI): void {
     async exec(command, _commandCwd, {onData, signal, timeout}) {
       const result = await shell(['sh', '-lc', command], {signal, timeout});
       onData(Buffer.from(result.stdout));
-      onData(Buffer.from(result.stderr));
+      const stderr = result.exitCode === 0
+        ? result.stderr
+        : formatSandboxError(result.stderr.trim(), `Sandbox command failed (${String(result.exitCode)})`);
+      onData(Buffer.from(stderr));
       return {exitCode: result.exitCode ?? null};
     },
   };
@@ -235,8 +264,7 @@ export default function sandboxTools(pi: ExtensionAPI): void {
 
       const result = await shell(arguments_, {signal});
       if (result.exitCode !== 0 && result.exitCode !== 1) {
-        const message = result.stderr.trim();
-        throw new Error(message.length > 0 ? message : `rg failed (${String(result.exitCode)})`);
+        throw new Error(formatSandboxError(result.stderr.trim(), `rg failed (${String(result.exitCode)})`));
       }
 
       const output = result.stdout.trim().split('\n').filter(Boolean).slice(0, limit).join('\n');
