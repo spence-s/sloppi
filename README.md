@@ -13,21 +13,19 @@ Personal Pi setup repository.
 
 This repo contains my local Pi configuration and custom extensions, currently for personal use only.
 
-## Contents
+## Extensions
 
-- `agent/extensions/` – custom Pi extensions
-  - `ask-mode.ts` – ask mode with read and ripgrep access (no bash/edit/write)
-  - `delete-gate.ts` – optional file deletion guard (`/delete on|off|toggle|status`)
-  - `sudo-gate.ts` – sudo policy gate (`/sudo deny|ask|allow|status`)
-  - `pipeline.ts` – multi-step scout → planner → worker → reviewer pipeline command
-  - `slopbox.ts` – sandboxed filesystem tools
-- `agent/agents/` – agent role definitions used by the pipeline extension
-- `test/` – extension tests
-- `agent/settings.json` – local Pi settings
+- `ask-mode.ts` – `/ask on|off|toggle` limits Pi to read, grep, find, and ls.
+- `delete-gate.ts` – `/delete on|off|toggle|status` confirms destructive bash commands.
+- `slopbox.ts` – sandboxes filesystem tools and adds `/slopbox add <directory>` for session access to another directory.
+- `startup-banner.ts` – renders the TUI banner.
+- `status-line.ts` – shows the OS and Git working-tree status in the footer.
+
+`test/` contains the extension tests. `agent/settings.json` is local Pi configuration.
 
 ## Sandbox
 
-Sloppi runs every filesystem-capable Pi tool through [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime). Each Pi session can write only its current project and a private temporary directory; it can read its project, global skills, and system files. Use `/slopbox add <directory>` to allow one additional directory whenever Pi opens that project. Network access is denied by default. This experimental boundary fails closed when SRT is unavailable. Linux requires `bubblewrap` and `socat`; macOS uses its built-in Seatbelt sandbox.
+Sloppi runs every filesystem-capable Pi tool through [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime). Each Pi session can write only its current project and a private temporary directory; it can read its project, global skills, and system files. Use `/slopbox add <directory>` to allow one additional directory whenever Pi opens that project. Network access is denied by default. This experimental boundary fails closed when SRT is unavailable. macOS uses its built-in Seatbelt sandbox and requires `ripgrep`; Linux also requires `bubblewrap`, `socat`, and `fd`.
 
 ## Local development
 
@@ -39,9 +37,3 @@ Sloppi runs every filesystem-capable Pi tool through [Anthropic Sandbox Runtime]
 
 - Not published as a package.
 - Runtime/local agent state is gitignored.
-
-## Pipeline usage
-
-- `/pipeline plan <goal>` – run scout + planner only and draft plan output in editor.
-- `/pipeline run <goal>` – run full pipeline (scout → planner → worker → reviewer).
-- `/pipeline <goal>` – shorthand for run mode.
