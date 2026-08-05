@@ -44,7 +44,7 @@ export default function slopbox(pi: ExtensionAPI): void {
   const cwd = realpathSync(process.cwd());
   const config = createConfigStore(cwd);
   const sandbox = createSandbox(cwd, config.load);
-  const bash = registerSandboxTools(pi, cwd, sandbox);
+  registerSandboxTools(pi, cwd, sandbox);
   let isPromptInProgress = false;
 
   pi.registerCommand('slopbox', {
@@ -96,7 +96,6 @@ export default function slopbox(pi: ExtensionAPI): void {
     },
   });
 
-  pi.on('user_bash', () => ({operations: bash}));
   pi.on('project_trust', () => ({trusted: 'no'}));
   pi.on('before_agent_start', event => ({
     systemPrompt: `${event.systemPrompt}\n\n${sandboxSystemPrompt}`,

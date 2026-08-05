@@ -56,7 +56,7 @@ export function getFindArguments({platform, pattern, path, ignore, limit}: FindA
   ];
 }
 
-export function registerSandboxTools(pi: ExtensionAPI, cwd: string, sandbox: Sandbox): BashOperations {
+export function registerSandboxTools(pi: ExtensionAPI, cwd: string, sandbox: Sandbox): void {
   const read: ReadOperations = {
     async access(path) {
       await sandbox.run(['test', '-r', path]);
@@ -203,6 +203,4 @@ export function registerSandboxTools(pi: ExtensionAPI, cwd: string, sandbox: San
       };
     },
   });
-
-  return bash;
 }
