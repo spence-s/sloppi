@@ -12,16 +12,18 @@ import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
 import {test, type TestContext} from 'node:test';
 import {$} from 'execa';
-import slopbox, {
+import {
+  getAllowedDirectories,
+  resolveAllowedDirectory,
+  shouldPromptOnNetworkDeny,
+} from '../agent/extensions/slopbox/config.ts';
+import slopbox, {getBlockedDomain} from '../agent/extensions/slopbox/index.ts';
+import {
   createSandboxConfig,
   formatSandboxError,
-  getBlockedDomain,
-  getFindArguments,
-  getAllowedDirectories,
-  shouldPromptOnNetworkDeny,
-  resolveAllowedDirectory,
   resolveSandboxReadPath,
-} from '../agent/extensions/slopbox.ts';
+} from '../agent/extensions/slopbox/sandbox.ts';
+import {getFindArguments} from '../agent/extensions/slopbox/tools.ts';
 
 void test('limits filesystem access to the project and session scratch directory', (t: TestContext) => {
   const piAgentPath = join(homedir(), '.pi', 'agent');

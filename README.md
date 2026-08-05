@@ -17,7 +17,7 @@ This repo contains my local Pi configuration and custom extensions, currently fo
 
 - `ask-mode.ts` – `/ask on|off|toggle` limits Pi to read, grep, find, and ls.
 - `delete-gate.ts` – `/delete on|off|toggle|status` confirms destructive bash commands.
-- `slopbox.ts` – sandboxes filesystem tools with global and per-project SRT configuration.
+- `slopbox/` – sandboxes filesystem tools with global and per-project SRT configuration.
 - `startup-banner.ts` – renders the TUI banner.
 - `status-line.ts` – shows the OS and Git working-tree status in the footer.
 

@@ -1,0 +1,180 @@
+import {realpathSync} from 'node:fs';
+import process from 'node:process';
+import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
+import {createConfigStore, resolveAllowedDirectory, type ConfigScope} from './config.ts';
+import {createSandbox, createSandboxConfig} from './sandbox.ts';
+import {registerSandboxTools} from './tools.ts';
+
+// Only these tools may execute commands; everything else stays explicitly allowlisted.
+const sandboxedTools = new Set(['bash', 'edit', 'find', 'grep', 'ls', 'read', 'write']);
+// These provider-backed tools intentionally stay on the credential-holding host.
+const hostTools = new Set(['fetch_content', 'get_search_content', 'source_check', 'web_search']);
+const sandboxSystemPrompt = `## Slopbox Sandbox
+
+Filesystem tools can write only the current project, explicitly allowed directories,
+and private temporary storage; global skills are read-only. Network access is
+allowlisted, and host credentials, signing agents, and other host services are
+unavailable unless explicitly configured. Treat a sandbox denial as a real boundary:
+do not retry outside it or seek a workaround.`;
+
+function getErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+export function getBlockedDomain(message: string, command = ''): string | undefined {
+  const violation = /deny network-outbound (?<host>.+):(?<port>\d+) \(host is not on the allow list\)/v.exec(message);
+  if (violation?.groups !== undefined) {
+    return `${violation.groups.host}:${violation.groups.port}`;
+  }
+
+  if (!/connection blocked by network allowlist|connect tunnel failed, response 403/iv.test(message)) {
+    return undefined;
+  }
+
+  const url = /https?:\/\/[^\s"'`]+/v.exec(command)?.[0];
+  if (url === undefined) {
+    return undefined;
+  }
+
+  const parsed = new URL(url);
+  return `${parsed.hostname}:${parsed.port.length > 0 ? parsed.port : (parsed.protocol === 'https:' ? '443' : '80')}`;
+}
+
+export default function slopbox(pi: ExtensionAPI): void {
+  const cwd = realpathSync(process.cwd());
+  const config = createConfigStore(cwd);
+  const sandbox = createSandbox(cwd, config.load);
+  const bash = registerSandboxTools(pi, cwd, sandbox);
+  let isPromptInProgress = false;
+
+  pi.registerCommand('slopbox', {
+    description: 'Configure sandbox access. Usage: /slopbox [global] add|allow|status <value>',
+    async handler(args, ctx) {
+      const parts = args.trim().split(/\s+/v).filter(Boolean);
+      const scope: ConfigScope = parts[0] === 'global' ? 'global' : 'project';
+      if (scope === 'global') {
+        parts.shift();
+      }
+
+      const command = parts.shift();
+      try {
+        const loadedConfig = await config.load();
+        if (command === 'status' && parts.length === 0) {
+          ctx.ui.notify(JSON.stringify(createSandboxConfig(cwd, '<session scratch>', [], loadedConfig), undefined, 2), 'info');
+          return;
+        }
+
+        if (command === 'add' && parts.length > 0) {
+          const directory = resolveAllowedDirectory(cwd, parts.join(' '));
+          config.addDirectory(scope, directory);
+          await config.save();
+          await sandbox.refresh();
+          ctx.ui.notify(`slopbox allows ${directory} (${scope}).`, 'info');
+          return;
+        }
+
+        if (command === 'allow' && parts.length === 1) {
+          config.addDomain(scope, parts[0] ?? '');
+          await config.save();
+          await sandbox.refresh();
+          ctx.ui.notify(`slopbox allows ${parts[0]} (${scope}).`, 'info');
+          return;
+        }
+
+        if (command === 'prompt' && (parts[0] === 'on' || parts[0] === 'off')) {
+          config.setPrompting(scope, parts[0] === 'on');
+          await config.save();
+          await sandbox.refresh();
+          ctx.ui.notify(`slopbox network prompts are ${parts[0]} (${scope}).`, 'info');
+          return;
+        }
+
+        ctx.ui.notify('Usage: /slopbox [global] add <directory> | allow <domain> | prompt on|off | status', 'info');
+      } catch (error) {
+        ctx.ui.notify(getErrorMessage(error), 'error');
+      }
+    },
+  });
+
+  pi.on('user_bash', () => ({operations: bash}));
+  pi.on('project_trust', () => ({trusted: 'no'}));
+  pi.on('before_agent_start', event => ({
+    systemPrompt: `${event.systemPrompt}\n\n${sandboxSystemPrompt}`,
+  }));
+  pi.on('tool_call', event => {
+    if (!sandboxedTools.has(event.toolName) && !hostTools.has(event.toolName)) {
+      return {block: true, reason: `Tool ${event.toolName} is not approved for host execution.`};
+    }
+  });
+
+  pi.on('tool_result', async (event, ctx) => {
+    if (!sandboxedTools.has(event.toolName) || !ctx.hasUI || isPromptInProgress) {
+      return;
+    }
+
+    await config.load();
+    const message = event.content
+      .filter(entry => entry.type === 'text')
+      .map(entry => entry.text)
+      .join('\n');
+    const command = typeof event.input.command === 'string' ? event.input.command : '';
+    const suggestedDomain = getBlockedDomain(message, command);
+    if (suggestedDomain === undefined || !config.shouldPrompt()) {
+      return;
+    }
+
+    isPromptInProgress = true;
+    try {
+      const projectChoice = `Allow ${suggestedDomain} for this project`;
+      const globalChoice = `Allow ${suggestedDomain} for all projects`;
+      const customChoice = 'Customize the SRT domain pattern…';
+      const choice = await ctx.ui.select('Slopbox blocked a network request', [
+        projectChoice,
+        globalChoice,
+        customChoice,
+        'Deny',
+      ]);
+      if (choice === undefined || choice === 'Deny') {
+        return;
+      }
+
+      const scope: ConfigScope = choice === globalChoice ? 'global' : 'project';
+      const domain = choice === customChoice
+        ? await ctx.ui.input('SRT domain pattern', suggestedDomain)
+        : suggestedDomain;
+      if (domain === undefined || domain.trim().length === 0) {
+        return;
+      }
+
+      config.addDomain(scope, domain.trim());
+      await config.save();
+      await sandbox.refresh();
+      ctx.ui.notify(`Added ${domain.trim()} to ${scope} network.allowedDomains. Retry the command.`, 'info');
+    } catch (error) {
+      ctx.ui.notify(getErrorMessage(error), 'error');
+    } finally {
+      isPromptInProgress = false;
+    }
+  });
+
+  const setStatus = (ctx: ExtensionContext, status: string): void => {
+    ctx.ui.setStatus('0:slopbox', ctx.ui.theme.fg('accent', status));
+  };
+
+  pi.on('session_start', async (_event, ctx) => {
+    setStatus(ctx, 'slopbox starting');
+    try {
+      await sandbox.ensureSession();
+      await sandbox.run(['true']);
+      setStatus(ctx, 'slopbox on');
+      ctx.ui.notify(`Sandboxed tools can access only ${cwd}.`, 'info');
+    } catch (error) {
+      setStatus(ctx, 'slopbox off');
+      ctx.ui.notify(getErrorMessage(error), 'error');
+    }
+  });
+
+  pi.on('session_shutdown', async () => {
+    await sandbox.shutdown();
+  });
+}
