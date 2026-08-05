@@ -9,6 +9,7 @@ import {
 } from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
+import process from 'node:process';
 import {test, type TestContext} from 'node:test';
 import {$} from 'execa';
 import slopbox, {
@@ -72,13 +73,13 @@ void test('resolves directories before adding them to the sandbox policy', async
 
 void test('SRT denies writes outside the project and session scratch directory', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-sandbox-test-'));
-  const projectPath = join(directory, 'project');
+  const projectPath = realpathSync(process.cwd());
   const scratchPath = join(directory, 'scratch');
   const outsidePath = join(directory, 'outside');
   const settingsPath = join(directory, 'settings.json');
 
   try {
-    await Promise.all([mkdir(projectPath), mkdir(scratchPath), mkdir(outsidePath)]);
+    await Promise.all([mkdir(scratchPath), mkdir(outsidePath)]);
     await writeFile(settingsPath, `${JSON.stringify(createSandboxConfig(projectPath, scratchPath))}\n`);
 
     const srtPath = resolve(import.meta.dirname, '../node_modules/.bin/srt');
