@@ -124,9 +124,12 @@ void describe('ask-mode', () => {
     t.assert.strictEqual(result, undefined);
   });
 
-  void test('onToolCall allows reads and searches when ask mode is enabled', (t: TestContext) => {
-    t.assert.strictEqual(onToolCall(createToolCall('read'), true), undefined);
-    t.assert.strictEqual(onToolCall(createToolCall('grep'), true), undefined);
+  void test('onToolCall allows file and web research when ask mode is enabled', (t: TestContext) => {
+    t.assert.deepStrictEqual(
+      ['read', 'grep', 'web_search', 'source_check', 'fetch_content', 'get_search_content']
+        .map(tool => onToolCall(createToolCall(tool), true)),
+      [undefined, undefined, undefined, undefined, undefined, undefined],
+    );
   });
 
   void test('onToolCall blocks non-read tools when ask mode is enabled', (t: TestContext) => {
@@ -135,7 +138,7 @@ void describe('ask-mode', () => {
     t.assert.deepStrictEqual(result, {
       block: true,
       reason:
-        'Ask mode is enabled: only file reads and searches are allowed. Use /ask off to re-enable full tool access.',
+        'Ask mode is enabled: only read-only tools and web research are allowed. Use /ask off to re-enable full tool access.',
     });
   });
 
@@ -144,12 +147,21 @@ void describe('ask-mode', () => {
 
     await harness.getCommand('ask').handler('on', harness.ctx);
 
-    t.assert.deepStrictEqual(harness.getActiveTools(), ['read', 'grep', 'find', 'ls']);
+    t.assert.deepStrictEqual(harness.getActiveTools(), [
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'web_search',
+      'source_check',
+      'fetch_content',
+      'get_search_content',
+    ]);
 
     const beforeAgentStartResult = await harness.getBeforeAgentStart()();
     t.assert.strictEqual(
       beforeAgentStartResult.message.content,
-      'Ask mode is active. You may only use read-only tools. Do not call bash, edit, write, or other tools.',
+      'Ask mode is active. You may use read-only tools and web research. Do not call bash, edit, or write.',
     );
   });
 
@@ -177,7 +189,16 @@ void describe('ask-mode', () => {
     const harness = createHarness(['read', 'bash', 'edit', 'write']);
 
     await harness.getCommand('ask').handler('toggle', harness.ctx);
-    t.assert.deepStrictEqual(harness.getActiveTools(), ['read', 'grep', 'find', 'ls']);
+    t.assert.deepStrictEqual(harness.getActiveTools(), [
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'web_search',
+      'source_check',
+      'fetch_content',
+      'get_search_content',
+    ]);
 
     await harness.getCommand('ask').handler('toggle', harness.ctx);
     t.assert.deepStrictEqual(harness.getActiveTools(), [

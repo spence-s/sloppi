@@ -12,18 +12,19 @@ type AskModeState = {
 
 const askModeStatusId = '0:ask-mode';
 const askModeEntryType = 'ask-mode';
+const askModeTools = ['read', 'grep', 'find', 'ls', 'web_search', 'source_check', 'fetch_content', 'get_search_content'];
 const askModeEnabledContext =
-  'Ask mode is active. You may only use read-only tools. Do not call bash, edit, write, or other tools.';
+  'Ask mode is active. You may use read-only tools and web research. Do not call bash, edit, or write.';
 const askModeDisabledContext =
   'Ask mode is inactive. You may call available tools normally, including  bash, edit, write, or other tools.';
 const askModeBlockedReason =
-  'Ask mode is enabled: only file reads and searches are allowed. Use /ask off to re-enable full tool access.';
+  'Ask mode is enabled: only read-only tools and web research are allowed. Use /ask off to re-enable full tool access.';
 
 export function onToolCall(
   event: ToolCallEvent,
   isAskModeEnabled: boolean,
 ): ToolCallEventResult | void {
-  if (!isAskModeEnabled || ['find', 'grep', 'ls', 'read'].includes(event.toolName)) {
+  if (!isAskModeEnabled || askModeTools.includes(event.toolName)) {
     return;
   }
 
@@ -48,7 +49,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
     if (isEnabled) {
       toolsBeforeAskMode ??= pi.getActiveTools();
-      pi.setActiveTools(['read', 'grep', 'find', 'ls']);
+      pi.setActiveTools(askModeTools);
     } else {
       pi.setActiveTools(toolsBeforeAskMode ?? pi.getActiveTools());
       toolsBeforeAskMode = undefined;
@@ -73,7 +74,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
     ctx.ui.notify(
       isAskModeEnabled
-        ? 'Ask mode enabled. File reads and searches are allowed.'
+        ? 'Ask mode enabled. Read-only tools and web research are allowed.'
         : 'Ask mode disabled. Tool access restored.',
       'info',
     );
@@ -100,7 +101,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
     if (isAskModeEnabled) {
       toolsBeforeAskMode ??= pi.getActiveTools();
-      pi.setActiveTools(['read', 'grep', 'find', 'ls']);
+      pi.setActiveTools(askModeTools);
     }
 
     ctx.ui.setStatus(

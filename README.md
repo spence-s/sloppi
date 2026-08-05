@@ -15,7 +15,7 @@ This repo contains my local Pi configuration and custom extensions, currently fo
 
 ## Extensions
 
-- `ask-mode.ts` – `/ask on|off|toggle` limits Pi to read, grep, find, and ls.
+- `ask-mode.ts` – `/ask on|off|toggle` limits Pi to read-only files and web research tools.
 - `slopbox/` – sandboxes filesystem tools with global and per-project SRT configuration.
 - `startup-banner.ts` – renders the TUI banner.
 - `status-line.ts` – shows the OS and Git working-tree status in the footer.
