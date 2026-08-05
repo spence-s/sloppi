@@ -1,11 +1,10 @@
-import process from 'node:process';
 import {
   isToolCallEventType,
   type ExtensionAPI,
   type ExtensionContext,
 } from '@earendil-works/pi-coding-agent';
 
-// ponytail: regex heuristic; use filesystem sandboxing for a hard deletion boundary.
+// ponytail: optional regex guard; SRT already limits deletions to the project.
 const destructivePattern = new RegExp(
   [
     // Shell commands.
@@ -23,7 +22,7 @@ const destructivePattern = new RegExp(
 const statusId = '1:delete-gate';
 
 export default function deleteGate(pi: Pick<ExtensionAPI, 'on' | 'sendMessage' | 'registerCommand'>): void {
-  let isEnabled = process.env.PI_DEV !== 'true';
+  let isEnabled = false;
   let hasDeniedDeletion = false;
 
   const updateStatus = (ctx: ExtensionContext): void => {

@@ -6,7 +6,7 @@ import sandboxTools, {createSandboxConfig} from '../agent/extensions/sandbox-too
 void test('limits filesystem access to the project and session scratch directory', (t: TestContext) => {
   const config = createSandboxConfig('/Users/spencer/Projects/app', '/private/tmp/sloppi-123/tmp');
 
-  t.assert.deepStrictEqual(config.network, {allowedDomains: [], deniedDomains: []});
+  t.assert.deepStrictEqual(config.network, {allowedDomains: [], deniedDomains: ['*']});
   t.assert.deepStrictEqual(config.filesystem.allowRead, ['/Users/spencer/Projects/app']);
   t.assert.deepStrictEqual(config.filesystem.allowWrite, [
     '/Users/spencer/Projects/app',

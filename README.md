@@ -17,7 +17,7 @@ This repo contains my local Pi configuration and custom extensions, currently fo
 
 - `agent/extensions/` – custom Pi extensions
   - `ask-mode.ts` – ask mode with read and ripgrep access (no bash/edit/write)
-  - `delete-gate.ts` – interactive file deletion guard (`/delete on|off|toggle|status`)
+  - `delete-gate.ts` – optional file deletion guard (`/delete on|off|toggle|status`)
   - `sudo-gate.ts` – sudo policy gate (`/sudo deny|ask|allow|status`)
   - `pipeline.ts` – multi-step scout → planner → worker → reviewer pipeline command
 - `agent/agents/` – agent role definitions used by the pipeline extension

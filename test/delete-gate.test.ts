@@ -1,6 +1,4 @@
-import process from 'node:process';
 import {
-  afterEach,
   describe,
   test,
   type TestContext,
@@ -20,16 +18,6 @@ type ToolCallHandler = (
 type RegisteredCommand = {
   handler: (args: string, ctx: ExtensionContext) => Promise<void>;
 };
-
-const initialPiDev = process.env.PI_DEV;
-
-afterEach(() => {
-  if (initialPiDev === undefined) {
-    delete process.env.PI_DEV;
-  } else {
-    process.env.PI_DEV = initialPiDev;
-  }
-});
 
 function createBashToolCall(command: string): ToolCallEvent {
   return {
@@ -116,10 +104,7 @@ void describe('delete-gate', () => {
     t.assert.strictEqual(confirm.mock.calls.length, 0);
   });
 
-  void test('is disabled by default under pi-dev', async (t: TestContext) => {
-    // eslint-disable-next-line node-test/no-process-env-mutation -- restored by afterEach.
-    process.env.PI_DEV = 'true';
-
+  void test('is disabled by default', async (t: TestContext) => {
     const confirm = t.mock.fn(async () => false);
     const {handler} = createGate();
     const result = await handler(createBashToolCall('rm file.txt'), createContext(confirm));
@@ -152,12 +137,11 @@ void describe('delete-gate', () => {
     t.assert.strictEqual(confirm.mock.calls.length, 1);
   });
 
-  void test('blocks deletion in non-interactive mode', async (t: TestContext) => {
-    const {handler} = createGate();
-    const result = await handler(
-      createBashToolCall('rm file.txt'),
-      createContext(async () => true, false),
-    );
+  void test('blocks deletion in non-interactive mode when enabled', async (t: TestContext) => {
+    const {handler, getCommand} = createGate();
+    const context = createContext(async () => true, false);
+    await getCommand('delete').handler('on', context);
+    const result = await handler(createBashToolCall('rm file.txt'), context);
 
     t.assert.deepStrictEqual(result, {
       block: true,
@@ -167,8 +151,9 @@ void describe('delete-gate', () => {
 
   void test('blocks Node deletion after the user rejects rm and steers the model', async (t: TestContext) => {
     const confirm = t.mock.fn(async () => false);
-    const {handler, messages} = createGate();
+    const {handler, messages, getCommand} = createGate();
     const context = createContext(confirm);
+    await getCommand('delete').handler('on', context);
 
     const denied = await handler(createBashToolCall('rm file.txt'), context);
     const bypass = await handler(

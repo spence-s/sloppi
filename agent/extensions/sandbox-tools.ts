@@ -131,7 +131,7 @@ export default function sandboxTools(pi: ExtensionAPI): void {
       await run(['test', '-r', path]);
     },
     async readFile(path) {
-      const output = await run(['base64', '-w', '0', '--', path]);
+      const output = await run(['sh', '-c', 'base64 < "$1" | tr -d "\n"', 'sh', path]);
       return Buffer.from(output, 'base64');
     },
     async detectImageMimeType(path) {
