@@ -14,6 +14,7 @@ import {$} from 'execa';
 import slopbox, {
   createSandboxConfig,
   formatSandboxError,
+  getAllowedDirectories,
   resolveAllowedDirectory,
   resolveSandboxReadPath,
 } from '../agent/extensions/slopbox.ts';
@@ -34,6 +35,17 @@ void test('limits filesystem access to the project and session scratch directory
   t.assert.deepStrictEqual(config.filesystem.denyWrite, []);
   const userDirectory = dirname(homedir());
   t.assert.ok(config.filesystem.denyRead.includes(userDirectory));
+});
+
+void test('loads only the current project directories from saved configuration', (t: TestContext) => {
+  const config = {
+    '/project-a': ['/shared/a'],
+    '/project-b': ['/shared/b'],
+  };
+
+  t.assert.deepStrictEqual(getAllowedDirectories(config, '/project-a'), ['/shared/a']);
+  t.assert.deepStrictEqual(getAllowedDirectories(config, '/missing'), []);
+  t.assert.deepStrictEqual(getAllowedDirectories({'/project-a': [123]}, '/project-a'), []);
 });
 
 void test('resolves directories before adding them to the sandbox policy', async (t: TestContext) => {

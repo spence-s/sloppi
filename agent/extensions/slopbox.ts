@@ -3,6 +3,7 @@ import {realpathSync, statSync} from 'node:fs';
 import {
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   writeFile,
 } from 'node:fs/promises';
@@ -55,6 +56,19 @@ const skillsPaths = [
   join(homedir(), '.pi', 'agent', 'skills'),
   join(homedir(), '.pi', 'agent', 'git'),
 ].map(path => resolveSandboxReadPath(path));
+const slopboxConfigPath = join(homedir(), '.pi', 'slopbox.json');
+
+export function getAllowedDirectories(config: unknown, cwd: string): string[] {
+  if (typeof config !== 'object' || config === null) {
+    return [];
+  }
+
+  const directories = (config as Record<string, unknown>)[cwd];
+  return Array.isArray(directories) && directories.every(path => typeof path === 'string')
+    ? directories
+    : [];
+}
+
 const srtPath = resolve(import.meta.dirname, '../../node_modules/.bin/srt');
 const sandboxGuidance = [
   'Sandbox restriction: work in the current project, use mktemp for private temporary files,',
@@ -127,11 +141,52 @@ async function removeSandboxSession(session: SandboxSession | undefined): Promis
 export default function slopbox(pi: ExtensionAPI): void {
   const cwd = realpathSync(process.cwd());
   const allowedDirectories = new Set<string>();
+  let hasLoadedConfig = false;
   let session: SandboxSession | undefined;
 
+  const loadConfig = async (): Promise<void> => {
+    if (hasLoadedConfig) {
+      return;
+    }
+
+    try {
+      const config = JSON.parse(await readFile(slopboxConfigPath, 'utf8')) as unknown;
+      for (const directory of getAllowedDirectories(config, cwd)) {
+        allowedDirectories.add(directory);
+      }
+    } catch (error) {
+      const code = error instanceof Error && 'code' in error ? error.code : undefined;
+      if (code !== 'ENOENT') {
+        throw error;
+      }
+    }
+
+    hasLoadedConfig = true;
+  };
+
   const ensureSession = async (): Promise<SandboxSession> => {
+    await loadConfig();
     session ??= await createSandboxSession(cwd, [...allowedDirectories]);
     return session;
+  };
+
+  const saveConfig = async (): Promise<void> => {
+    let config: Record<string, unknown> = {};
+    try {
+      const savedConfig = JSON.parse(await readFile(slopboxConfigPath, 'utf8')) as unknown;
+      if (typeof savedConfig === 'object' && savedConfig !== null && !Array.isArray(savedConfig)) {
+        config = savedConfig as Record<string, unknown>;
+      }
+    } catch (error) {
+      const code = error instanceof Error && 'code' in error ? error.code : undefined;
+      if (code !== 'ENOENT') {
+        throw error;
+      }
+    }
+
+    config[cwd] = [...allowedDirectories];
+    await mkdir(dirname(slopboxConfigPath), {recursive: true});
+    await writeFile(slopboxConfigPath, `${JSON.stringify(config, undefined, 2)}\n`);
   };
 
   const refreshSession = async (): Promise<void> => {
@@ -299,7 +354,7 @@ export default function slopbox(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand('slopbox', {
-    description: 'Allow a directory for this session. Usage: /slopbox add <directory>',
+    description: 'Allow a directory for this project. Usage: /slopbox add <directory>',
     async handler(args, ctx) {
       const [command, ...paths] = args.trim().split(/\s+/v);
       if (command !== 'add' || paths.length === 0) {
@@ -310,6 +365,7 @@ export default function slopbox(pi: ExtensionAPI): void {
       try {
         const directory = resolveAllowedDirectory(cwd, paths.join(' '));
         allowedDirectories.add(directory);
+        await saveConfig();
         await refreshSession();
         ctx.ui.notify(`slopbox allows ${directory}.`, 'info');
       } catch (error) {
