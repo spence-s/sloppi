@@ -16,6 +16,7 @@ import {$} from 'execa';
 import {
   createConfigStore,
   getAllowedDirectories,
+  isDomainAllowed,
   resolveAllowedDirectory,
   shouldPromptOnNetworkDeny,
 } from '../agent/extensions/slopbox/config.ts';
@@ -105,6 +106,15 @@ void test('merges global and project SRT configuration without renaming options'
 });
 
 void test('extracts blocked domains and applies project prompt overrides', (t: TestContext) => {
+  const allowed = {
+    network: {allowedDomains: ['api.example.com', '*.example.net:8443']},
+    projects: {'/project': {network: {allowedDomains: ['project.example:443']}}},
+  };
+  t.assert.strictEqual(isDomainAllowed(allowed, '/project', 'api.example.com:443'), true);
+  t.assert.strictEqual(isDomainAllowed(allowed, '/project', 'service.example.net:8443'), true);
+  t.assert.strictEqual(isDomainAllowed(allowed, '/project', 'service.example.net:443'), false);
+  t.assert.strictEqual(isDomainAllowed(allowed, '/project', 'project.example:443'), true);
+
   const violation = 'deny network-outbound api.example.com:443 (host is not on the allow list)';
   t.assert.strictEqual(getBlockedDomain(violation), 'api.example.com:443');
   t.assert.strictEqual(

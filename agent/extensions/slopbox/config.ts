@@ -60,6 +60,36 @@ export function getAllowedDirectories(config: unknown, cwd: string): string[] {
     : [];
 }
 
+export function isDomainAllowed(config: unknown, cwd: string, domain: string): boolean {
+  if (!isConfig(config)) {
+    return false;
+  }
+
+  const separator = domain.lastIndexOf(':');
+  const host = separator === -1 ? domain : domain.slice(0, separator);
+  const port = separator === -1 ? undefined : Number(domain.slice(separator + 1));
+  if (port !== undefined && (!Number.isSafeInteger(port) || port < 1 || port > 65_535)) {
+    return false;
+  }
+
+  const {network} = getEffectiveConfig(config, cwd);
+  if (!isConfig(network)) {
+    return false;
+  }
+
+  return getStrings(network.allowedDomains).some(pattern => {
+    const patternSeparator = pattern.lastIndexOf(':');
+    const patternHost = patternSeparator === -1 ? pattern : pattern.slice(0, patternSeparator);
+    const patternPort = patternSeparator === -1 ? undefined : Number(pattern.slice(patternSeparator + 1));
+    if (patternPort !== undefined && patternPort !== port) {
+      return false;
+    }
+
+    return patternHost === host
+      || (patternHost.startsWith('*.') && host.endsWith(`.${patternHost.slice(2)}`));
+  });
+}
+
 export function shouldPromptOnNetworkDeny(config: unknown, cwd: string): boolean {
   if (!isConfig(config)) {
     return true;

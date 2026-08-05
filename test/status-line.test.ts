@@ -67,7 +67,6 @@ void describe('status line', () => {
         getAvailableProviderCount: () => 1,
         getExtensionStatuses: () => new Map([
           ['0:sudo-gate', 'sudo: denied'],
-          ['1:delete-gate', 'delete: ask'],
           ['third-party', 'third-party status'],
         ]),
         getGitBranch: () => null,
@@ -79,7 +78,7 @@ void describe('status line', () => {
     t.assert.strictEqual(lines.at(-2), 'third-party status');
     t.assert.match(
       lines.at(-1) ?? '',
-      /(?:macOS|Ubuntu) \| .*~1 \| sudo: denied \| delete: ask$/v,
+      /(?:macOS|Ubuntu) \| .*~1 \| sudo: denied$/v,
     );
   });
 });

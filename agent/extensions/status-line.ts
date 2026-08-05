@@ -12,7 +12,7 @@ type GitStatus = {
   untracked: number;
 };
 
-const gateStatusIds = ['0:sudo-gate', '1:delete-gate'];
+const gateStatusIds = ['0:sudo-gate'];
 
 export function getOsLabel(platform = process.platform): string {
   if (platform === 'darwin') {

@@ -1,7 +1,12 @@
 import {realpathSync} from 'node:fs';
 import process from 'node:process';
 import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
-import {createConfigStore, resolveAllowedDirectory, type ConfigScope} from './config.ts';
+import {
+  createConfigStore,
+  isDomainAllowed,
+  resolveAllowedDirectory,
+  type ConfigScope,
+} from './config.ts';
 import {createSandbox, createSandboxConfig} from './sandbox.ts';
 import {registerSandboxTools} from './tools.ts';
 
@@ -108,14 +113,14 @@ export default function slopbox(pi: ExtensionAPI): void {
       return;
     }
 
-    await config.reload();
+    const loadedConfig = await config.reload();
     const message = event.content
       .filter(entry => entry.type === 'text')
       .map(entry => entry.text)
       .join('\n');
     const command = typeof event.input.command === 'string' ? event.input.command : '';
     const suggestedDomain = getBlockedDomain(message, command);
-    if (suggestedDomain === undefined || !config.shouldPrompt()) {
+    if (suggestedDomain === undefined || !config.shouldPrompt() || isDomainAllowed(loadedConfig, cwd, suggestedDomain)) {
       return;
     }
 
@@ -153,7 +158,7 @@ export default function slopbox(pi: ExtensionAPI): void {
   });
 
   const setStatus = (ctx: ExtensionContext, status: string): void => {
-    ctx.ui.setStatus('0:slopbox', ctx.ui.theme.fg('accent', status));
+    ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', status)} ${ctx.ui.theme.fg('dim', '│')}`);
   };
 
   pi.on('session_start', async (_event, ctx) => {
