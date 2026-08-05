@@ -20,6 +20,7 @@ This repo contains my local Pi configuration and custom extensions, currently fo
   - `delete-gate.ts` – optional file deletion guard (`/delete on|off|toggle|status`)
   - `sudo-gate.ts` – sudo policy gate (`/sudo deny|ask|allow|status`)
   - `pipeline.ts` – multi-step scout → planner → worker → reviewer pipeline command
+  - `slopbox.ts` – sandboxed filesystem tools
 - `agent/agents/` – agent role definitions used by the pipeline extension
 - `test/` – extension tests
 - `agent/settings.json` – local Pi settings

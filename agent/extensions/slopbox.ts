@@ -108,7 +108,7 @@ async function removeSandboxSession(session: SandboxSession | undefined): Promis
   }
 }
 
-export default function sandboxTools(pi: ExtensionAPI): void {
+export default function slopbox(pi: ExtensionAPI): void {
   const cwd = realpathSync(process.cwd());
   let session: SandboxSession | undefined;
 
@@ -284,18 +284,18 @@ export default function sandboxTools(pi: ExtensionAPI): void {
   });
 
   const setStatus = (ctx: ExtensionContext, status: string): void => {
-    ctx.ui.setStatus('0:sandbox', ctx.ui.theme.fg('accent', status));
+    ctx.ui.setStatus('0:slopbox', ctx.ui.theme.fg('accent', status));
   };
 
   pi.on('session_start', async (_event, ctx) => {
-    setStatus(ctx, 'Sandbox: starting…');
+    setStatus(ctx, 'slopbox starting');
     try {
       await ensureSession();
       await run(['true']);
-      setStatus(ctx, 'Sandbox: project only');
+      setStatus(ctx, 'slopbox on');
       ctx.ui.notify(`Sandboxed tools can access only ${cwd}.`, 'info');
     } catch (error) {
-      setStatus(ctx, 'Sandbox: unavailable');
+      setStatus(ctx, 'slopbox off');
       ctx.ui.notify(getErrorMessage(error), 'error');
     }
   });

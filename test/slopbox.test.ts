@@ -11,11 +11,11 @@ import {homedir, tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import {test, type TestContext} from 'node:test';
 import {$} from 'execa';
-import sandboxTools, {
+import slopbox, {
   createSandboxConfig,
   formatSandboxError,
   resolveSandboxReadPath,
-} from '../agent/extensions/sandbox-tools.ts';
+} from '../agent/extensions/slopbox.ts';
 
 void test('limits filesystem access to the project and session scratch directory', (t: TestContext) => {
   const config = createSandboxConfig('/Users/spencer/Projects/app', '/private/tmp/sloppi-123/tmp');
@@ -79,7 +79,7 @@ void test('leaves ordinary command errors unchanged', (t: TestContext) => {
 void test('registers no lifecycle commands', (t: TestContext) => {
   const commands: string[] = [];
 
-  sandboxTools({
+  slopbox({
     on() {
       return undefined;
     },
@@ -89,7 +89,7 @@ void test('registers no lifecycle commands', (t: TestContext) => {
     registerTool() {
       return undefined;
     },
-  } as unknown as Parameters<typeof sandboxTools>[0]);
+  } as unknown as Parameters<typeof slopbox>[0]);
 
   t.assert.deepStrictEqual(commands, []);
 });
