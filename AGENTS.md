@@ -69,14 +69,6 @@ If this file ever conflicts with project config, treat these as authoritative:
 - `tsconfig.json` (TypeScript behavior)
 - `xo.config.ts` (lint/format rules)
 
-## Sloppi CLI
+## Sloppi sandbox
 
-Located in `scripts/cli.ts`
-
-The CLI is typescript wrapper around `lima` and `limactl` cli. [https://lima-vm.io/docs/]
-
-The goal of the CLI is to conveniently boot pi into a lima VM which is secure enough to allow an agent to work safely and autonomously in a disposable environment.
-
-The lima.yaml file holds the core configuration of the VM. When adding functionality to the sloppi cli, we should always look to add the functionality in this file first and not in the cli.ts file.
-
-The cli.ts file should remain as thin of a wrapper as possible to achieve the desired functionality.
+Sloppi routes Pi filesystem tools through Anthropic Sandbox Runtime (SRT). Keep sandbox policy generated from trusted extension code, never from project-controlled files. Do not add host-executed agent tools without an explicit sandbox boundary.

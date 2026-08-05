@@ -27,12 +27,8 @@
   },
   "main": "dist/src/index.js",
   "types": "dist/src/index.d.ts",
-  "bin": {
-    "sloppi": "./scripts/cli.ts"
-  },
   "files": [
-    "dist",
-    "scripts"
+    "dist"
   ],
   "scripts": {
     "build": "rimraf dist && tsc -p tsconfig.build.json",
@@ -53,6 +49,7 @@
     ]
   },
   "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "^0.0.70",
     "@earendil-works/pi-coding-agent": "^0.83.0",
     "@earendil-works/pi-tui": "^0.83.0",
     "execa": "^10.0.1",
