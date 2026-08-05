@@ -20,3 +20,5 @@ Do not shape production code around unit tests. Prefer integration or end-to-end
 Avoid speculative abstractions, unnecessary indirection, clever control flow, and boilerplate. Favor direct, boring code that is understandable by reading it sequentially.
 
 Keep changes focused. When touching nearby code, simplify needless nesting, helper functions, and scattered control flow when doing so improves clarity without broadening the task.
+
+Write code like a book: the reader should be able to follow its behavior top to bottom and left to right.

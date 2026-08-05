@@ -15,8 +15,10 @@ import {$} from 'execa';
 import slopbox, {
   createSandboxConfig,
   formatSandboxError,
+  getBlockedDomain,
   getFindArguments,
   getAllowedDirectories,
+  shouldPromptOnNetworkDeny,
   resolveAllowedDirectory,
   resolveSandboxReadPath,
 } from '../agent/extensions/slopbox.ts';
@@ -40,7 +42,7 @@ void test('limits filesystem access to the project and session scratch directory
   t.assert.ok(config.filesystem.denyRead.includes(userDirectory));
 });
 
-void test('loads only the current project directories from saved configuration', (t: TestContext) => {
+void test('loads the former project directory configuration', (t: TestContext) => {
   const config = {
     '/project-a': ['/shared/a'],
     '/project-b': ['/shared/b'],
@@ -49,6 +51,44 @@ void test('loads only the current project directories from saved configuration',
   t.assert.deepStrictEqual(getAllowedDirectories(config, '/project-a'), ['/shared/a']);
   t.assert.deepStrictEqual(getAllowedDirectories(config, '/missing'), []);
   t.assert.deepStrictEqual(getAllowedDirectories({'/project-a': [123]}, '/project-a'), []);
+});
+
+void test('merges global and project SRT configuration without renaming options', (t: TestContext) => {
+  const config = createSandboxConfig('/project', '/scratch', [], {
+    slopbox: {promptOnNetworkDeny: true},
+    network: {allowedDomains: ['global.example'], deniedDomains: ['blocked.example']},
+    filesystem: {allowWrite: ['/global']},
+    projects: {
+      '/project': {
+        slopbox: {promptOnNetworkDeny: false},
+        network: {allowedDomains: ['project.example']},
+        filesystem: {allowRead: ['/project-read'], allowWrite: ['/project-write']},
+      },
+    },
+  });
+
+  t.assert.deepStrictEqual(config.network.allowedDomains, ['global.example', 'project.example']);
+  t.assert.deepStrictEqual(config.network.deniedDomains, ['blocked.example']);
+  t.assert.ok(config.filesystem.allowRead?.includes('/project-read'));
+  t.assert.ok(config.filesystem.allowWrite.includes('/global'));
+  t.assert.ok(config.filesystem.allowWrite.includes('/project-write'));
+  t.assert.strictEqual('projects' in config, false);
+  t.assert.strictEqual('slopbox' in config, false);
+});
+
+void test('extracts blocked domains and applies project prompt overrides', (t: TestContext) => {
+  const violation = 'deny network-outbound api.example.com:443 (host is not on the allow list)';
+  t.assert.strictEqual(getBlockedDomain(violation), 'api.example.com:443');
+  t.assert.strictEqual(
+    getBlockedDomain('curl: (56) CONNECT tunnel failed, response 403', 'curl https://api.example.com/path'),
+    'api.example.com:443',
+  );
+  t.assert.strictEqual(getBlockedDomain('ordinary failure', 'curl https://api.example.com'), undefined);
+  t.assert.strictEqual(shouldPromptOnNetworkDeny({slopbox: {promptOnNetworkDeny: false}}, '/project'), false);
+  t.assert.strictEqual(shouldPromptOnNetworkDeny({
+    slopbox: {promptOnNetworkDeny: false},
+    projects: {'/project': {slopbox: {promptOnNetworkDeny: true}}},
+  }, '/project'), true);
 });
 
 void test('resolves directories before adding them to the sandbox policy', async (t: TestContext) => {

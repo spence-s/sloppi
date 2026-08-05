@@ -11,7 +11,7 @@ import {homedir, tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
 import {$} from 'execa';
-import type {SandboxRuntimeConfig} from '@anthropic-ai/sandbox-runtime';
+import {NetworkConfigSchema, type SandboxRuntimeConfig} from '@anthropic-ai/sandbox-runtime';
 import {
   createBashTool,
   createEditTool,
@@ -58,25 +58,112 @@ const skillsPaths = [
 ].map(path => resolveSandboxReadPath(path));
 const slopboxConfigPath = join(homedir(), '.pi', 'slopbox.json');
 
+type Config = Record<string, unknown>;
+type ConfigScope = 'global' | 'project';
+
+function isConfig(value: unknown): value is Config {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+function getStrings(value: unknown): string[] {
+  return Array.isArray(value) && value.every(entry => typeof entry === 'string') ? value : [];
+}
+
+export function mergeSandboxConfig(base: Config, override: Config): Config {
+  const merged = {...base};
+  for (const [key, value] of Object.entries(override)) {
+    const current = merged[key];
+    if (Array.isArray(current) && Array.isArray(value)) {
+      merged[key] = [...new Set([...(current as unknown[]), ...(value as unknown[])])];
+    } else if (isConfig(current) && isConfig(value)) {
+      merged[key] = mergeSandboxConfig(current, value);
+    } else {
+      merged[key] = value;
+    }
+  }
+
+  return merged;
+}
+
+function getProjectConfig(config: Config, cwd: string): Config {
+  if (isConfig(config.projects) && isConfig(config.projects[cwd])) {
+    return config.projects[cwd];
+  }
+
+  // Read the former {"/project": ["/directory"]} format until it is next saved.
+  const directories = getStrings(config[cwd]);
+  return directories.length > 0
+    ? {filesystem: {allowRead: directories, allowWrite: directories}}
+    : {};
+}
+
+function getEffectiveConfig(config: Config, cwd: string): Config {
+  const {projects: _projects, slopbox: _slopbox, ...global} = config;
+  const {slopbox: _projectSlopbox, ...project} = getProjectConfig(config, cwd);
+  return mergeSandboxConfig(global, project);
+}
+
 export function getAllowedDirectories(config: unknown, cwd: string): string[] {
-  if (typeof config !== 'object' || config === null) {
+  if (!isConfig(config)) {
     return [];
   }
 
-  const directories = (config as Record<string, unknown>)[cwd];
-  return Array.isArray(directories) && directories.every(path => typeof path === 'string')
-    ? directories
+  const {filesystem} = getEffectiveConfig(config, cwd);
+  return isConfig(filesystem)
+    ? [...new Set([...getStrings(filesystem.allowRead), ...getStrings(filesystem.allowWrite)])]
     : [];
 }
 
+export function shouldPromptOnNetworkDeny(config: unknown, cwd: string): boolean {
+  if (!isConfig(config)) {
+    return true;
+  }
+
+  const global = isConfig(config.slopbox) ? config.slopbox.promptOnNetworkDeny : undefined;
+  const projectConfig = getProjectConfig(config, cwd);
+  const project = isConfig(projectConfig.slopbox) ? projectConfig.slopbox.promptOnNetworkDeny : undefined;
+  if (typeof project === 'boolean') {
+    return project;
+  }
+
+  return typeof global === 'boolean' ? global : true;
+}
+
+export function getBlockedDomain(message: string, command = ''): string | undefined {
+  const violation = /deny network-outbound (?<host>.+):(?<port>\d+) \(host is not on the allow list\)/v.exec(message);
+  if (violation?.groups !== undefined) {
+    return `${violation.groups.host}:${violation.groups.port}`;
+  }
+
+  if (!/connection blocked by network allowlist|connect tunnel failed, response 403/iv.test(message)) {
+    return undefined;
+  }
+
+  const url = /https?:\/\/[^\s"'`]+/v.exec(command)?.[0];
+  if (url === undefined) {
+    return undefined;
+  }
+
+  const parsed = new URL(url);
+  return `${parsed.hostname}:${parsed.port.length > 0 ? parsed.port : (parsed.protocol === 'https:' ? '443' : '80')}`;
+}
+
 const srtPath = resolve(import.meta.dirname, '../../node_modules/.bin/srt');
+const sandboxSystemPrompt = `## Slopbox Sandbox
+
+Filesystem tools can write only the current project, explicitly allowed directories,
+and private temporary storage; global skills are read-only. Network access is
+allowlisted, and host credentials, signing agents, and other host services are
+unavailable unless explicitly configured. Treat a sandbox denial as a real boundary:
+do not retry outside it or seek a workaround.`;
 const sandboxGuidance = [
   'Sandbox restriction: work in the current project, use mktemp for private temporary files,',
-  'and treat global skills as read-only. Network access is disabled.',
+  'and treat global skills as read-only. Network access is limited by the configured allowlist.',
   'Do not retry an outside path or seek a host-execution workaround.',
 ].join(' ');
 
 type RunOptions = {
+  debugSandbox?: boolean | undefined;
   input?: string | undefined;
   signal?: AbortSignal | undefined;
   timeout?: number | undefined;
@@ -143,8 +230,9 @@ export function createSandboxConfig(
   cwd: string,
   scratchPath: string,
   allowedDirectories: readonly string[] = [],
+  config: Config = {},
 ): SandboxRuntimeConfig {
-  return {
+  const required: Config = {
     network: {allowedDomains: [], deniedDomains: []},
     filesystem: {
       // System files and global skills remain readable; user files do not.
@@ -154,19 +242,21 @@ export function createSandboxConfig(
       denyWrite: [],
     },
   };
+  return mergeSandboxConfig(getEffectiveConfig(config, cwd), required) as SandboxRuntimeConfig;
 }
 
 async function createSandboxSession(
   cwd: string,
   allowedDirectories: readonly string[],
+  config: Config,
 ): Promise<SandboxSession> {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-'));
   const scratchPath = join(directory, 'tmp');
   const settingsPath = join(directory, 'settings.json');
-  const config = createSandboxConfig(cwd, scratchPath, allowedDirectories);
+  const sandboxConfig = createSandboxConfig(cwd, scratchPath, allowedDirectories, config);
 
   await mkdir(scratchPath);
-  await writeFile(settingsPath, `${JSON.stringify(config)}\n`);
+  await writeFile(settingsPath, `${JSON.stringify(sandboxConfig)}\n`);
   return {directory, settingsPath, scratchPath};
 }
 
@@ -178,8 +268,9 @@ async function removeSandboxSession(session: SandboxSession | undefined): Promis
 
 export default function slopbox(pi: ExtensionAPI): void {
   const cwd = realpathSync(process.cwd());
-  const allowedDirectories = new Set<string>();
+  let config: Config = {};
   let hasLoadedConfig = false;
+  let isPromptInProgress = false;
   let session: SandboxSession | undefined;
 
   const loadConfig = async (): Promise<void> => {
@@ -188,10 +279,12 @@ export default function slopbox(pi: ExtensionAPI): void {
     }
 
     try {
-      const config = JSON.parse(await readFile(slopboxConfigPath, 'utf8')) as unknown;
-      for (const directory of getAllowedDirectories(config, cwd)) {
-        allowedDirectories.add(directory);
+      const loaded = JSON.parse(await readFile(slopboxConfigPath, 'utf8')) as unknown;
+      if (!isConfig(loaded)) {
+        throw new Error(`${slopboxConfigPath} must contain a JSON object.`);
       }
+
+      config = loaded;
     } catch (error) {
       const code = error instanceof Error && 'code' in error ? error.code : undefined;
       if (code !== 'ENOENT') {
@@ -204,27 +297,58 @@ export default function slopbox(pi: ExtensionAPI): void {
 
   const ensureSession = async (): Promise<SandboxSession> => {
     await loadConfig();
-    session ??= await createSandboxSession(cwd, [...allowedDirectories]);
+    session ??= await createSandboxSession(cwd, [], config);
     return session;
   };
 
   const saveConfig = async (): Promise<void> => {
-    let config: Record<string, unknown> = {};
-    try {
-      const savedConfig = JSON.parse(await readFile(slopboxConfigPath, 'utf8')) as unknown;
-      if (typeof savedConfig === 'object' && savedConfig !== null && !Array.isArray(savedConfig)) {
-        config = savedConfig as Record<string, unknown>;
-      }
-    } catch (error) {
-      const code = error instanceof Error && 'code' in error ? error.code : undefined;
-      if (code !== 'ENOENT') {
-        throw error;
-      }
-    }
-
-    config[cwd] = [...allowedDirectories];
+    const {[cwd]: _legacy, ...currentConfig} = config;
+    config = currentConfig;
     await mkdir(dirname(slopboxConfigPath), {recursive: true});
     await writeFile(slopboxConfigPath, `${JSON.stringify(config, undefined, 2)}\n`);
+  };
+
+  const getScopeConfig = (scope: ConfigScope): Config => {
+    if (scope === 'global') {
+      return config;
+    }
+
+    const {projects: savedProjects} = config;
+    const projects: Config = isConfig(savedProjects) ? savedProjects : {};
+    config.projects = projects;
+
+    const existing = projects[cwd];
+    if (isConfig(existing)) {
+      return existing;
+    }
+
+    const project = getProjectConfig(config, cwd);
+    projects[cwd] = project;
+    return project;
+  };
+
+  const addDirectory = (scope: ConfigScope, directory: string): void => {
+    const scoped = getScopeConfig(scope);
+    const filesystem = isConfig(scoped.filesystem) ? scoped.filesystem : {};
+    filesystem.allowRead = [...new Set([...getStrings(filesystem.allowRead), directory])];
+    filesystem.allowWrite = [...new Set([...getStrings(filesystem.allowWrite), directory])];
+    scoped.filesystem = filesystem;
+  };
+
+  const setPrompting = (scope: ConfigScope, isEnabled: boolean): void => {
+    getScopeConfig(scope).slopbox = {promptOnNetworkDeny: isEnabled};
+  };
+
+  const addDomain = (scope: ConfigScope, domain: string): void => {
+    const validation = NetworkConfigSchema.safeParse({allowedDomains: [domain], deniedDomains: []});
+    if (!validation.success) {
+      throw new Error(`Invalid SRT domain pattern: ${domain}`);
+    }
+
+    const scoped = getScopeConfig(scope);
+    const network = isConfig(scoped.network) ? scoped.network : {};
+    network.allowedDomains = [...new Set([...getStrings(network.allowedDomains), domain])];
+    scoped.network = network;
   };
 
   const refreshSession = async (): Promise<void> => {
@@ -249,6 +373,7 @@ export default function slopbox(pi: ExtensionAPI): void {
         PATH: process.env.PATH ?? '',
         TMPDIR: currentSession.scratchPath,
         USER: 'sandbox',
+        ...(options.debugSandbox === true && {SRT_DEBUG: '1'}),
       },
       ...(options.input !== undefined && {input: options.input}),
       ...(options.signal !== undefined && {cancelSignal: options.signal}),
@@ -299,11 +424,34 @@ export default function slopbox(pi: ExtensionAPI): void {
   };
   const bash: BashOperations = {
     async exec(command, _commandCwd, {onData, signal, timeout}) {
-      const result = await shell(['sh', '-lc', command], {signal, timeout});
+      const result = await shell(['sh', '-lc', command], {debugSandbox: true, signal, timeout});
       onData(Buffer.from(result.stdout));
+
+      const blocked = /\[SandboxDebug\] No matching config rule, denying: (?<domain>\S+)/v.exec(result.stderr)?.groups?.domain;
+      let isDebugBlock = false;
+      const cleanStderr = result.stderr
+        .split('\n')
+        .filter(line => {
+          if (line.startsWith('[SandboxDebug]')) {
+            isDebugBlock = line.endsWith('{');
+            return false;
+          }
+
+          if (isDebugBlock) {
+            isDebugBlock = line !== '}';
+            return false;
+          }
+
+          return true;
+        })
+        .join('\n')
+        .trim();
+      const annotatedStderr = blocked === undefined
+        ? cleanStderr
+        : `${cleanStderr}\n<sandbox_violations>\ndeny network-outbound ${blocked} (host is not on the allow list)\n</sandbox_violations>`;
       const stderr = result.exitCode === 0
-        ? result.stderr
-        : formatSandboxError(result.stderr.trim(), `Sandbox command failed (${String(result.exitCode)})`);
+        ? annotatedStderr
+        : formatSandboxError(annotatedStderr, `Sandbox command failed (${String(result.exitCode)})`);
       onData(Buffer.from(stderr));
       return {exitCode: result.exitCode ?? null};
     },
@@ -388,20 +536,47 @@ export default function slopbox(pi: ExtensionAPI): void {
   });
 
   pi.registerCommand('slopbox', {
-    description: 'Allow a directory for this project. Usage: /slopbox add <directory>',
+    description: 'Configure sandbox access. Usage: /slopbox [global] add|allow|status <value>',
     async handler(args, ctx) {
-      const [command, ...paths] = args.trim().split(/\s+/v);
-      if (command !== 'add' || paths.length === 0) {
-        ctx.ui.notify('Usage: /slopbox add <directory>', 'info');
-        return;
+      const parts = args.trim().split(/\s+/v).filter(Boolean);
+      const scope: ConfigScope = parts[0] === 'global' ? 'global' : 'project';
+      if (scope === 'global') {
+        parts.shift();
       }
 
+      const command = parts.shift();
       try {
-        const directory = resolveAllowedDirectory(cwd, paths.join(' '));
-        allowedDirectories.add(directory);
-        await saveConfig();
-        await refreshSession();
-        ctx.ui.notify(`slopbox allows ${directory}.`, 'info');
+        await loadConfig();
+        if (command === 'status' && parts.length === 0) {
+          ctx.ui.notify(JSON.stringify(createSandboxConfig(cwd, '<session scratch>', [], config), undefined, 2), 'info');
+          return;
+        }
+
+        if (command === 'add' && parts.length > 0) {
+          const directory = resolveAllowedDirectory(cwd, parts.join(' '));
+          addDirectory(scope, directory);
+          await saveConfig();
+          await refreshSession();
+          ctx.ui.notify(`slopbox allows ${directory} (${scope}).`, 'info');
+          return;
+        }
+
+        if (command === 'allow' && parts.length === 1) {
+          addDomain(scope, parts[0] ?? '');
+          await saveConfig();
+          await refreshSession();
+          ctx.ui.notify(`slopbox allows ${parts[0]} (${scope}).`, 'info');
+          return;
+        }
+
+        if (command === 'prompt' && (parts[0] === 'on' || parts[0] === 'off')) {
+          setPrompting(scope, parts[0] === 'on');
+          await saveConfig();
+          ctx.ui.notify(`slopbox network prompts are ${parts[0]} (${scope}).`, 'info');
+          return;
+        }
+
+        ctx.ui.notify('Usage: /slopbox [global] add <directory> | allow <domain> | prompt on|off | status', 'info');
       } catch (error) {
         ctx.ui.notify(getErrorMessage(error), 'error');
       }
@@ -410,9 +585,61 @@ export default function slopbox(pi: ExtensionAPI): void {
 
   pi.on('user_bash', () => ({operations: bash}));
   pi.on('project_trust', () => ({trusted: 'no'}));
+  pi.on('before_agent_start', event => ({
+    systemPrompt: `${event.systemPrompt}\n\n${sandboxSystemPrompt}`,
+  }));
   pi.on('tool_call', event => {
     if (!sandboxedTools.has(event.toolName) && !hostTools.has(event.toolName)) {
       return {block: true, reason: `Tool ${event.toolName} is not approved for host execution.`};
+    }
+  });
+  pi.on('tool_result', async (event, ctx) => {
+    if (!sandboxedTools.has(event.toolName) || !ctx.hasUI || isPromptInProgress) {
+      return;
+    }
+
+    await loadConfig();
+    const message = event.content
+      .filter(entry => entry.type === 'text')
+      .map(entry => entry.text)
+      .join('\n');
+    const command = typeof event.input.command === 'string' ? event.input.command : '';
+    const suggestedDomain = getBlockedDomain(message, command);
+    if (suggestedDomain === undefined || !shouldPromptOnNetworkDeny(config, cwd)) {
+      return;
+    }
+
+    isPromptInProgress = true;
+    try {
+      const projectChoice = `Allow ${suggestedDomain} for this project`;
+      const globalChoice = `Allow ${suggestedDomain} for all projects`;
+      const customChoice = 'Customize the SRT domain pattern…';
+      const choice = await ctx.ui.select('Slopbox blocked a network request', [
+        projectChoice,
+        globalChoice,
+        customChoice,
+        'Deny',
+      ]);
+      if (choice === undefined || choice === 'Deny') {
+        return;
+      }
+
+      const scope: ConfigScope = choice === globalChoice ? 'global' : 'project';
+      const domain = choice === customChoice
+        ? await ctx.ui.input('SRT domain pattern', suggestedDomain)
+        : suggestedDomain;
+      if (domain === undefined || domain.trim().length === 0) {
+        return;
+      }
+
+      addDomain(scope, domain.trim());
+      await saveConfig();
+      await refreshSession();
+      ctx.ui.notify(`Added ${domain.trim()} to ${scope} network.allowedDomains. Retry the command.`, 'info');
+    } catch (error) {
+      ctx.ui.notify(getErrorMessage(error), 'error');
+    } finally {
+      isPromptInProgress = false;
     }
   });
 
