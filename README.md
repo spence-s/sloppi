@@ -27,7 +27,7 @@ This repo contains my local Pi configuration and custom extensions, currently fo
 
 ## Sandbox
 
-Sloppi runs every filesystem-capable Pi tool through [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime). Each Pi session can write only its current project and a private temporary directory; it can read its project, global skills, and system files. Network access is denied by default. This experimental boundary fails closed when SRT is unavailable. Linux requires `bubblewrap` and `socat`; macOS uses its built-in Seatbelt sandbox.
+Sloppi runs every filesystem-capable Pi tool through [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime). Each Pi session can write only its current project and a private temporary directory; it can read its project, global skills, and system files. Use `/slopbox add <directory>` to allow one additional directory for the current session. Network access is denied by default. This experimental boundary fails closed when SRT is unavailable. Linux requires `bubblewrap` and `socat`; macOS uses its built-in Seatbelt sandbox.
 
 ## Local development
 

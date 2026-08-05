@@ -14,6 +14,7 @@ import {$} from 'execa';
 import slopbox, {
   createSandboxConfig,
   formatSandboxError,
+  resolveAllowedDirectory,
   resolveSandboxReadPath,
 } from '../agent/extensions/slopbox.ts';
 
@@ -35,7 +36,7 @@ void test('limits filesystem access to the project and session scratch directory
   t.assert.ok(config.filesystem.denyRead.includes(userDirectory));
 });
 
-void test('resolves a symlinked skill directory before adding it to the sandbox policy', async (t: TestContext) => {
+void test('resolves directories before adding them to the sandbox policy', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-sandbox-test-'));
   const target = join(directory, 'target');
   const link = join(directory, 'link');
@@ -45,6 +46,11 @@ void test('resolves a symlinked skill directory before adding it to the sandbox 
     await symlink(target, link);
     const physicalTarget = realpathSync(target);
     t.assert.strictEqual(resolveSandboxReadPath(link), physicalTarget);
+    t.assert.strictEqual(resolveAllowedDirectory(directory, 'target'), physicalTarget);
+
+    const config = createSandboxConfig('/project', '/scratch', [physicalTarget]);
+    t.assert.ok(config.filesystem.allowRead?.includes(physicalTarget));
+    t.assert.ok(config.filesystem.allowWrite?.includes(physicalTarget));
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
@@ -76,7 +82,7 @@ void test('leaves ordinary command errors unchanged', (t: TestContext) => {
   t.assert.strictEqual(formatSandboxError('command failed', 'fallback'), 'command failed');
 });
 
-void test('registers no lifecycle commands', (t: TestContext) => {
+void test('registers /slopbox to allow directories during a session', (t: TestContext) => {
   const commands: string[] = [];
 
   slopbox({
@@ -91,5 +97,5 @@ void test('registers no lifecycle commands', (t: TestContext) => {
     },
   } as unknown as Parameters<typeof slopbox>[0]);
 
-  t.assert.deepStrictEqual(commands, []);
+  t.assert.deepStrictEqual(commands, ['slopbox']);
 });

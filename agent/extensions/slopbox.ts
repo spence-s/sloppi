@@ -1,5 +1,5 @@
 import {Buffer} from 'node:buffer';
-import {realpathSync} from 'node:fs';
+import {realpathSync, statSync} from 'node:fs';
 import {
   mkdir,
   mkdtemp,
@@ -42,6 +42,15 @@ export function resolveSandboxReadPath(path: string): string {
   }
 }
 
+export function resolveAllowedDirectory(cwd: string, path: string): string {
+  const directory = realpathSync(resolve(cwd, path));
+  if (!statSync(directory).isDirectory()) {
+    throw new Error(`Not a directory: ${path}`);
+  }
+
+  return directory;
+}
+
 const skillsPaths = [
   join(homedir(), '.pi', 'agent', 'skills'),
   join(homedir(), '.pi', 'agent', 'git'),
@@ -78,24 +87,31 @@ export function formatSandboxError(message: string, fallback: string): string {
   return `${error}\n\n${sandboxGuidance}`;
 }
 
-export function createSandboxConfig(cwd: string, scratchPath: string): SandboxRuntimeConfig {
+export function createSandboxConfig(
+  cwd: string,
+  scratchPath: string,
+  allowedDirectories: readonly string[] = [],
+): SandboxRuntimeConfig {
   return {
     network: {allowedDomains: [], deniedDomains: []},
     filesystem: {
       // System files and global skills remain readable; user files do not.
       denyRead: [dirname(homedir())],
-      allowRead: [cwd, ...skillsPaths],
-      allowWrite: [cwd, scratchPath],
+      allowRead: [cwd, ...allowedDirectories, ...skillsPaths],
+      allowWrite: [cwd, ...allowedDirectories, scratchPath],
       denyWrite: [],
     },
   };
 }
 
-async function createSandboxSession(cwd: string): Promise<SandboxSession> {
+async function createSandboxSession(
+  cwd: string,
+  allowedDirectories: readonly string[],
+): Promise<SandboxSession> {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-'));
   const scratchPath = join(directory, 'tmp');
   const settingsPath = join(directory, 'settings.json');
-  const config = createSandboxConfig(cwd, scratchPath);
+  const config = createSandboxConfig(cwd, scratchPath, allowedDirectories);
 
   await mkdir(scratchPath);
   await writeFile(settingsPath, `${JSON.stringify(config)}\n`);
@@ -110,11 +126,18 @@ async function removeSandboxSession(session: SandboxSession | undefined): Promis
 
 export default function slopbox(pi: ExtensionAPI): void {
   const cwd = realpathSync(process.cwd());
+  const allowedDirectories = new Set<string>();
   let session: SandboxSession | undefined;
 
   const ensureSession = async (): Promise<SandboxSession> => {
-    session ??= await createSandboxSession(cwd);
+    session ??= await createSandboxSession(cwd, [...allowedDirectories]);
     return session;
+  };
+
+  const refreshSession = async (): Promise<void> => {
+    await removeSandboxSession(session);
+    session = undefined;
+    await ensureSession();
   };
 
   const shell = async (arguments_: string[], options: RunOptions = {}) => {
@@ -272,6 +295,26 @@ export default function slopbox(pi: ExtensionAPI): void {
         content: [{type: 'text' as const, text: output.length > 0 ? output : 'No matches found'}],
         details: undefined,
       };
+    },
+  });
+
+  pi.registerCommand('slopbox', {
+    description: 'Allow a directory for this session. Usage: /slopbox add <directory>',
+    async handler(args, ctx) {
+      const [command, ...paths] = args.trim().split(/\s+/v);
+      if (command !== 'add' || paths.length === 0) {
+        ctx.ui.notify('Usage: /slopbox add <directory>', 'info');
+        return;
+      }
+
+      try {
+        const directory = resolveAllowedDirectory(cwd, paths.join(' '));
+        allowedDirectories.add(directory);
+        await refreshSession();
+        ctx.ui.notify(`slopbox allows ${directory}.`, 'info');
+      } catch (error) {
+        ctx.ui.notify(getErrorMessage(error), 'error');
+      }
     },
   });
 
