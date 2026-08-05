@@ -58,32 +58,29 @@ export default function slopbox(pi: ExtensionAPI): void {
 
       const command = parts.shift();
       try {
-        const loadedConfig = await config.load();
         if (command === 'status' && parts.length === 0) {
+          const loadedConfig = await config.reload();
           ctx.ui.notify(JSON.stringify(createSandboxConfig(cwd, '<session scratch>', [], loadedConfig), undefined, 2), 'info');
           return;
         }
 
         if (command === 'add' && parts.length > 0) {
           const directory = resolveAllowedDirectory(cwd, parts.join(' '));
-          config.addDirectory(scope, directory);
-          await config.save();
+          await config.addDirectory(scope, directory);
           await sandbox.refresh();
           ctx.ui.notify(`slopbox allows ${directory} (${scope}).`, 'info');
           return;
         }
 
         if (command === 'allow' && parts.length === 1) {
-          config.addDomain(scope, parts[0] ?? '');
-          await config.save();
+          await config.addDomain(scope, parts[0] ?? '');
           await sandbox.refresh();
           ctx.ui.notify(`slopbox allows ${parts[0]} (${scope}).`, 'info');
           return;
         }
 
         if (command === 'prompt' && (parts[0] === 'on' || parts[0] === 'off')) {
-          config.setPrompting(scope, parts[0] === 'on');
-          await config.save();
+          await config.setPrompting(scope, parts[0] === 'on');
           await sandbox.refresh();
           ctx.ui.notify(`slopbox network prompts are ${parts[0]} (${scope}).`, 'info');
           return;
@@ -111,7 +108,7 @@ export default function slopbox(pi: ExtensionAPI): void {
       return;
     }
 
-    await config.load();
+    await config.reload();
     const message = event.content
       .filter(entry => entry.type === 'text')
       .map(entry => entry.text)
@@ -145,8 +142,7 @@ export default function slopbox(pi: ExtensionAPI): void {
         return;
       }
 
-      config.addDomain(scope, domain.trim());
-      await config.save();
+      await config.addDomain(scope, domain.trim());
       await sandbox.refresh();
       ctx.ui.notify(`Added ${domain.trim()} to ${scope} network.allowedDomains. Retry the command.`, 'info');
     } catch (error) {

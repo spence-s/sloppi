@@ -91,11 +91,7 @@ export function createConfigStore(
   let config: Config = {};
   let hasLoaded = false;
 
-  const load = async (): Promise<Config> => {
-    if (hasLoaded) {
-      return config;
-    }
-
+  const reload = async (): Promise<Config> => {
     try {
       const loaded = JSON.parse(await readFile(configPath, 'utf8')) as unknown;
       if (!isConfig(loaded)) {
@@ -108,18 +104,15 @@ export function createConfigStore(
       if (code !== 'ENOENT') {
         throw error;
       }
+
+      config = {};
     }
 
     hasLoaded = true;
     return config;
   };
 
-  const save = async (): Promise<void> => {
-    const {[cwd]: _legacy, ...currentConfig} = config;
-    config = currentConfig;
-    await mkdir(dirname(configPath), {recursive: true});
-    await writeFile(configPath, `${JSON.stringify(config, undefined, 2)}\n`);
-  };
+  const load = async (): Promise<Config> => hasLoaded ? config : reload();
 
   const getScope = (scope: ConfigScope): Config => {
     if (scope === 'global') {
@@ -140,29 +133,49 @@ export function createConfigStore(
     return project;
   };
 
+  const update = async (mutate: () => void): Promise<void> => {
+    // Reload so a long-running Pi session does not overwrite changes made by another session.
+    // ponytail: simultaneous writes can still race; add a file lock if config commands become concurrent.
+    await reload();
+    mutate();
+    const {[cwd]: _legacy, ...currentConfig} = config;
+    config = currentConfig;
+    await mkdir(dirname(configPath), {recursive: true});
+    await writeFile(configPath, `${JSON.stringify(config, undefined, 2)}\n`);
+  };
+
   return {
     load,
-    save,
-    addDirectory(scope: ConfigScope, directory: string): void {
-      const scoped = getScope(scope);
-      const filesystem = isConfig(scoped.filesystem) ? scoped.filesystem : {};
-      filesystem.allowRead = [...new Set([...getStrings(filesystem.allowRead), directory])];
-      filesystem.allowWrite = [...new Set([...getStrings(filesystem.allowWrite), directory])];
-      scoped.filesystem = filesystem;
+    reload,
+    async addDirectory(scope: ConfigScope, directory: string): Promise<void> {
+      await update(() => {
+        const scoped = getScope(scope);
+        const filesystem = isConfig(scoped.filesystem) ? scoped.filesystem : {};
+        filesystem.allowRead = [...new Set([...getStrings(filesystem.allowRead), directory])];
+        filesystem.allowWrite = [...new Set([...getStrings(filesystem.allowWrite), directory])];
+        scoped.filesystem = filesystem;
+      });
     },
-    addDomain(scope: ConfigScope, domain: string): void {
+    async addDomain(scope: ConfigScope, domain: string): Promise<void> {
       const validation = NetworkConfigSchema.safeParse({allowedDomains: [domain], deniedDomains: []});
       if (!validation.success) {
         throw new Error(`Invalid SRT domain pattern: ${domain}`);
       }
 
-      const scoped = getScope(scope);
-      const network = isConfig(scoped.network) ? scoped.network : {};
-      network.allowedDomains = [...new Set([...getStrings(network.allowedDomains), domain])];
-      scoped.network = network;
+      await update(() => {
+        const scoped = getScope(scope);
+        const network = isConfig(scoped.network) ? scoped.network : {};
+        network.allowedDomains = [...new Set([...getStrings(network.allowedDomains), domain])];
+        scoped.network = network;
+      });
     },
-    setPrompting(scope: ConfigScope, isEnabled: boolean): void {
-      getScope(scope).slopbox = {promptOnNetworkDeny: isEnabled};
+    async setPrompting(scope: ConfigScope, isEnabled: boolean): Promise<void> {
+      await update(() => {
+        const scoped = getScope(scope);
+        const slopbox = isConfig(scoped.slopbox) ? scoped.slopbox : {};
+        slopbox.promptOnNetworkDeny = isEnabled;
+        scoped.slopbox = slopbox;
+      });
     },
     shouldPrompt(): boolean {
       return shouldPromptOnNetworkDeny(config, cwd);

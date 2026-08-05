@@ -3,6 +3,7 @@ import {
   access,
   mkdir,
   mkdtemp,
+  readFile,
   rm,
   symlink,
   writeFile,
@@ -13,6 +14,7 @@ import process from 'node:process';
 import {test, type TestContext} from 'node:test';
 import {$} from 'execa';
 import {
+  createConfigStore,
   getAllowedDirectories,
   resolveAllowedDirectory,
   shouldPromptOnNetworkDeny,
@@ -53,6 +55,30 @@ void test('loads the former project directory configuration', (t: TestContext) =
   t.assert.deepStrictEqual(getAllowedDirectories(config, '/project-a'), ['/shared/a']);
   t.assert.deepStrictEqual(getAllowedDirectories(config, '/missing'), []);
   t.assert.deepStrictEqual(getAllowedDirectories({'/project-a': [123]}, '/project-a'), []);
+});
+
+void test('preserves config changes saved by another running session', async (t: TestContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-config-test-'));
+  const configPath = join(directory, 'slopbox.json');
+  const first = createConfigStore('/project-a', configPath);
+  const second = createConfigStore('/project-b', configPath);
+
+  try {
+    await writeFile(configPath, `${JSON.stringify({slopbox: {otherSetting: true}})}\n`);
+    await Promise.all([first.load(), second.load()]);
+    await first.addDomain('global', 'first.example');
+    await second.addDomain('global', 'second.example');
+    await second.setPrompting('global', false);
+
+    const saved = JSON.parse(await readFile(configPath, 'utf8')) as {
+      network: {allowedDomains: string[]};
+      slopbox: {otherSetting: boolean; promptOnNetworkDeny: boolean};
+    };
+    t.assert.deepStrictEqual(saved.network.allowedDomains, ['first.example', 'second.example']);
+    t.assert.deepStrictEqual(saved.slopbox, {otherSetting: true, promptOnNetworkDeny: false});
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
 });
 
 void test('merges global and project SRT configuration without renaming options', (t: TestContext) => {
