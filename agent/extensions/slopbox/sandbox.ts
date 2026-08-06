@@ -7,7 +7,13 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
-import {dirname, join, resolve} from 'node:path';
+import {
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+} from 'node:path';
 import process from 'node:process';
 import {$} from 'execa';
 import type {SandboxRuntimeConfig} from '@anthropic-ai/sandbox-runtime';
@@ -22,10 +28,29 @@ export function resolveSandboxReadPath(path: string): string {
   }
 }
 
-const skillsPaths = [
+const skillPathAliases = [
   join(homedir(), '.pi', 'agent', 'skills'),
   join(homedir(), '.pi', 'agent', 'git'),
-].map(path => resolveSandboxReadPath(path));
+].map(alias => ({alias, path: resolveSandboxReadPath(alias)}));
+const skillsPaths = skillPathAliases.map(({path}) => path);
+
+// Skill locations are advertised through ~/.pi, which may be a symlink. Seatbelt
+// checks the path supplied to a tool, while its policy uses the physical path.
+export function resolveSandboxToolPath(path: string): string {
+  if (!isAbsolute(path)) {
+    return path;
+  }
+
+  const absolutePath = resolve(path);
+  for (const {alias, path: physicalPath} of skillPathAliases) {
+    const suffix = relative(alias, absolutePath);
+    if (suffix === '' || (!suffix.startsWith('..') && !isAbsolute(suffix))) {
+      return join(physicalPath, suffix);
+    }
+  }
+
+  return path;
+}
 
 const srtPath = resolve(import.meta.dirname, '../../../node_modules/.bin/srt');
 const sandboxGuidance = [

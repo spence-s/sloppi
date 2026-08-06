@@ -25,6 +25,7 @@ import {
   createSandboxConfig,
   formatSandboxError,
   resolveSandboxReadPath,
+  resolveSandboxToolPath,
 } from '../agent/extensions/slopbox/sandbox.ts';
 import {getFindArguments} from '../agent/extensions/slopbox/tools.ts';
 
@@ -45,6 +46,13 @@ void test('limits filesystem access to the project and session scratch directory
   t.assert.deepStrictEqual(config.filesystem.denyWrite, []);
   const userDirectory = dirname(homedir());
   t.assert.ok(config.filesystem.denyRead.includes(userDirectory));
+});
+
+void test('resolves global skill aliases before passing paths to SRT', (t: TestContext) => {
+  const skill = join(homedir(), '.pi', 'agent', 'git', 'github.com', 'DietrichGebert', 'ponytail', 'skills', 'ponytail', 'SKILL.md');
+
+  t.assert.strictEqual(resolveSandboxToolPath(skill), resolveSandboxReadPath(skill));
+  t.assert.strictEqual(resolveSandboxToolPath('/tmp/ordinary-file'), '/tmp/ordinary-file');
 });
 
 void test('loads the former project directory configuration', (t: TestContext) => {

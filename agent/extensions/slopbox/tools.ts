@@ -16,7 +16,7 @@ import {
   type ReadOperations,
   type WriteOperations,
 } from '@earendil-works/pi-coding-agent';
-import {formatSandboxError, type Sandbox} from './sandbox.ts';
+import {formatSandboxError, resolveSandboxToolPath, type Sandbox} from './sandbox.ts';
 
 type FindArgumentsInput = {
   platform: string;
@@ -59,14 +59,14 @@ export function getFindArguments({platform, pattern, path, ignore, limit}: FindA
 export function registerSandboxTools(pi: ExtensionAPI, cwd: string, sandbox: Sandbox): void {
   const read: ReadOperations = {
     async access(path) {
-      await sandbox.run(['test', '-r', path]);
+      await sandbox.run(['test', '-r', resolveSandboxToolPath(path)]);
     },
     async readFile(path) {
-      const output = await sandbox.run(['sh', '-c', String.raw`base64 < "$1" | tr -d "\n"`, 'sh', path]);
+      const output = await sandbox.run(['sh', '-c', String.raw`base64 < "$1" | tr -d "\n"`, 'sh', resolveSandboxToolPath(path)]);
       return Buffer.from(output, 'base64');
     },
     async detectImageMimeType(path) {
-      const output = await sandbox.run(['file', '--mime-type', '-b', '--', path]);
+      const output = await sandbox.run(['file', '--mime-type', '-b', '--', resolveSandboxToolPath(path)]);
       const mime = output.trim();
       return ['image/gif', 'image/jpeg', 'image/png', 'image/webp'].includes(mime) ? mime : null;
     },
@@ -126,14 +126,14 @@ export function registerSandboxTools(pi: ExtensionAPI, cwd: string, sandbox: San
 
   const find: FindOperations = {
     async exists(path) {
-      const result = await sandbox.shell(['test', '-e', path]);
+      const result = await sandbox.shell(['test', '-e', resolveSandboxToolPath(path)]);
       return result.exitCode === 0;
     },
     async glob(pattern, path, {ignore, limit}) {
       const output = await sandbox.run(getFindArguments({
         platform: process.platform,
         pattern,
-        path,
+        path: resolveSandboxToolPath(path),
         ignore,
         limit,
       }));
@@ -144,20 +144,20 @@ export function registerSandboxTools(pi: ExtensionAPI, cwd: string, sandbox: San
 
   const ls: LsOperations = {
     async exists(path) {
-      const result = await sandbox.shell(['test', '-e', path]);
+      const result = await sandbox.shell(['test', '-e', resolveSandboxToolPath(path)]);
       return result.exitCode === 0;
     },
     async stat(path) {
-      const exists = await sandbox.shell(['test', '-e', path]);
+      const exists = await sandbox.shell(['test', '-e', resolveSandboxToolPath(path)]);
       if (exists.exitCode !== 0) {
         throw new Error(`Path not found: ${path}`);
       }
 
-      const directory = await sandbox.shell(['test', '-d', path]);
+      const directory = await sandbox.shell(['test', '-d', resolveSandboxToolPath(path)]);
       return {isDirectory: () => directory.exitCode === 0};
     },
     async readdir(path) {
-      const output = await sandbox.run(['ls', '-1A', '--', path]);
+      const output = await sandbox.run(['ls', '-1A', '--', resolveSandboxToolPath(path)]);
       return output.trim().split('\n').filter(Boolean);
     },
   };
@@ -189,7 +189,7 @@ export function registerSandboxTools(pi: ExtensionAPI, cwd: string, sandbox: San
         arguments_.push('--context', String(context));
       }
 
-      arguments_.push('--', pattern, path);
+      arguments_.push('--', pattern, resolveSandboxToolPath(path));
 
       const result = await sandbox.shell(arguments_, {signal});
       if (result.exitCode !== 0 && result.exitCode !== 1) {
