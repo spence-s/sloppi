@@ -14,18 +14,6 @@ type GitStatus = {
 
 const gateStatusIds = ['0:sudo-gate'];
 
-export function getOsLabel(platform = process.platform): string {
-  if (platform === 'darwin') {
-    return ' macOS';
-  }
-
-  if (platform === 'linux') {
-    return ' Ubuntu';
-  }
-
-  return platform;
-}
-
 export function parseGitStatus(output: string): GitStatus {
   const status = {staged: 0, modified: 0, untracked: 0};
 
@@ -46,20 +34,6 @@ export function parseGitStatus(output: string): GitStatus {
   }
 
   return status;
-}
-
-function formatGitStatus(status: GitStatus | undefined): string {
-  if (status === undefined) {
-    return '';
-  }
-
-  const parts = [
-    status.staged > 0 ? `+${status.staged}` : '',
-    status.modified > 0 ? `~${status.modified}` : '',
-    status.untracked > 0 ? `?${status.untracked}` : '',
-  ].filter(Boolean);
-
-  return parts.length === 0 ? '✓' : parts.join(' ');
 }
 
 export default function statusLine(pi: ExtensionAPI): void {
@@ -119,15 +93,29 @@ export default function statusLine(pi: ExtensionAPI): void {
           footer.invalidate();
         },
         render(width: number): string[] {
-          const gitState = formatGitStatus(gitStatus);
+          const gitParts = gitStatus === undefined
+            ? []
+            : [
+              gitStatus.staged > 0 ? `+${gitStatus.staged}` : '',
+              gitStatus.modified > 0 ? `~${gitStatus.modified}` : '',
+              gitStatus.untracked > 0 ? `?${gitStatus.untracked}` : '',
+            ].filter(Boolean);
+          const gitState = gitParts.length === 0 ? '✓' : gitParts.join(' ');
           const git = gitStatus === undefined
             ? []
             : [`${theme.fg('accent', '')} ${theme.fg(gitState === '✓' ? 'success' : 'warning', gitState)}`];
           const gateStatuses = gateStatusIds
             .map(id => footerData.getExtensionStatuses().get(id))
             .filter(status => status !== undefined);
+          let osLabel: string = process.platform;
+          if (process.platform === 'darwin') {
+            osLabel = ' macOS';
+          } else if (process.platform === 'linux') {
+            osLabel = ' Linux';
+          }
+
           const ownStatus = [
-            theme.fg('accent', getOsLabel()),
+            theme.fg('accent', osLabel),
             ...git,
             ...gateStatuses,
           ].join(theme.fg('dim', ' | '));

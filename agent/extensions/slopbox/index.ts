@@ -1,6 +1,6 @@
 import {realpathSync} from 'node:fs';
 import process from 'node:process';
-import type {ExtensionAPI, ExtensionContext} from '@earendil-works/pi-coding-agent';
+import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import {
   createConfigStore,
   isDomainAllowed,
@@ -21,10 +21,6 @@ and private temporary storage; global skills are read-only. Network access is
 allowlisted, and host credentials, signing agents, and other host services are
 unavailable unless explicitly configured. Treat a sandbox denial as a real boundary:
 do not retry outside it or seek a workaround.`;
-
-function getErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 export function getBlockedDomain(message: string, command = ''): string | undefined {
   const violation = /deny network-outbound (?<host>.+):(?<port>\d+) \(host is not on the allow list\)/v.exec(message);
@@ -93,12 +89,11 @@ export default function slopbox(pi: ExtensionAPI): void {
 
         ctx.ui.notify('Usage: /slopbox [global] add <directory> | allow <domain> | prompt on|off | status', 'info');
       } catch (error) {
-        ctx.ui.notify(getErrorMessage(error), 'error');
+        ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
       }
     },
   });
 
-  pi.on('project_trust', () => ({trusted: 'no'}));
   pi.on('before_agent_start', event => ({
     systemPrompt: `${event.systemPrompt}\n\n${sandboxSystemPrompt}`,
   }));
@@ -151,26 +146,22 @@ export default function slopbox(pi: ExtensionAPI): void {
       await sandbox.refresh();
       ctx.ui.notify(`Added ${domain.trim()} to ${scope} network.allowedDomains. Retry the command.`, 'info');
     } catch (error) {
-      ctx.ui.notify(getErrorMessage(error), 'error');
+      ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
     } finally {
       isPromptInProgress = false;
     }
   });
 
-  const setStatus = (ctx: ExtensionContext, status: string): void => {
-    ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', status)} ${ctx.ui.theme.fg('dim', '│')}`);
-  };
-
   pi.on('session_start', async (_event, ctx) => {
-    setStatus(ctx, 'slopbox starting');
+    ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'slopbox starting')} ${ctx.ui.theme.fg('dim', '│')}`);
     try {
       await sandbox.ensureSession();
       await sandbox.run(['true']);
-      setStatus(ctx, 'slopbox on');
+      ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'slopbox on')} ${ctx.ui.theme.fg('dim', '│')}`);
       ctx.ui.notify(`Sandboxed tools can access only ${cwd}.`, 'info');
     } catch (error) {
-      setStatus(ctx, 'slopbox off');
-      ctx.ui.notify(getErrorMessage(error), 'error');
+      ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'slopbox off')} ${ctx.ui.theme.fg('dim', '│')}`);
+      ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
     }
   });
 

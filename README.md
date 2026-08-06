@@ -9,32 +9,98 @@
   ╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝     ╚═╝        ████████████
 ```
 
-Personal Pi setup repository.
+A shareable [Pi](https://pi.dev) package that sandboxes filesystem tools, adds a read-only ask mode, and customizes the terminal header and footer.
 
-This repo contains my local Pi configuration and custom extensions, currently for personal use only.
+## Install
+
+Review the source before installing: Pi packages execute with your user permissions.
+
+```bash
+pi install git:github.com/spence-s/sloppi
+```
+
+To try it for one session without changing Pi settings:
+
+```bash
+pi -e git:github.com/spence-s/sloppi
+```
+
+Manage the installation with:
+
+```bash
+pi update git:github.com/spence-s/sloppi
+pi remove git:github.com/spence-s/sloppi
+pi config # enable or disable individual Sloppi extensions
+```
+
+Sloppi does not change Pi's project trust behavior.
+
+## Requirements
+
+- Node.js 22 or newer
+- macOS: `brew install ripgrep`
+- Linux: install `bubblewrap`, `socat`, `ripgrep`, and `fd`
+
+Slopbox currently supports macOS and Linux. Its status line uses Nerd Font icons but remains usable without them.
+
+For web research in ask mode, install [`pi-web-access`](https://github.com/nicobailon/pi-web-access) separately:
+
+```bash
+pi install npm:pi-web-access
+```
 
 ## Extensions
 
-- `ask-mode.ts` – `/ask on|off|toggle` limits Pi to read-only files and web research tools.
-- `slopbox/` – sandboxes filesystem tools with global and per-project SRT configuration.
-- `startup-banner.ts` – renders the TUI banner.
-- `status-line.ts` – shows the OS and Git working-tree status in the footer.
+- `ask-mode.ts` — `/ask on|off|toggle|status` limits Pi to read-only and available web research tools.
+- `slopbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime.
+- `startup-banner.ts` — replaces Pi's TUI header.
+- `status-line.ts` — adds OS and Git status below Pi's footer.
 
-`test/` contains the extension tests. `agent/settings.json` is local Pi configuration.
+Slopbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. It blocks unapproved extension tools from host execution; Pi web-access tools remain host-side so provider credentials are not exposed to sandboxed commands.
 
-## Sandbox
+## Sandbox configuration
 
-Sloppi runs every filesystem-capable Pi tool through [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime). Each Pi session can write only its current project and a private temporary directory; it can read its project, global skills, and system files. Network access is denied by default. This experimental boundary fails closed when SRT is unavailable. macOS uses its built-in Seatbelt sandbox and requires `ripgrep`; Linux also requires `bubblewrap`, `socat`, and `fd`.
+Slopbox writes `slopbox.json` beside Pi's agent directory. This is `~/.pi/slopbox.json` by default and follows `PI_CODING_AGENT_DIR` when that environment variable is set.
 
-`~/.pi/slopbox.json` accepts SRT options at the root for all projects and partial SRT configuration under `projects["/absolute/project/path"]`. Arrays are combined and project scalar values override global values. Slopbox adds only `projects` and `slopbox.promptOnNetworkDeny`; neither is passed to SRT. A blocked network request prompts to add the exact `host:port` globally, for the current project, or as a custom SRT domain pattern. Set `promptOnNetworkDeny` to `false`, or run `/slopbox [global] prompt off`, to deny without prompting. `/slopbox [global] add <directory>`, `allow <domain>`, and `status` update or display the same configuration.
+Global SRT options live at the root. Project overrides live under `projects["/absolute/project/path"]`; arrays are combined and project scalar values override global values.
 
-## Local development
+```json
+{
+  "network": {
+    "allowedDomains": ["registry.npmjs.org:443"]
+  },
+  "projects": {
+    "/absolute/project/path": {
+      "filesystem": {
+        "allowRead": ["/shared/read-only"],
+        "allowWrite": ["/shared/writable"]
+      }
+    }
+  }
+}
+```
 
-- `npm test` – run tests
-- `npm run lint` – lint code
-- `npm run check` – type-check
+Commands update the same trusted user-level file:
 
-## Notes
+```text
+/slopbox status
+/slopbox add ../shared
+/slopbox allow api.example.com:443
+/slopbox prompt off
+/slopbox global allow registry.npmjs.org:443
+```
 
-- Not published as a package.
-- Runtime/local agent state is gitignored.
+By default, filesystem tools can write only the current project and private session scratch space. Global Pi skills and Git/npm package directories are readable. Network access is denied until allowed. A blocked network request can prompt to add a project or global domain rule; use `/slopbox prompt off` to disable prompts.
+
+Slopbox is an additional experimental boundary, not a guarantee. Broad filesystem paths, domains, Unix sockets, Apple Events, or weaker SRT isolation options reduce its protection. See [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime) for platform limitations.
+
+## Development
+
+```bash
+npm install
+npm run check
+npm run lint
+npm test
+```
+
+Tests use Node's native test runner. Runtime state and machine-specific Pi settings are gitignored.

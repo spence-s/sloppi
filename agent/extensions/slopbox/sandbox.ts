@@ -15,11 +15,12 @@ import {
   resolve,
 } from 'node:path';
 import process from 'node:process';
+import {fileURLToPath} from 'node:url';
 import {$} from 'execa';
 import type {SandboxRuntimeConfig} from '@anthropic-ai/sandbox-runtime';
 import {getEffectiveConfig, mergeSandboxConfig, type Config} from './config.ts';
 
-// Resolve ~/.pi symlinks: Seatbelt evaluates the physical path, not the alias.
+// Resolve Pi directory symlinks: Seatbelt evaluates the physical path, not the alias.
 export function resolveSandboxReadPath(path: string): string {
   try {
     return realpathSync(path);
@@ -28,13 +29,15 @@ export function resolveSandboxReadPath(path: string): string {
   }
 }
 
-const skillPathAliases = [
-  join(homedir(), '.pi', 'agent', 'skills'),
-  join(homedir(), '.pi', 'agent', 'git'),
-].map(alias => ({alias, path: resolveSandboxReadPath(alias)}));
+const skillPathAliases = ['skills', 'git', 'npm']
+  .map(directory => resolve(
+    process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'),
+    directory,
+  ))
+  .map(alias => ({alias, path: resolveSandboxReadPath(alias)}));
 const skillsPaths = skillPathAliases.map(({path}) => path);
 
-// Skill locations are advertised through ~/.pi, which may be a symlink. Seatbelt
+// Skill locations may be advertised through a symlinked Pi directory. Seatbelt
 // checks the path supplied to a tool, while its policy uses the physical path.
 export function resolveSandboxToolPath(path: string): string {
   if (!isAbsolute(path)) {
@@ -52,7 +55,7 @@ export function resolveSandboxToolPath(path: string): string {
   return path;
 }
 
-const srtPath = resolve(import.meta.dirname, '../../../node_modules/.bin/srt');
+const srtPath = fileURLToPath(import.meta.resolve('@anthropic-ai/sandbox-runtime/dist/cli.js'));
 const sandboxGuidance = [
   'Sandbox restriction: work in the current project, use mktemp for private temporary files,',
   'and treat global skills as read-only. Network access is limited by the configured allowlist.',

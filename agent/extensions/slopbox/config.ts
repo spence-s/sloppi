@@ -2,6 +2,7 @@ import {realpathSync, statSync} from 'node:fs';
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
+import process from 'node:process';
 import {NetworkConfigSchema} from '@anthropic-ai/sandbox-runtime';
 
 export type Config = Record<string, unknown>;
@@ -47,17 +48,6 @@ export function getEffectiveConfig(config: Config, cwd: string): Config {
   const {projects: _projects, slopbox: _slopbox, ...global} = config;
   const {slopbox: _projectSlopbox, ...project} = getProjectConfig(config, cwd);
   return mergeSandboxConfig(global, project);
-}
-
-export function getAllowedDirectories(config: unknown, cwd: string): string[] {
-  if (!isConfig(config)) {
-    return [];
-  }
-
-  const {filesystem} = getEffectiveConfig(config, cwd);
-  return isConfig(filesystem)
-    ? [...new Set([...getStrings(filesystem.allowRead), ...getStrings(filesystem.allowWrite)])]
-    : [];
 }
 
 export function isDomainAllowed(config: unknown, cwd: string, domain: string): boolean {
@@ -116,7 +106,11 @@ export function resolveAllowedDirectory(cwd: string, path: string): string {
 
 export function createConfigStore(
   cwd: string,
-  configPath = join(homedir(), '.pi', 'slopbox.json'),
+  configPath = resolve(
+    process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'),
+    '..',
+    'slopbox.json',
+  ),
 ) {
   let config: Config = {};
   let hasLoaded = false;

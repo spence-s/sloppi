@@ -12,31 +12,29 @@ const wideLogo = [
 ];
 
 export function getBannerLines(width: number, theme: BannerTheme): string[] {
-  const accent = (text: string): string => theme.fg('accent', text);
-  const muted = (text: string): string => theme.fg('muted', text);
-  const dim = (text: string): string => theme.fg('dim', text);
-
   if (width >= 72) {
     return [
-      ...wideLogo.map(line => accent(line)),
-      muted('  personal coding command center'),
-      dim('  /pipeline <goal>  ·  /ask [on|off]  ·  /hotkeys'),
+      ...wideLogo.map(line => theme.fg('accent', line)),
+      theme.fg('muted', '  personal coding command center'),
+      theme.fg('dim', '  /ask [on|off]  ·  /slopbox status  ·  /hotkeys'),
       '',
     ];
   }
-
-  const fit = (text: string): string => text.slice(0, Math.max(0, width));
 
   if (width >= 48) {
     return [
-      accent(fit('✦ SLOPPI  🍜 '))
-      + muted(fit('personal coding command center')),
-      dim(fit('/pipeline <goal>  ·  /ask [on|off]  ·  /hotkeys')),
+      theme.fg('accent', '✦ SLOPPI  🍜 '.slice(0, Math.max(0, width)))
+      + theme.fg('muted', 'personal coding command center'.slice(0, Math.max(0, width))),
+      theme.fg('dim', '/ask [on|off]  ·  /slopbox status  ·  /hotkeys'.slice(0, Math.max(0, width))),
       '',
     ];
   }
 
-  return [accent(fit('✦ SLOPPI 🍜')), dim(fit('/hotkeys for commands')), ''];
+  return [
+    theme.fg('accent', '✦ SLOPPI 🍜'.slice(0, Math.max(0, width))),
+    theme.fg('dim', '/hotkeys for commands'.slice(0, Math.max(0, width))),
+    '',
+  ];
 }
 
 export default function startupBanner(pi: ExtensionAPI): void {

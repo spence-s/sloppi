@@ -15,7 +15,6 @@ import {test, type TestContext} from 'node:test';
 import {$} from 'execa';
 import {
   createConfigStore,
-  getAllowedDirectories,
   isDomainAllowed,
   resolveAllowedDirectory,
   shouldPromptOnNetworkDeny,
@@ -38,6 +37,7 @@ void test('limits filesystem access to the project and session scratch directory
     '/Users/spencer/Projects/app',
     resolveSandboxReadPath(join(piAgentPath, 'skills')),
     resolveSandboxReadPath(join(piAgentPath, 'git')),
+    resolveSandboxReadPath(join(piAgentPath, 'npm')),
   ]);
   t.assert.deepStrictEqual(config.filesystem.allowWrite, [
     '/Users/spencer/Projects/app',
@@ -50,20 +50,23 @@ void test('limits filesystem access to the project and session scratch directory
 
 void test('resolves global skill aliases before passing paths to SRT', (t: TestContext) => {
   const skill = join(homedir(), '.pi', 'agent', 'git', 'github.com', 'DietrichGebert', 'ponytail', 'skills', 'ponytail', 'SKILL.md');
+  const npmSkill = join(homedir(), '.pi', 'agent', 'npm', 'node_modules', 'package', 'skills', 'skill', 'SKILL.md');
 
   t.assert.strictEqual(resolveSandboxToolPath(skill), resolveSandboxReadPath(skill));
+  t.assert.strictEqual(resolveSandboxToolPath(npmSkill), resolveSandboxReadPath(npmSkill));
   t.assert.strictEqual(resolveSandboxToolPath('/tmp/ordinary-file'), '/tmp/ordinary-file');
 });
 
 void test('loads the former project directory configuration', (t: TestContext) => {
-  const config = {
+  const config = createSandboxConfig('/project-a', '/scratch', [], {
     '/project-a': ['/shared/a'],
     '/project-b': ['/shared/b'],
-  };
+  });
 
-  t.assert.deepStrictEqual(getAllowedDirectories(config, '/project-a'), ['/shared/a']);
-  t.assert.deepStrictEqual(getAllowedDirectories(config, '/missing'), []);
-  t.assert.deepStrictEqual(getAllowedDirectories({'/project-a': [123]}, '/project-a'), []);
+  t.assert.ok(config.filesystem.allowRead?.includes('/shared/a'));
+  t.assert.ok(config.filesystem.allowWrite.includes('/shared/a'));
+  t.assert.ok(!config.filesystem.allowRead?.includes('/shared/b'));
+  t.assert.ok(!config.filesystem.allowWrite.includes('/shared/b'));
 });
 
 void test('preserves config changes saved by another running session', async (t: TestContext) => {

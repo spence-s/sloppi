@@ -22,3 +22,14 @@ Avoid speculative abstractions, unnecessary indirection, clever control flow, an
 Keep changes focused. When touching nearby code, simplify needless nesting, helper functions, and scattered control flow when doing so improves clarity without broadening the task.
 
 Write code like a book: the reader should be able to follow its behavior top to bottom and left to right.
+
+## Inline-First Rule
+
+Inline implementation details at their point of use, even when that duplicates a few simple lines.
+
+- Do not extract helpers merely to avoid duplication, shorten code, or enable unit testing.
+- Do not export production internals for tests.
+- Do not add unit tests unless explicitly requested.
+- Prefer duplicated one-line expressions over indirection.
+- Extract only a substantial domain operation reused in several places.
+- Validate changes through existing checks and integration behavior.
