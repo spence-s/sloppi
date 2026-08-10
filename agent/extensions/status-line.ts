@@ -1,8 +1,7 @@
 import process from 'node:process';
-import {
-  FooterComponent,
-  type ExtensionAPI,
-  type ExtensionContext,
+import type {
+  ExtensionAPI,
+  ExtensionContext,
 } from '@earendil-works/pi-coding-agent';
 import {truncateToWidth} from '@earendil-works/pi-tui';
 
@@ -66,33 +65,23 @@ export default function statusLine(pi: ExtensionAPI): void {
         tui.requestRender();
       };
 
-      const thirdPartyFooterData = {
-        getAvailableProviderCount: () => footerData.getAvailableProviderCount(),
-        getExtensionStatuses() {
-          return new Map([...footerData.getExtensionStatuses()].filter(([id]) => !gateStatusIds.includes(id)));
-        },
-        getGitBranch: () => footerData.getGitBranch(),
-        onBranchChange: (callback: () => void) => footerData.onBranchChange(callback),
-      };
-      const footer = new FooterComponent({
-        get state() {
-          return {model: ctx.model, thinkingLevel: ctx.thinkingLevel};
-        },
-        sessionManager: ctx.sessionManager,
-        getContextUsage: () => ctx.getContextUsage(),
-        modelRuntime: {isUsingOAuth: () => false},
-      } as unknown as ConstructorParameters<typeof FooterComponent>[0], thirdPartyFooterData);
-      const unsubscribe = footerData.onBranchChange(requestRender);
-
       return {
-        dispose() {
-          unsubscribe();
-          footer.dispose();
-        },
-        invalidate() {
-          footer.invalidate();
-        },
+        dispose: footerData.onBranchChange(requestRender),
+        invalidate: () => undefined,
         render(width: number): string[] {
+          const branch = footerData.getGitBranch();
+          const sessionName = ctx.sessionManager.getSessionName();
+          const location = `${ctx.cwd}${branch === null ? '' : ` (${branch})`}${sessionName === undefined ? '' : ` • ${sessionName}`}`;
+          const usage = ctx.getContextUsage();
+          const model = ctx.model?.id ?? 'no-model';
+          const modelStatus = usage === undefined
+            ? model
+            : `${usage.percent === null ? '?' : usage.percent.toFixed(1)}%/${String(usage.contextWindow)}  ${model}`;
+          const thirdPartyStatuses = [...footerData.getExtensionStatuses()]
+            .filter(([id]) => !gateStatusIds.includes(id))
+            .toSorted(([left], [right]) => left.localeCompare(right))
+            .map(([, status]) => status)
+            .join(' ');
           const gitParts = gitStatus === undefined
             ? []
             : [
@@ -119,7 +108,12 @@ export default function statusLine(pi: ExtensionAPI): void {
             ...git,
             ...gateStatuses,
           ].join(theme.fg('dim', ' | '));
-          return [...footer.render(width), truncateToWidth(ownStatus, width)];
+          return [
+            theme.fg('dim', truncateToWidth(location, width)),
+            theme.fg('dim', truncateToWidth(modelStatus, width)),
+            ...(thirdPartyStatuses === '' ? [] : [truncateToWidth(thirdPartyStatuses, width)]),
+            truncateToWidth(ownStatus, width),
+          ];
         },
       };
     });

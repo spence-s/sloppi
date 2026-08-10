@@ -89,8 +89,16 @@ export default function askMode(pi: ExtensionAPI): void {
         continue;
       }
 
-      const state = entry.data as AskModeState | undefined;
-      if (state === undefined) {
+      const state = entry.data;
+      if (
+        typeof state !== 'object'
+        || state === null
+        || !('isEnabled' in state)
+        || typeof state.isEnabled !== 'boolean'
+        || !('toolsBeforeAskMode' in state)
+        || !Array.isArray(state.toolsBeforeAskMode)
+        || state.toolsBeforeAskMode.some(tool => typeof tool !== 'string')
+      ) {
         break;
       }
 

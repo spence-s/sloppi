@@ -49,11 +49,20 @@ void test('limits filesystem access to the project and session scratch directory
 });
 
 void test('resolves global skill aliases before passing paths to SRT', (t: TestContext) => {
-  const skill = join(homedir(), '.pi', 'agent', 'git', 'github.com', 'DietrichGebert', 'ponytail', 'skills', 'ponytail', 'SKILL.md');
-  const npmSkill = join(homedir(), '.pi', 'agent', 'npm', 'node_modules', 'package', 'skills', 'skill', 'SKILL.md');
+  const agentDirectory = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent');
+  const gitDirectory = join(agentDirectory, 'git');
+  const npmDirectory = join(agentDirectory, 'npm');
+  const gitSuffix = join('github.com', 'DietrichGebert', 'ponytail', 'skills', 'ponytail', 'SKILL.md');
+  const npmSuffix = join('node_modules', 'package', 'skills', 'skill', 'SKILL.md');
 
-  t.assert.strictEqual(resolveSandboxToolPath(skill), resolveSandboxReadPath(skill));
-  t.assert.strictEqual(resolveSandboxToolPath(npmSkill), resolveSandboxReadPath(npmSkill));
+  t.assert.strictEqual(
+    resolveSandboxToolPath(join(gitDirectory, gitSuffix)),
+    join(resolveSandboxReadPath(gitDirectory), gitSuffix),
+  );
+  t.assert.strictEqual(
+    resolveSandboxToolPath(join(npmDirectory, npmSuffix)),
+    join(resolveSandboxReadPath(npmDirectory), npmSuffix),
+  );
   t.assert.strictEqual(resolveSandboxToolPath('/tmp/ordinary-file'), '/tmp/ordinary-file');
 });
 

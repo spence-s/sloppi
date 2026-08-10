@@ -12,6 +12,7 @@ const xoConfig: XoConfigItem[] = [
   {
     files: ['**/*.{ts,tsx,cts,mts}'],
     rules: {
+      '@typescript-eslint/no-unsafe-type-assertion': 'error',
       // ensure we don't get empty module imports while using verbatim module syntax
       '@typescript-eslint/no-import-type-side-effects': 'error',
       // Enforce using .ts extensions for local imports in TS files
@@ -31,6 +32,12 @@ const xoConfig: XoConfigItem[] = [
           mjs: 'never',
         },
       ],
+    },
+  },
+  {
+    files: ['test/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-unsafe-type-assertion': 'off',
     },
   },
 ];

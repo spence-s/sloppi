@@ -17,7 +17,10 @@ import {
 import process from 'node:process';
 import {fileURLToPath} from 'node:url';
 import {$} from 'execa';
-import type {SandboxRuntimeConfig} from '@anthropic-ai/sandbox-runtime';
+import {
+  SandboxRuntimeConfigSchema,
+  type SandboxRuntimeConfig,
+} from '@anthropic-ai/sandbox-runtime';
 import {getEffectiveConfig, mergeSandboxConfig, type Config} from './config.ts';
 
 // Resolve Pi directory symlinks: Seatbelt evaluates the physical path, not the alias.
@@ -100,7 +103,7 @@ export function createSandboxConfig(
       denyWrite: [],
     },
   };
-  return mergeSandboxConfig(getEffectiveConfig(config, cwd), required) as SandboxRuntimeConfig;
+  return SandboxRuntimeConfigSchema.parse(mergeSandboxConfig(getEffectiveConfig(config, cwd), required));
 }
 
 async function createSandboxSession(
