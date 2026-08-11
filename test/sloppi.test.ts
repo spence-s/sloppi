@@ -18,15 +18,15 @@ import {
   isDomainAllowed,
   resolveAllowedDirectory,
   shouldPromptOnNetworkDeny,
-} from '../agent/extensions/slopbox/config.ts';
-import slopbox, {getBlockedDomain} from '../agent/extensions/slopbox/index.ts';
+} from '../agent/extensions/sloppi/config.ts';
+import slopbox, {getBlockedDomain} from '../agent/extensions/sloppi/index.ts';
 import {
   createSandboxConfig,
   formatSandboxError,
   resolveSandboxReadPath,
   resolveSandboxToolPath,
-} from '../agent/extensions/slopbox/sandbox.ts';
-import {getFindArguments} from '../agent/extensions/slopbox/tools.ts';
+} from '../agent/extensions/sloppi/sandbox.ts';
+import {getFindArguments} from '../agent/extensions/sloppi/tools.ts';
 
 void test('limits filesystem access to the project and session scratch directory', (t: TestContext) => {
   const piAgentPath = join(homedir(), '.pi', 'agent');
