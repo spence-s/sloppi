@@ -42,7 +42,7 @@
     ]
   },
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "^0.0.70",
+    "@anthropic-ai/sandbox-runtime": "^0.0.71",
     "execa": "^10.0.1"
   },
   "devDependencies": {
