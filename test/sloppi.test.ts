@@ -13,24 +13,22 @@ import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
 import {test, type TestContext} from 'node:test';
 import {$} from 'execa';
-import {
-  createConfigStore,
-  isDomainAllowed,
-  resolveAllowedDirectory,
-  shouldPromptOnNetworkDeny,
-} from '../agent/extensions/sloppi/config.ts';
+import {ConfigStore} from '../agent/extensions/sloppi/config.ts';
 import slopbox, {getBlockedDomain} from '../agent/extensions/sloppi/index.ts';
 import {
-  createSandboxConfig,
   formatSandboxError,
   resolveSandboxReadPath,
   resolveSandboxToolPath,
+  Sandbox,
 } from '../agent/extensions/sloppi/sandbox.ts';
-import {getFindArguments} from '../agent/extensions/sloppi/tools.ts';
+import {SandboxTools} from '../agent/extensions/sloppi/tools.ts';
 
 void test('limits filesystem access to the project and session scratch directory', (t: TestContext) => {
   const piAgentPath = join(homedir(), '.pi', 'agent');
-  const config = createSandboxConfig('/Users/spencer/Projects/app', '/private/tmp/sloppi-123/tmp');
+  const config = new Sandbox(
+    '/Users/spencer/Projects/app',
+    new ConfigStore('/Users/spencer/Projects/app'),
+  ).createConfig('/private/tmp/sloppi-123/tmp');
 
   t.assert.deepStrictEqual(config.network, {allowedDomains: [], deniedDomains: []});
   t.assert.deepStrictEqual(config.filesystem.allowRead, [
@@ -67,10 +65,12 @@ void test('resolves global skill aliases before passing paths to SRT', (t: TestC
 });
 
 void test('loads the former project directory configuration', (t: TestContext) => {
-  const config = createSandboxConfig('/project-a', '/scratch', [], {
+  const configStore = new ConfigStore('/project-a');
+  configStore.config = {
     '/project-a': ['/shared/a'],
     '/project-b': ['/shared/b'],
-  });
+  };
+  const config = new Sandbox('/project-a', configStore).createConfig('/scratch');
 
   t.assert.ok(config.filesystem.allowRead?.includes('/shared/a'));
   t.assert.ok(config.filesystem.allowWrite.includes('/shared/a'));
@@ -81,8 +81,8 @@ void test('loads the former project directory configuration', (t: TestContext) =
 void test('preserves config changes saved by another running session', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-config-test-'));
   const configPath = join(directory, 'slopbox.json');
-  const first = createConfigStore('/project-a', configPath);
-  const second = createConfigStore('/project-b', configPath);
+  const first = new ConfigStore('/project-a', configPath);
+  const second = new ConfigStore('/project-b', configPath);
 
   try {
     await writeFile(configPath, `${JSON.stringify({slopbox: {otherSetting: true}})}\n`);
@@ -103,7 +103,8 @@ void test('preserves config changes saved by another running session', async (t:
 });
 
 void test('merges global and project SRT configuration without renaming options', (t: TestContext) => {
-  const config = createSandboxConfig('/project', '/scratch', [], {
+  const configStore = new ConfigStore('/project');
+  configStore.config = {
     slopbox: {promptOnNetworkDeny: true},
     network: {allowedDomains: ['global.example'], deniedDomains: ['blocked.example']},
     filesystem: {allowWrite: ['/global']},
@@ -114,7 +115,8 @@ void test('merges global and project SRT configuration without renaming options'
         filesystem: {allowRead: ['/project-read'], allowWrite: ['/project-write']},
       },
     },
-  });
+  };
+  const config = new Sandbox('/project', configStore).createConfig('/scratch');
 
   t.assert.deepStrictEqual(config.network.allowedDomains, ['global.example', 'project.example']);
   t.assert.deepStrictEqual(config.network.deniedDomains, ['blocked.example']);
@@ -130,10 +132,12 @@ void test('extracts blocked domains and applies project prompt overrides', (t: T
     network: {allowedDomains: ['api.example.com', '*.example.net:8443']},
     projects: {'/project': {network: {allowedDomains: ['project.example:443']}}},
   };
-  t.assert.strictEqual(isDomainAllowed(allowed, '/project', 'api.example.com:443'), true);
-  t.assert.strictEqual(isDomainAllowed(allowed, '/project', 'service.example.net:8443'), true);
-  t.assert.strictEqual(isDomainAllowed(allowed, '/project', 'service.example.net:443'), false);
-  t.assert.strictEqual(isDomainAllowed(allowed, '/project', 'project.example:443'), true);
+  const configStore = new ConfigStore('/project');
+  configStore.config = allowed;
+  t.assert.strictEqual(configStore.isDomainAllowed('api.example.com:443'), true);
+  t.assert.strictEqual(configStore.isDomainAllowed('service.example.net:8443'), true);
+  t.assert.strictEqual(configStore.isDomainAllowed('service.example.net:443'), false);
+  t.assert.strictEqual(configStore.isDomainAllowed('project.example:443'), true);
 
   const violation = 'deny network-outbound api.example.com:443 (host is not on the allow list)';
   t.assert.strictEqual(getBlockedDomain(violation), 'api.example.com:443');
@@ -142,11 +146,13 @@ void test('extracts blocked domains and applies project prompt overrides', (t: T
     'api.example.com:443',
   );
   t.assert.strictEqual(getBlockedDomain('ordinary failure', 'curl https://api.example.com'), undefined);
-  t.assert.strictEqual(shouldPromptOnNetworkDeny({slopbox: {promptOnNetworkDeny: false}}, '/project'), false);
-  t.assert.strictEqual(shouldPromptOnNetworkDeny({
+  configStore.config = {slopbox: {promptOnNetworkDeny: false}};
+  t.assert.strictEqual(configStore.shouldPrompt(), false);
+  configStore.config = {
     slopbox: {promptOnNetworkDeny: false},
     projects: {'/project': {slopbox: {promptOnNetworkDeny: true}}},
-  }, '/project'), true);
+  };
+  t.assert.strictEqual(configStore.shouldPrompt(), true);
 });
 
 void test('resolves directories before adding them to the sandbox policy', async (t: TestContext) => {
@@ -159,9 +165,9 @@ void test('resolves directories before adding them to the sandbox policy', async
     await symlink(target, link);
     const physicalTarget = realpathSync(target);
     t.assert.strictEqual(resolveSandboxReadPath(link), physicalTarget);
-    t.assert.strictEqual(resolveAllowedDirectory(directory, 'target'), physicalTarget);
+    t.assert.strictEqual(new ConfigStore(directory).resolveAllowedDirectory('target'), physicalTarget);
 
-    const config = createSandboxConfig('/project', '/scratch', [physicalTarget]);
+    const config = new Sandbox('/project', new ConfigStore('/project')).createConfig('/scratch', [physicalTarget]);
     t.assert.ok(config.filesystem.allowRead?.includes(physicalTarget));
     t.assert.ok(config.filesystem.allowWrite?.includes(physicalTarget));
   } finally {
@@ -178,7 +184,8 @@ void test('SRT denies writes outside the project and session scratch directory',
 
   try {
     await Promise.all([mkdir(scratchPath), mkdir(outsidePath)]);
-    await writeFile(settingsPath, `${JSON.stringify(createSandboxConfig(projectPath, scratchPath))}\n`);
+    const sandbox = new Sandbox(projectPath, new ConfigStore(projectPath));
+    await writeFile(settingsPath, `${JSON.stringify(sandbox.createConfig(scratchPath))}\n`);
 
     const srtPath = resolve(import.meta.dirname, '../node_modules/.bin/srt');
     const result = await $({reject: false})`${srtPath} --settings ${settingsPath} -- sh -c ${'echo blocked > "$1"'} sh ${join(outsidePath, 'blocked.txt')}`;
@@ -215,7 +222,7 @@ void test('registers /slopbox to allow directories during a session', (t: TestCo
 
 void test('uses native find arguments on macOS', (t: TestContext) => {
   t.assert.deepStrictEqual(
-    getFindArguments({
+    SandboxTools.getFindArguments({
       platform: 'darwin',
       pattern: '*.test.ts',
       path: 'test',

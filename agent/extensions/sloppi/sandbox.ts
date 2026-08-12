@@ -21,7 +21,8 @@ import {
   SandboxRuntimeConfigSchema,
   type SandboxRuntimeConfig,
 } from '@anthropic-ai/sandbox-runtime';
-import {getEffectiveConfig, mergeSandboxConfig, type Config} from './config.ts';
+import {merge} from 'object-deep-merge';
+import type {ConfigStore} from './config.ts';
 
 // Resolve Pi directory symlinks: Seatbelt evaluates the physical path, not the alias.
 export function resolveSandboxReadPath(path: string): string {
@@ -87,64 +88,53 @@ export function formatSandboxError(message: string, fallback: string): string {
   return `${error}\n\n${sandboxGuidance}`;
 }
 
-export function createSandboxConfig(
-  cwd: string,
-  scratchPath: string,
-  allowedDirectories: readonly string[] = [],
-  config: Config = {},
-): SandboxRuntimeConfig {
-  const required: Config = {
-    network: {allowedDomains: [], deniedDomains: []},
-    filesystem: {
-      // System files and global skills remain readable; user files do not.
-      denyRead: [dirname(homedir())],
-      allowRead: [cwd, ...allowedDirectories, ...skillsPaths],
-      allowWrite: [cwd, ...allowedDirectories, scratchPath],
-      denyWrite: [],
-    },
-  };
-  return SandboxRuntimeConfigSchema.parse(mergeSandboxConfig(getEffectiveConfig(config, cwd), required));
-}
+export class Sandbox {
+  session: SandboxSession | undefined;
+  cwd: string;
+  config: ConfigStore;
 
-async function createSandboxSession(
-  cwd: string,
-  allowedDirectories: readonly string[],
-  config: Config,
-): Promise<SandboxSession> {
-  const directory = await mkdtemp(join(tmpdir(), 'sloppi-'));
-  const scratchPath = join(directory, 'tmp');
-  const settingsPath = join(directory, 'settings.json');
-  const sandboxConfig = createSandboxConfig(cwd, scratchPath, allowedDirectories, config);
-
-  await mkdir(scratchPath);
-  await writeFile(settingsPath, `${JSON.stringify(sandboxConfig)}\n`);
-  return {directory, settingsPath, scratchPath};
-}
-
-async function removeSandboxSession(session: SandboxSession | undefined): Promise<void> {
-  if (session !== undefined) {
-    await rm(session.directory, {force: true, recursive: true});
+  constructor(cwd: string, config: ConfigStore) {
+    this.cwd = cwd;
+    this.config = config;
   }
-}
 
-export function createSandbox(cwd: string, loadConfig: () => Promise<Config>) {
-  let session: SandboxSession | undefined;
+  createConfig(scratchPath: string, allowedDirectories: readonly string[] = []): SandboxRuntimeConfig {
+    const required = {
+      network: {allowedDomains: [], deniedDomains: []},
+      filesystem: {
+        denyRead: [dirname(homedir())],
+        allowRead: [this.cwd, ...allowedDirectories, ...skillsPaths],
+        allowWrite: [this.cwd, ...allowedDirectories, scratchPath],
+        denyWrite: [],
+      },
+    };
+    return SandboxRuntimeConfigSchema.parse(merge(this.config.getEffectiveConfig(), required));
+  }
 
-  const ensureSession = async (): Promise<SandboxSession> => {
-    const config = await loadConfig();
-    session ??= await createSandboxSession(cwd, [], config);
-    return session;
-  };
+  async ensureSession(): Promise<SandboxSession> {
+    await this.config.load();
+    if (this.session !== undefined) {
+      return this.session;
+    }
 
-  const shell = async (arguments_: string[], options: RunOptions = {}) => {
+    const directory = await mkdtemp(join(tmpdir(), 'sloppi-'));
+    const scratchPath = join(directory, 'tmp');
+    const settingsPath = join(directory, 'settings.json');
+    await mkdir(scratchPath);
+    await writeFile(settingsPath, `${JSON.stringify(this.createConfig(scratchPath))}\n`);
+    this.session = {directory, settingsPath, scratchPath};
+    return this.session;
+  }
+
+  async shell(arguments_: string[], options: RunOptions = {}) {
     if (options.signal?.aborted) {
       throw options.signal.reason instanceof Error ? options.signal.reason : new Error('Sandbox command aborted before execution.');
     }
 
-    const currentSession = await ensureSession();
+    const currentSession = await this.ensureSession();
     return $({
       reject: false,
-      cwd,
+      cwd: this.cwd,
       // Do not pass host credentials or proxy settings into an agent-controlled process.
       env: {
         HOME: currentSession.scratchPath,
@@ -158,10 +148,10 @@ export function createSandbox(cwd: string, loadConfig: () => Promise<Config>) {
       ...(options.signal !== undefined && {cancelSignal: options.signal}),
       ...(options.timeout !== undefined && {timeout: options.timeout * 1000}),
     })`${srtPath} --settings ${currentSession.settingsPath} -- ${arguments_}`;
-  };
+  }
 
-  const run = async (arguments_: string[], options?: RunOptions): Promise<string> => {
-    const result = await shell(arguments_, options);
+  async run(arguments_: string[], options?: RunOptions): Promise<string> {
+    const result = await this.shell(arguments_, options);
     if (result.exitCode !== 0) {
       throw new Error(formatSandboxError(
         result.stderr.trim(),
@@ -170,21 +160,19 @@ export function createSandbox(cwd: string, loadConfig: () => Promise<Config>) {
     }
 
     return result.stdout;
-  };
+  }
 
-  return {
-    ensureSession,
-    shell,
-    run,
-    async refresh(): Promise<void> {
-      await removeSandboxSession(session);
-      session = undefined;
-      await ensureSession();
-    },
-    async shutdown(): Promise<void> {
-      await removeSandboxSession(session);
-    },
-  };
+  async refresh(): Promise<void> {
+    await this.shutdown();
+    await this.ensureSession();
+  }
+
+  async shutdown(): Promise<void> {
+    if (this.session === undefined) {
+      return;
+    }
+
+    await rm(this.session.directory, {force: true, recursive: true});
+    this.session = undefined;
+  }
 }
-
-export type Sandbox = ReturnType<typeof createSandbox>;

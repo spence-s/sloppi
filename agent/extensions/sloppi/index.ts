@@ -2,13 +2,11 @@ import {realpathSync} from 'node:fs';
 import process from 'node:process';
 import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import {
-  createConfigStore,
-  isDomainAllowed,
-  resolveAllowedDirectory,
+  ConfigStore,
   type ConfigScope,
 } from './config.ts';
-import {createSandbox, createSandboxConfig} from './sandbox.ts';
-import {registerSandboxTools} from './tools.ts';
+import {Sandbox} from './sandbox.ts';
+import {SandboxTools} from './tools.ts';
 
 // Only these tools may execute commands; everything else stays explicitly allowlisted.
 const sandboxedTools = new Set(['bash', 'edit', 'find', 'grep', 'ls', 'read', 'write']);
@@ -41,131 +39,146 @@ export function getBlockedDomain(message: string, command = ''): string | undefi
   return `${parsed.hostname}:${parsed.port.length > 0 ? parsed.port : (parsed.protocol === 'https:' ? '443' : '80')}`;
 }
 
-export default function slopbox(pi: ExtensionAPI): void {
-  const cwd = realpathSync(process.cwd());
-  const config = createConfigStore(cwd);
-  const sandbox = createSandbox(cwd, config.load);
-  registerSandboxTools(pi, cwd, sandbox);
-  let isPromptInProgress = false;
+export class Slopbox {
+  pi: ExtensionAPI;
+  cwd: string;
+  config: ConfigStore;
+  sandbox: Sandbox;
+  isPromptInProgress = false;
 
-  pi.registerCommand('slopbox', {
-    description: 'Configure sandbox access. Usage: /slopbox [global] add|allow|status <value>',
-    async handler(args, ctx) {
-      const parts = args.trim().split(/\s+/v).filter(Boolean);
-      const scope: ConfigScope = parts[0] === 'global' ? 'global' : 'project';
-      if (scope === 'global') {
-        parts.shift();
+  constructor(pi: ExtensionAPI) {
+    this.pi = pi;
+    this.cwd = realpathSync(process.cwd());
+    this.config = new ConfigStore(this.cwd);
+    this.sandbox = new Sandbox(this.cwd, this.config);
+  }
+
+  register(): void {
+    const {pi, cwd, config, sandbox} = this;
+    new SandboxTools(pi, cwd, sandbox).register();
+
+    pi.registerCommand('slopbox', {
+      description: 'Configure sandbox access. Usage: /slopbox [global] add|allow|status <value>',
+      async handler(args, ctx) {
+        const parts = args.trim().split(/\s+/v).filter(Boolean);
+        const scope: ConfigScope = parts[0] === 'global' ? 'global' : 'project';
+        if (scope === 'global') {
+          parts.shift();
+        }
+
+        const command = parts.shift();
+        try {
+          if (command === 'status' && parts.length === 0) {
+            const loadedConfig = await config.reload();
+            ctx.ui.notify(JSON.stringify(sandbox.createConfig('<session scratch>'), undefined, 2), 'info');
+            return;
+          }
+
+          if (command === 'add' && parts.length > 0) {
+            const directory = config.resolveAllowedDirectory(parts.join(' '));
+            await config.addDirectory(scope, directory);
+            await sandbox.refresh();
+            ctx.ui.notify(`slopbox allows ${directory} (${scope}).`, 'info');
+            return;
+          }
+
+          if (command === 'allow' && parts.length === 1) {
+            await config.addDomain(scope, parts[0] ?? '');
+            await sandbox.refresh();
+            ctx.ui.notify(`slopbox allows ${parts[0]} (${scope}).`, 'info');
+            return;
+          }
+
+          if (command === 'prompt' && (parts[0] === 'on' || parts[0] === 'off')) {
+            await config.setPrompting(scope, parts[0] === 'on');
+            await sandbox.refresh();
+            ctx.ui.notify(`slopbox network prompts are ${parts[0]} (${scope}).`, 'info');
+            return;
+          }
+
+          ctx.ui.notify('Usage: /slopbox [global] add <directory> | allow <domain> | prompt on|off | status', 'info');
+        } catch (error) {
+          ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
+        }
+      },
+    });
+
+    pi.on('before_agent_start', event => ({
+      systemPrompt: `${event.systemPrompt}\n\n${sandboxSystemPrompt}`,
+    }));
+    pi.on('tool_call', event => {
+      if (!sandboxedTools.has(event.toolName) && !hostTools.has(event.toolName)) {
+        return {block: true, reason: `Tool ${event.toolName} is not approved for host execution.`};
+      }
+    });
+
+    pi.on('tool_result', async (event, ctx) => {
+      if (!sandboxedTools.has(event.toolName) || !ctx.hasUI || this.isPromptInProgress) {
+        return;
       }
 
-      const command = parts.shift();
+      await config.reload();
+      const message = event.content
+        .filter(entry => entry.type === 'text')
+        .map(entry => entry.text)
+        .join('\n');
+      const command = typeof event.input.command === 'string' ? event.input.command : '';
+      const suggestedDomain = getBlockedDomain(message, command);
+      if (suggestedDomain === undefined || !config.shouldPrompt() || config.isDomainAllowed(suggestedDomain)) {
+        return;
+      }
+
+      this.isPromptInProgress = true;
       try {
-        if (command === 'status' && parts.length === 0) {
-          const loadedConfig = await config.reload();
-          ctx.ui.notify(JSON.stringify(createSandboxConfig(cwd, '<session scratch>', [], loadedConfig), undefined, 2), 'info');
+        const projectChoice = `Allow ${suggestedDomain} for this project`;
+        const globalChoice = `Allow ${suggestedDomain} for all projects`;
+        const customChoice = 'Customize the SRT domain pattern…';
+        const choice = await ctx.ui.select('Slopbox blocked a network request', [
+          projectChoice,
+          globalChoice,
+          customChoice,
+          'Deny',
+        ]);
+        if (choice === undefined || choice === 'Deny') {
           return;
         }
 
-        if (command === 'add' && parts.length > 0) {
-          const directory = resolveAllowedDirectory(cwd, parts.join(' '));
-          await config.addDirectory(scope, directory);
-          await sandbox.refresh();
-          ctx.ui.notify(`slopbox allows ${directory} (${scope}).`, 'info');
+        const scope: ConfigScope = choice === globalChoice ? 'global' : 'project';
+        const domain = choice === customChoice
+          ? await ctx.ui.input('SRT domain pattern', suggestedDomain)
+          : suggestedDomain;
+        if (domain === undefined || domain.trim().length === 0) {
           return;
         }
 
-        if (command === 'allow' && parts.length === 1) {
-          await config.addDomain(scope, parts[0] ?? '');
-          await sandbox.refresh();
-          ctx.ui.notify(`slopbox allows ${parts[0]} (${scope}).`, 'info');
-          return;
-        }
-
-        if (command === 'prompt' && (parts[0] === 'on' || parts[0] === 'off')) {
-          await config.setPrompting(scope, parts[0] === 'on');
-          await sandbox.refresh();
-          ctx.ui.notify(`slopbox network prompts are ${parts[0]} (${scope}).`, 'info');
-          return;
-        }
-
-        ctx.ui.notify('Usage: /slopbox [global] add <directory> | allow <domain> | prompt on|off | status', 'info');
+        await config.addDomain(scope, domain.trim());
+        await sandbox.refresh();
+        ctx.ui.notify(`Added ${domain.trim()} to ${scope} network.allowedDomains. Retry the command.`, 'info');
       } catch (error) {
         ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
+      } finally {
+        this.isPromptInProgress = false;
       }
-    },
-  });
+    });
 
-  pi.on('before_agent_start', event => ({
-    systemPrompt: `${event.systemPrompt}\n\n${sandboxSystemPrompt}`,
-  }));
-  pi.on('tool_call', event => {
-    if (!sandboxedTools.has(event.toolName) && !hostTools.has(event.toolName)) {
-      return {block: true, reason: `Tool ${event.toolName} is not approved for host execution.`};
-    }
-  });
-
-  pi.on('tool_result', async (event, ctx) => {
-    if (!sandboxedTools.has(event.toolName) || !ctx.hasUI || isPromptInProgress) {
-      return;
-    }
-
-    const loadedConfig = await config.reload();
-    const message = event.content
-      .filter(entry => entry.type === 'text')
-      .map(entry => entry.text)
-      .join('\n');
-    const command = typeof event.input.command === 'string' ? event.input.command : '';
-    const suggestedDomain = getBlockedDomain(message, command);
-    if (suggestedDomain === undefined || !config.shouldPrompt() || isDomainAllowed(loadedConfig, cwd, suggestedDomain)) {
-      return;
-    }
-
-    isPromptInProgress = true;
-    try {
-      const projectChoice = `Allow ${suggestedDomain} for this project`;
-      const globalChoice = `Allow ${suggestedDomain} for all projects`;
-      const customChoice = 'Customize the SRT domain pattern…';
-      const choice = await ctx.ui.select('Slopbox blocked a network request', [
-        projectChoice,
-        globalChoice,
-        customChoice,
-        'Deny',
-      ]);
-      if (choice === undefined || choice === 'Deny') {
-        return;
+    pi.on('session_start', async (_event, ctx) => {
+      ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'sloppi')} ${ctx.ui.theme.bold(ctx.ui.theme.fg('warning', '●'))} ${ctx.ui.theme.fg('dim', '│')}`);
+      try {
+        await sandbox.ensureSession();
+        await sandbox.run(['true']);
+        ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'sloppi')} ${ctx.ui.theme.bold(ctx.ui.theme.fg('success', '●'))} ${ctx.ui.theme.fg('dim', '│')}`);
+        ctx.ui.notify(`Sandboxed tools can access only ${cwd}.`, 'info');
+      } catch (error) {
+        ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'sloppi')} ${ctx.ui.theme.bold(ctx.ui.theme.fg('error', '●'))} ${ctx.ui.theme.fg('dim', '│')}`);
+        ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
       }
+    });
+    pi.on('session_shutdown', async () => {
+      await sandbox.shutdown();
+    });
+  }
+}
 
-      const scope: ConfigScope = choice === globalChoice ? 'global' : 'project';
-      const domain = choice === customChoice
-        ? await ctx.ui.input('SRT domain pattern', suggestedDomain)
-        : suggestedDomain;
-      if (domain === undefined || domain.trim().length === 0) {
-        return;
-      }
-
-      await config.addDomain(scope, domain.trim());
-      await sandbox.refresh();
-      ctx.ui.notify(`Added ${domain.trim()} to ${scope} network.allowedDomains. Retry the command.`, 'info');
-    } catch (error) {
-      ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
-    } finally {
-      isPromptInProgress = false;
-    }
-  });
-
-  pi.on('session_start', async (_event, ctx) => {
-    ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'slopbox starting')} ${ctx.ui.theme.fg('dim', '│')}`);
-    try {
-      await sandbox.ensureSession();
-      await sandbox.run(['true']);
-      ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'slopbox on')} ${ctx.ui.theme.fg('dim', '│')}`);
-      ctx.ui.notify(`Sandboxed tools can access only ${cwd}.`, 'info');
-    } catch (error) {
-      ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'slopbox off')} ${ctx.ui.theme.fg('dim', '│')}`);
-      ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
-    }
-  });
-
-  pi.on('session_shutdown', async () => {
-    await sandbox.shutdown();
-  });
+export default function slopbox(pi: ExtensionAPI): void {
+  new Slopbox(pi).register();
 }
