@@ -12,38 +12,49 @@ import {homedir, tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
 import {test, type TestContext} from 'node:test';
-import {$} from 'execa';
+import {SandboxRuntimeConfigSchema} from '@anthropic-ai/sandbox-runtime';
 import {ConfigStore} from '../agent/extensions/sloppi/config.ts';
 import slopbox, {getBlockedDomain} from '../agent/extensions/sloppi/index.ts';
 import {
-  formatSandboxError,
   resolveSandboxReadPath,
   resolveSandboxToolPath,
   Sandbox,
 } from '../agent/extensions/sloppi/sandbox.ts';
 import {SandboxTools} from '../agent/extensions/sloppi/tools.ts';
 
-void test('limits filesystem access to the project and session scratch directory', (t: TestContext) => {
+void test('limits filesystem access to the project and session scratch directory', async (t: TestContext) => {
   const piAgentPath = join(homedir(), '.pi', 'agent');
-  const config = new Sandbox(
+  const sandbox = new Sandbox(
     '/Users/spencer/Projects/app',
     new ConfigStore('/Users/spencer/Projects/app'),
-  ).createConfig('/private/tmp/sloppi-123/tmp');
+  );
 
-  t.assert.deepStrictEqual(config.network, {allowedDomains: [], deniedDomains: []});
-  t.assert.deepStrictEqual(config.filesystem.allowRead, [
-    '/Users/spencer/Projects/app',
-    resolveSandboxReadPath(join(piAgentPath, 'skills')),
-    resolveSandboxReadPath(join(piAgentPath, 'git')),
-    resolveSandboxReadPath(join(piAgentPath, 'npm')),
-  ]);
-  t.assert.deepStrictEqual(config.filesystem.allowWrite, [
-    '/Users/spencer/Projects/app',
-    '/private/tmp/sloppi-123/tmp',
-  ]);
-  t.assert.deepStrictEqual(config.filesystem.denyWrite, []);
-  const userDirectory = dirname(homedir());
-  t.assert.ok(config.filesystem.denyRead.includes(userDirectory));
+  try {
+    const session = await sandbox.startSession();
+    const settings = await readFile(session.settingsPath, 'utf8');
+    const config = SandboxRuntimeConfigSchema.parse(JSON.parse(settings));
+    t.assert.deepStrictEqual(config.network, {allowedDomains: [], deniedDomains: []});
+    t.assert.deepStrictEqual(config.filesystem.allowRead, [
+      '/Users/spencer/Projects/app',
+      resolveSandboxReadPath(join(piAgentPath, 'skills')),
+      resolveSandboxReadPath(join(piAgentPath, 'git')),
+      resolveSandboxReadPath(join(piAgentPath, 'npm')),
+    ]);
+    t.assert.deepStrictEqual(config.filesystem.allowWrite, [
+      '/Users/spencer/Projects/app',
+      session.scratchPath,
+    ]);
+    t.assert.deepStrictEqual(config.filesystem.denyWrite, []);
+    const userDirectory = dirname(homedir());
+    t.assert.ok(config.filesystem.denyRead.includes(userDirectory));
+  } finally {
+    await sandbox.stopSession();
+  }
+});
+
+void test('requires an explicit session before running commands', async (t: TestContext) => {
+  const sandbox = new Sandbox('/project', new ConfigStore('/project'));
+  await t.assert.rejects(sandbox.run(['true']), /has not started/v);
 });
 
 void test('resolves global skill aliases before passing paths to SRT', (t: TestContext) => {
@@ -64,18 +75,26 @@ void test('resolves global skill aliases before passing paths to SRT', (t: TestC
   t.assert.strictEqual(resolveSandboxToolPath('/tmp/ordinary-file'), '/tmp/ordinary-file');
 });
 
-void test('loads the former project directory configuration', (t: TestContext) => {
+void test('loads the former project directory configuration', async (t: TestContext) => {
   const configStore = new ConfigStore('/project-a');
   configStore.config = {
     '/project-a': ['/shared/a'],
     '/project-b': ['/shared/b'],
   };
-  const config = new Sandbox('/project-a', configStore).createConfig('/scratch');
+  configStore.hasLoaded = true;
+  const sandbox = new Sandbox('/project-a', configStore);
 
-  t.assert.ok(config.filesystem.allowRead?.includes('/shared/a'));
-  t.assert.ok(config.filesystem.allowWrite.includes('/shared/a'));
-  t.assert.ok(!config.filesystem.allowRead?.includes('/shared/b'));
-  t.assert.ok(!config.filesystem.allowWrite.includes('/shared/b'));
+  try {
+    const session = await sandbox.startSession();
+    const settings = await readFile(session.settingsPath, 'utf8');
+    const config = SandboxRuntimeConfigSchema.parse(JSON.parse(settings));
+    t.assert.ok(config.filesystem.allowRead?.includes('/shared/a'));
+    t.assert.ok(config.filesystem.allowWrite.includes('/shared/a'));
+    t.assert.ok(!config.filesystem.allowRead?.includes('/shared/b'));
+    t.assert.ok(!config.filesystem.allowWrite.includes('/shared/b'));
+  } finally {
+    await sandbox.stopSession();
+  }
 });
 
 void test('preserves config changes saved by another running session', async (t: TestContext) => {
@@ -102,7 +121,7 @@ void test('preserves config changes saved by another running session', async (t:
   }
 });
 
-void test('merges global and project SRT configuration without renaming options', (t: TestContext) => {
+void test('merges global and project SRT configuration without renaming options', async (t: TestContext) => {
   const configStore = new ConfigStore('/project');
   configStore.config = {
     slopbox: {promptOnNetworkDeny: true},
@@ -116,15 +135,23 @@ void test('merges global and project SRT configuration without renaming options'
       },
     },
   };
-  const config = new Sandbox('/project', configStore).createConfig('/scratch');
+  configStore.hasLoaded = true;
+  const sandbox = new Sandbox('/project', configStore);
 
-  t.assert.deepStrictEqual(config.network.allowedDomains, ['global.example', 'project.example']);
-  t.assert.deepStrictEqual(config.network.deniedDomains, ['blocked.example']);
-  t.assert.ok(config.filesystem.allowRead?.includes('/project-read'));
-  t.assert.ok(config.filesystem.allowWrite.includes('/global'));
-  t.assert.ok(config.filesystem.allowWrite.includes('/project-write'));
-  t.assert.strictEqual('projects' in config, false);
-  t.assert.strictEqual('slopbox' in config, false);
+  try {
+    const session = await sandbox.startSession();
+    const settings = await readFile(session.settingsPath, 'utf8');
+    const config = SandboxRuntimeConfigSchema.parse(JSON.parse(settings));
+    t.assert.deepStrictEqual(config.network.allowedDomains, ['global.example', 'project.example']);
+    t.assert.deepStrictEqual(config.network.deniedDomains, ['blocked.example']);
+    t.assert.ok(config.filesystem.allowRead?.includes('/project-read'));
+    t.assert.ok(config.filesystem.allowWrite.includes('/global'));
+    t.assert.ok(config.filesystem.allowWrite.includes('/project-write'));
+    t.assert.strictEqual('projects' in config, false);
+    t.assert.strictEqual('slopbox' in config, false);
+  } finally {
+    await sandbox.stopSession();
+  }
 });
 
 void test('extracts blocked domains and applies project prompt overrides', (t: TestContext) => {
@@ -167,9 +194,19 @@ void test('resolves directories before adding them to the sandbox policy', async
     t.assert.strictEqual(resolveSandboxReadPath(link), physicalTarget);
     t.assert.strictEqual(new ConfigStore(directory).resolveAllowedDirectory('target'), physicalTarget);
 
-    const config = new Sandbox('/project', new ConfigStore('/project')).createConfig('/scratch', [physicalTarget]);
-    t.assert.ok(config.filesystem.allowRead?.includes(physicalTarget));
-    t.assert.ok(config.filesystem.allowWrite?.includes(physicalTarget));
+    const configStore = new ConfigStore('/project');
+    configStore.config = {filesystem: {allowRead: [physicalTarget], allowWrite: [physicalTarget]}};
+    configStore.hasLoaded = true;
+    const sandbox = new Sandbox('/project', configStore);
+    try {
+      const session = await sandbox.startSession();
+      const settings = await readFile(session.settingsPath, 'utf8');
+      const config = SandboxRuntimeConfigSchema.parse(JSON.parse(settings));
+      t.assert.ok(config.filesystem.allowRead?.includes(physicalTarget));
+      t.assert.ok(config.filesystem.allowWrite.includes(physicalTarget));
+    } finally {
+      await sandbox.stopSession();
+    }
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
@@ -178,28 +215,21 @@ void test('resolves directories before adding them to the sandbox policy', async
 void test('SRT denies writes outside the project and session scratch directory', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-sandbox-test-'));
   const projectPath = realpathSync(process.cwd());
-  const scratchPath = join(directory, 'scratch');
   const outsidePath = join(directory, 'outside');
-  const settingsPath = join(directory, 'settings.json');
+  const sandbox = new Sandbox(projectPath, new ConfigStore(projectPath));
 
   try {
-    await Promise.all([mkdir(scratchPath), mkdir(outsidePath)]);
-    const sandbox = new Sandbox(projectPath, new ConfigStore(projectPath));
-    await writeFile(settingsPath, `${JSON.stringify(sandbox.createConfig(scratchPath))}\n`);
-
-    const srtPath = resolve(import.meta.dirname, '../node_modules/.bin/srt');
-    const result = await $({reject: false})`${srtPath} --settings ${settingsPath} -- sh -c ${'echo blocked > "$1"'} sh ${join(outsidePath, 'blocked.txt')}`;
-
-    t.assert.notStrictEqual(result.exitCode, 0);
-    t.assert.match(formatSandboxError(result.stderr.trim(), 'write failed'), /sandbox restriction/iv);
+    await mkdir(outsidePath);
+    await sandbox.startSession();
+    await t.assert.rejects(
+      sandbox.run(['sh', '-c', 'echo blocked > "$1"', 'sh', join(outsidePath, 'blocked.txt')]),
+      /sandbox restriction/iv,
+    );
     await t.assert.rejects(access(join(outsidePath, 'blocked.txt')), {code: 'ENOENT'});
   } finally {
+    await sandbox.stopSession();
     await rm(directory, {force: true, recursive: true});
   }
-});
-
-void test('leaves ordinary command errors unchanged', (t: TestContext) => {
-  t.assert.strictEqual(formatSandboxError('command failed', 'fallback'), 'command failed');
 });
 
 void test('registers /slopbox to allow directories during a session', (t: TestContext) => {

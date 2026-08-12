@@ -1,4 +1,3 @@
-import {Buffer} from 'node:buffer';
 import {realpathSync} from 'node:fs';
 import {
   mkdir,
@@ -17,14 +16,13 @@ import {
 import process from 'node:process';
 import {fileURLToPath} from 'node:url';
 import {$} from 'execa';
-import {
-  SandboxRuntimeConfigSchema,
-  type SandboxRuntimeConfig,
-} from '@anthropic-ai/sandbox-runtime';
+import {SandboxRuntimeConfigSchema} from '@anthropic-ai/sandbox-runtime';
 import {merge} from 'object-deep-merge';
 import type {ConfigStore} from './config.ts';
 
-// Resolve Pi directory symlinks: Seatbelt evaluates the physical path, not the alias.
+/**
+ Resolves Pi directory symlinks because Seatbelt evaluates physical paths.
+ */
 export function resolveSandboxReadPath(path: string): string {
   try {
     return realpathSync(path);
@@ -39,10 +37,11 @@ const skillPathAliases = ['skills', 'git', 'npm']
     directory,
   ))
   .map(alias => ({alias, path: resolveSandboxReadPath(alias)}));
-const skillsPaths = skillPathAliases.map(({path}) => path);
+const skillPaths = skillPathAliases.map(({path}) => path);
 
-// Skill locations may be advertised through a symlinked Pi directory. Seatbelt
-// checks the path supplied to a tool, while its policy uses the physical path.
+/**
+ Rewrites absolute Pi skill paths to their physical paths for Seatbelt.
+ */
 export function resolveSandboxToolPath(path: string): string {
   if (!isAbsolute(path)) {
     return path;
@@ -59,13 +58,6 @@ export function resolveSandboxToolPath(path: string): string {
   return path;
 }
 
-const srtPath = fileURLToPath(import.meta.resolve('@anthropic-ai/sandbox-runtime/dist/cli.js'));
-const sandboxGuidance = [
-  'Sandbox restriction: work in the current project, use mktemp for private temporary files,',
-  'and treat global skills as read-only. Network access is limited by the configured allowlist.',
-  'Do not retry an outside path or seek a host-execution workaround.',
-].join(' ');
-
 export type RunOptions = {
   debugSandbox?: boolean | undefined;
   input?: string | undefined;
@@ -79,59 +71,59 @@ type SandboxSession = {
   scratchPath: string;
 };
 
-export function formatSandboxError(message: string, fallback: string): string {
-  const error = message.length > 0 ? message : fallback;
-  if (!/operation not permitted|<sandbox_violations>|connection blocked by network allowlist/iv.test(error)) {
-    return error;
-  }
-
-  return `${error}\n\n${sandboxGuidance}`;
-}
-
 export class Sandbox {
   session: SandboxSession | undefined;
   cwd: string;
   config: ConfigStore;
 
+  /**
+    Creates a sandbox for a project using its persisted access configuration.
+   */
   constructor(cwd: string, config: ConfigStore) {
     this.cwd = cwd;
     this.config = config;
   }
 
-  createConfig(scratchPath: string, allowedDirectories: readonly string[] = []): SandboxRuntimeConfig {
-    const required = {
-      network: {allowedDomains: [], deniedDomains: []},
-      filesystem: {
-        denyRead: [dirname(homedir())],
-        allowRead: [this.cwd, ...allowedDirectories, ...skillsPaths],
-        allowWrite: [this.cwd, ...allowedDirectories, scratchPath],
-        denyWrite: [],
-      },
-    };
-    return SandboxRuntimeConfigSchema.parse(merge(this.config.getEffectiveConfig(), required));
-  }
-
-  async ensureSession(): Promise<SandboxSession> {
-    await this.config.load();
+  /** Creates a private sandbox session after loading its configuration. */
+  async startSession(): Promise<SandboxSession> {
     if (this.session !== undefined) {
-      return this.session;
+      throw new Error('Sandbox session is already running.');
     }
+
+    await this.config.load();
 
     const directory = await mkdtemp(join(tmpdir(), 'sloppi-'));
     const scratchPath = join(directory, 'tmp');
     const settingsPath = join(directory, 'settings.json');
     await mkdir(scratchPath);
-    await writeFile(settingsPath, `${JSON.stringify(this.createConfig(scratchPath))}\n`);
+    const runtimeConfig = merge({
+      network: {allowedDomains: [], deniedDomains: []},
+      filesystem: {
+        denyRead: [dirname(homedir())],
+        allowRead: [this.cwd, ...skillPaths],
+        allowWrite: [this.cwd, scratchPath],
+        denyWrite: [],
+      },
+    }, this.config.getEffectiveConfig());
+    const settings = JSON.stringify(SandboxRuntimeConfigSchema.parse(runtimeConfig));
+    await writeFile(settingsPath, `${settings}\n`);
     this.session = {directory, settingsPath, scratchPath};
     return this.session;
   }
 
+  /**
+    Runs a command in the active session and returns its unchecked process result.
+   */
   async shell(arguments_: string[], options: RunOptions = {}) {
     if (options.signal?.aborted) {
       throw options.signal.reason instanceof Error ? options.signal.reason : new Error('Sandbox command aborted before execution.');
     }
 
-    const currentSession = await this.ensureSession();
+    const currentSession = this.session;
+    if (currentSession === undefined) {
+      throw new Error('Sandbox session has not started.');
+    }
+
     return $({
       reject: false,
       cwd: this.cwd,
@@ -147,27 +139,39 @@ export class Sandbox {
       ...(options.input !== undefined && {input: options.input}),
       ...(options.signal !== undefined && {cancelSignal: options.signal}),
       ...(options.timeout !== undefined && {timeout: options.timeout * 1000}),
-    })`${srtPath} --settings ${currentSession.settingsPath} -- ${arguments_}`;
+    })`${fileURLToPath(import.meta.resolve('@anthropic-ai/sandbox-runtime/dist/cli.js'))} --settings ${currentSession.settingsPath} -- ${arguments_}`;
   }
 
+  /**
+    Runs a command and throws a guided error when it exits unsuccessfully.
+   */
   async run(arguments_: string[], options?: RunOptions): Promise<string> {
     const result = await this.shell(arguments_, options);
     if (result.exitCode !== 0) {
-      throw new Error(formatSandboxError(
-        result.stderr.trim(),
-        `Sandbox command failed (${String(result.exitCode)})`,
-      ));
+      const stderr = result.stderr.trim();
+      let error = stderr.length > 0 ? stderr : `Sandbox command failed (${String(result.exitCode)})`;
+      if (/operation not permitted|<sandbox_violations>|connection blocked by network allowlist/iv.test(error)) {
+        error += `\n\n${[
+          'Sandbox restriction: work in the current project, use mktemp for private temporary files,',
+          'and treat global skills as read-only. Network access is limited by the configured allowlist.',
+          'Do not retry an outside path or seek a host-execution workaround.',
+        ].join(' ')}`;
+      }
+
+      throw new Error(error);
     }
 
     return result.stdout;
   }
 
-  async refresh(): Promise<void> {
-    await this.shutdown();
-    await this.ensureSession();
+  /** Recreates the session so persisted configuration changes take effect. */
+  async restartSession(): Promise<SandboxSession> {
+    await this.stopSession();
+    return this.startSession();
   }
 
-  async shutdown(): Promise<void> {
+  /** Deletes the current session directory and clears its cached state. */
+  async stopSession(): Promise<void> {
     if (this.session === undefined) {
       return;
     }

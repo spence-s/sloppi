@@ -16,7 +16,7 @@ import {
   type ReadOperations,
   type WriteOperations,
 } from '@earendil-works/pi-coding-agent';
-import {formatSandboxError, resolveSandboxToolPath, type Sandbox} from './sandbox.ts';
+import {resolveSandboxToolPath, type Sandbox} from './sandbox.ts';
 
 type FindArgumentsInput = {
   platform: string;
@@ -128,9 +128,21 @@ export class SandboxTools {
         const annotatedStderr = blocked === undefined
           ? cleanStderr
           : `${cleanStderr}\n<sandbox_violations>\ndeny network-outbound ${blocked} (host is not on the allow list)\n</sandbox_violations>`;
-        const stderr = result.exitCode === 0
-          ? annotatedStderr
-          : formatSandboxError(annotatedStderr, `Sandbox command failed (${String(result.exitCode)})`);
+        let stderr = annotatedStderr;
+        if (result.exitCode !== 0) {
+          if (stderr.length === 0) {
+            stderr = `Sandbox command failed (${String(result.exitCode)})`;
+          }
+
+          if (/operation not permitted|<sandbox_violations>|connection blocked by network allowlist/iv.test(stderr)) {
+            stderr += `\n\n${[
+              'Sandbox restriction: work in the current project, use mktemp for private temporary files,',
+              'and treat global skills as read-only. Network access is limited by the configured allowlist.',
+              'Do not retry an outside path or seek a host-execution workaround.',
+            ].join(' ')}`;
+          }
+        }
+
         onData(Buffer.from(stderr));
         return {exitCode: result.exitCode ?? null};
       },
@@ -205,7 +217,17 @@ export class SandboxTools {
 
         const result = await sandbox.shell(arguments_, {signal});
         if (result.exitCode !== 0 && result.exitCode !== 1) {
-          throw new Error(formatSandboxError(result.stderr.trim(), `rg failed (${String(result.exitCode)})`));
+          const stderr = result.stderr.trim();
+          let error = stderr.length > 0 ? stderr : `rg failed (${String(result.exitCode)})`;
+          if (/operation not permitted|<sandbox_violations>|connection blocked by network allowlist/iv.test(error)) {
+            error += `\n\n${[
+              'Sandbox restriction: work in the current project, use mktemp for private temporary files,',
+              'and treat global skills as read-only. Network access is limited by the configured allowlist.',
+              'Do not retry an outside path or seek a host-execution workaround.',
+            ].join(' ')}`;
+          }
+
+          throw new Error(error);
         }
 
         const output = result.stdout.trim().split('\n').filter(Boolean).slice(0, limit).join('\n');

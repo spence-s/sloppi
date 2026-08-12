@@ -1,4 +1,5 @@
 import {realpathSync} from 'node:fs';
+import {readFile} from 'node:fs/promises';
 import process from 'node:process';
 import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import {
@@ -69,29 +70,30 @@ export class Slopbox {
         const command = parts.shift();
         try {
           if (command === 'status' && parts.length === 0) {
-            const loadedConfig = await config.reload();
-            ctx.ui.notify(JSON.stringify(sandbox.createConfig('<session scratch>'), undefined, 2), 'info');
+            await config.reload();
+            const session = await sandbox.restartSession();
+            ctx.ui.notify(await readFile(session.settingsPath, 'utf8'), 'info');
             return;
           }
 
           if (command === 'add' && parts.length > 0) {
             const directory = config.resolveAllowedDirectory(parts.join(' '));
             await config.addDirectory(scope, directory);
-            await sandbox.refresh();
+            await sandbox.restartSession();
             ctx.ui.notify(`slopbox allows ${directory} (${scope}).`, 'info');
             return;
           }
 
           if (command === 'allow' && parts.length === 1) {
             await config.addDomain(scope, parts[0] ?? '');
-            await sandbox.refresh();
+            await sandbox.restartSession();
             ctx.ui.notify(`slopbox allows ${parts[0]} (${scope}).`, 'info');
             return;
           }
 
           if (command === 'prompt' && (parts[0] === 'on' || parts[0] === 'off')) {
             await config.setPrompting(scope, parts[0] === 'on');
-            await sandbox.refresh();
+            await sandbox.restartSession();
             ctx.ui.notify(`slopbox network prompts are ${parts[0]} (${scope}).`, 'info');
             return;
           }
@@ -152,7 +154,7 @@ export class Slopbox {
         }
 
         await config.addDomain(scope, domain.trim());
-        await sandbox.refresh();
+        await sandbox.restartSession();
         ctx.ui.notify(`Added ${domain.trim()} to ${scope} network.allowedDomains. Retry the command.`, 'info');
       } catch (error) {
         ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
@@ -164,7 +166,7 @@ export class Slopbox {
     pi.on('session_start', async (_event, ctx) => {
       ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'sloppi')} ${ctx.ui.theme.bold(ctx.ui.theme.fg('warning', '●'))} ${ctx.ui.theme.fg('dim', '│')}`);
       try {
-        await sandbox.ensureSession();
+        await sandbox.startSession();
         await sandbox.run(['true']);
         ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'sloppi')} ${ctx.ui.theme.bold(ctx.ui.theme.fg('success', '●'))} ${ctx.ui.theme.fg('dim', '│')}`);
         ctx.ui.notify(`Sandboxed tools can access only ${cwd}.`, 'info');
@@ -174,7 +176,7 @@ export class Slopbox {
       }
     });
     pi.on('session_shutdown', async () => {
-      await sandbox.shutdown();
+      await sandbox.stopSession();
     });
   }
 }
