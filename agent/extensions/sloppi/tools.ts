@@ -109,25 +109,42 @@ export class SandboxTools {
     const {pi, cwd, sandbox} = this;
     const read: ReadOperations = {
       async access(path) {
-        await sandbox.run(['test', '-r', resolveSandboxToolPath(path)]);
+        const result = await sandbox.run`test -r ${resolveSandboxToolPath(path)}`;
+        if (result.exitCode !== 0) {
+          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot read ${path}`);
+        }
       },
       async readFile(path) {
-        const output = await sandbox.run(['sh', '-c', String.raw`base64 < "$1" | tr -d "\n"`, 'sh', resolveSandboxToolPath(path)]);
-        return Buffer.from(output, 'base64');
+        const result = await sandbox.run`base64 < ${resolveSandboxToolPath(path)} | tr -d '\n'`;
+        if (result.exitCode !== 0) {
+          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot read ${path}`);
+        }
+
+        return Buffer.from(result.stdout, 'base64');
       },
       async detectImageMimeType(path) {
-        const output = await sandbox.run(['file', '--mime-type', '-b', '--', resolveSandboxToolPath(path)]);
-        const mime = output.trim();
+        const result = await sandbox.run`file --mime-type -b -- ${resolveSandboxToolPath(path)}`;
+        if (result.exitCode !== 0) {
+          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot identify ${path}`);
+        }
+
+        const mime = result.stdout.trim();
         return ['image/gif', 'image/jpeg', 'image/png', 'image/webp'].includes(mime) ? mime : null;
       },
     };
 
     const write: WriteOperations = {
       async mkdir(path) {
-        await sandbox.run(['mkdir', '-p', '--', path]);
+        const result = await sandbox.run`mkdir -p -- ${path}`;
+        if (result.exitCode !== 0) {
+          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot create ${path}`);
+        }
       },
       async writeFile(path, content) {
-        await sandbox.run(['sh', '-c', 'cat > "$1"', 'sh', path], {input: content});
+        const result = await sandbox.run({input: content})`cat > ${path}`;
+        if (result.exitCode !== 0) {
+          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot write ${path}`);
+        }
       },
     };
 
@@ -135,13 +152,16 @@ export class SandboxTools {
       ...read,
       ...write,
       async access(path) {
-        await sandbox.run(['sh', '-c', 'test -r "$1" && test -w "$1"', 'sh', path]);
+        const result = await sandbox.run`test -r ${path} && test -w ${path}`;
+        if (result.exitCode !== 0) {
+          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot edit ${path}`);
+        }
       },
     };
 
     const bash: BashOperations = {
       async exec(command, _commandCwd, {onData, signal, timeout}) {
-        const result = await sandbox.shell(['sh', '-lc', command], {debugSandbox: true, signal, timeout});
+        const result = await sandbox.run({signal, timeout})`sh -lc ${command}`;
         onData(Buffer.from(result.stdout));
 
         const blocked = /\[SandboxDebug\] No matching config rule, denying: (?<domain>\S+)/v.exec(result.stderr)?.groups?.domain;
@@ -188,39 +208,47 @@ export class SandboxTools {
 
     const find: FindOperations = {
       async exists(path) {
-        const result = await sandbox.shell(['test', '-e', resolveSandboxToolPath(path)]);
+        const result = await sandbox.run`test -e ${resolveSandboxToolPath(path)}`;
         return result.exitCode === 0;
       },
       async glob(pattern, path, {ignore, limit}) {
-        const output = await sandbox.run(SandboxTools.getFindArguments({
+        const result = await sandbox.run`${SandboxTools.getFindArguments({
           platform: process.platform,
           pattern,
           path: resolveSandboxToolPath(path),
           ignore,
           limit,
-        }));
-        const results = output.trim().split('\n').filter(Boolean);
+        })}`;
+        if (result.exitCode !== 0) {
+          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot find ${pattern}`);
+        }
+
+        const results = result.stdout.trim().split('\n').filter(Boolean);
         return process.platform === 'darwin' ? results.slice(0, limit) : results;
       },
     };
 
     const ls: LsOperations = {
       async exists(path) {
-        const result = await sandbox.shell(['test', '-e', resolveSandboxToolPath(path)]);
+        const result = await sandbox.run`test -e ${resolveSandboxToolPath(path)}`;
         return result.exitCode === 0;
       },
       async stat(path) {
-        const exists = await sandbox.shell(['test', '-e', resolveSandboxToolPath(path)]);
+        const exists = await sandbox.run`test -e ${resolveSandboxToolPath(path)}`;
         if (exists.exitCode !== 0) {
           throw new Error(`Path not found: ${path}`);
         }
 
-        const directory = await sandbox.shell(['test', '-d', resolveSandboxToolPath(path)]);
+        const directory = await sandbox.run`test -d ${resolveSandboxToolPath(path)}`;
         return {isDirectory: () => directory.exitCode === 0};
       },
       async readdir(path) {
-        const output = await sandbox.run(['ls', '-1A', '--', resolveSandboxToolPath(path)]);
-        return output.trim().split('\n').filter(Boolean);
+        const result = await sandbox.run`ls -1A -- ${resolveSandboxToolPath(path)}`;
+        if (result.exitCode !== 0) {
+          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot list ${path}`);
+        }
+
+        return result.stdout.trim().split('\n').filter(Boolean);
       },
     };
 
@@ -253,7 +281,7 @@ export class SandboxTools {
 
         arguments_.push('--', pattern, resolveSandboxToolPath(path));
 
-        const result = await sandbox.shell(arguments_, {signal});
+        const result = await sandbox.run({signal})`${arguments_}`;
         if (result.exitCode !== 0 && result.exitCode !== 1) {
           const stderr = result.stderr.trim();
           let error = stderr.length > 0 ? stderr : `rg failed (${String(result.exitCode)})`;

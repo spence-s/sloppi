@@ -13,13 +13,16 @@ import {SandboxTools} from './tools.ts';
 const sandboxedTools = new Set(['bash', 'edit', 'find', 'grep', 'ls', 'read', 'write']);
 // These provider-backed tools intentionally stay on the credential-holding host.
 const hostTools = new Set(['fetch_content', 'get_search_content', 'source_check', 'web_search']);
-const sandboxSystemPrompt = `## Slopbox Sandbox
+
+const sandboxSystemPrompt = `
+## Sloppi Sandbox
 
 Filesystem tools can write only the current project, explicitly allowed directories,
 and private temporary storage; global skills are read-only. Network access is
 allowlisted, and host credentials, signing agents, and other host services are
 unavailable unless explicitly configured. Treat a sandbox denial as a real boundary:
-do not retry outside it or seek a workaround.`;
+do not retry outside it or seek a workaround.
+`.trim();
 
 export function getBlockedDomain(message: string, command = ''): string | undefined {
   const violation = /deny network-outbound (?<host>.+):(?<port>\d+) \(host is not on the allow list\)/v.exec(message);
@@ -108,6 +111,7 @@ export class Slopbox {
     pi.on('before_agent_start', event => ({
       systemPrompt: `${event.systemPrompt}\n\n${sandboxSystemPrompt}`,
     }));
+
     pi.on('tool_call', event => {
       if (!sandboxedTools.has(event.toolName) && !hostTools.has(event.toolName)) {
         return {block: true, reason: `Tool ${event.toolName} is not approved for host execution.`};
@@ -167,7 +171,11 @@ export class Slopbox {
       ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'sloppi')} ${ctx.ui.theme.bold(ctx.ui.theme.fg('warning', '●'))} ${ctx.ui.theme.fg('dim', '│')}`);
       try {
         await sandbox.startSession();
-        await sandbox.run(['true']);
+        const result = await sandbox.run`true`;
+        if (result.exitCode !== 0) {
+          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : 'Sandbox command failed');
+        }
+
         ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'sloppi')} ${ctx.ui.theme.bold(ctx.ui.theme.fg('success', '●'))} ${ctx.ui.theme.fg('dim', '│')}`);
         ctx.ui.notify(`Sandboxed tools can access only ${cwd}.`, 'info');
       } catch (error) {

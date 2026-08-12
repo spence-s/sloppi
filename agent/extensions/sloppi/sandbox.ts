@@ -27,10 +27,16 @@ const skillPaths = ['skills', 'git', 'npm'].map(directory => {
 });
 
 export type RunOptions = {
-  debugSandbox?: boolean | undefined;
   input?: string | undefined;
   signal?: AbortSignal | undefined;
   timeout?: number | undefined;
+};
+
+type CommandValue = string | number | ReadonlyArray<string | number>;
+type CommandResult = {
+  exitCode?: number | undefined;
+  stderr: string;
+  stdout: string;
 };
 
 type SandboxSession = {
@@ -51,6 +57,48 @@ export class Sandbox {
   constructor(cwd: string, config: ConfigStore) {
     this.cwd = cwd;
     this.config = config;
+  }
+
+  async #execute(strings: TemplateStringsArray, values: CommandValue[], options: RunOptions): Promise<CommandResult> {
+    if (options.signal?.aborted) {
+      throw options.signal.reason instanceof Error ? options.signal.reason : new Error('Sandbox command aborted before execution.');
+    }
+
+    const currentSession = this.session;
+    if (currentSession === undefined) {
+      throw new Error('Sandbox session has not started.');
+    }
+
+    let command = strings[0] ?? '';
+    for (const [index, value] of values.entries()) {
+      const arguments_ = Array.isArray(value) ? value : [value];
+      command += arguments_.map(argument => `'${String(argument).replaceAll('\'', '\'"\'"\'')}'`).join(' ');
+      command += strings[index + 1] ?? '';
+    }
+
+    const wrapped = await SandboxManager.wrapWithSandboxArgv(command, '/bin/sh', undefined, options.signal, this.cwd);
+    const executable = wrapped.argv[0];
+    if (executable === undefined) {
+      throw new Error('Sandbox did not provide a command to run.');
+    }
+
+    const result = await execa(executable, wrapped.argv.slice(1), {
+      reject: false,
+      cwd: this.cwd,
+      // Do not pass host credentials or proxy settings into an agent-controlled process.
+      env: {
+        ...wrapped.env,
+        HOME: currentSession.scratchPath,
+        LANG: process.env.LANG ?? 'C.UTF-8',
+        PATH: process.env.PATH ?? '',
+        TMPDIR: currentSession.scratchPath,
+        USER: 'sandbox',
+      },
+      ...(options.input !== undefined && {input: options.input}),
+      ...(options.signal !== undefined && {cancelSignal: options.signal}),
+      ...(options.timeout !== undefined && {timeout: options.timeout * 1000}),
+    });
+    return {...result, stderr: SandboxManager.annotateStderrWithSandboxFailures(command, result.stderr)};
   }
 
   /** Creates a private sandbox session after loading its configuration. */
@@ -105,65 +153,15 @@ export class Sandbox {
     return this.session;
   }
 
-  /**
-    Runs a command in the active session and returns its unchecked process result.
-   */
-  async shell(arguments_: string[], options: RunOptions = {}) {
-    if (options.signal?.aborted) {
-      throw options.signal.reason instanceof Error ? options.signal.reason : new Error('Sandbox command aborted before execution.');
+  /** Runs a shell command in the active session. Interpolated values are shell-quoted. */
+  run(strings: TemplateStringsArray, ...values: CommandValue[]): Promise<CommandResult>;
+  run(options: RunOptions): (strings: TemplateStringsArray, ...values: CommandValue[]) => Promise<CommandResult>;
+  run(stringsOrOptions: TemplateStringsArray | RunOptions, ...values: CommandValue[]) {
+    if ('raw' in stringsOrOptions) {
+      return this.#execute(stringsOrOptions, values, {});
     }
 
-    const currentSession = this.session;
-    if (currentSession === undefined) {
-      throw new Error('Sandbox session has not started.');
-    }
-
-    const command = arguments_.map(argument => `'${argument.replaceAll('\'', '\'"\'"\'')}'`).join(' ');
-    const wrapped = await SandboxManager.wrapWithSandboxArgv(command, '/bin/sh', undefined, options.signal, this.cwd);
-    const executable = wrapped.argv[0];
-    if (executable === undefined) {
-      throw new Error('Sandbox did not provide a command to run.');
-    }
-
-    const result = await execa(executable, wrapped.argv.slice(1), {
-      reject: false,
-      cwd: this.cwd,
-      // Do not pass host credentials or proxy settings into an agent-controlled process.
-      env: {
-        ...wrapped.env,
-        HOME: currentSession.scratchPath,
-        LANG: process.env.LANG ?? 'C.UTF-8',
-        PATH: process.env.PATH ?? '',
-        TMPDIR: currentSession.scratchPath,
-        USER: 'sandbox',
-      },
-      ...(options.input !== undefined && {input: options.input}),
-      ...(options.signal !== undefined && {cancelSignal: options.signal}),
-      ...(options.timeout !== undefined && {timeout: options.timeout * 1000}),
-    });
-    return {...result, stderr: SandboxManager.annotateStderrWithSandboxFailures(command, result.stderr)};
-  }
-
-  /**
-    Runs a command and throws a guided error when it exits unsuccessfully.
-   */
-  async run(arguments_: string[], options?: RunOptions): Promise<string> {
-    const result = await this.shell(arguments_, options);
-    if (result.exitCode !== 0) {
-      const stderr = result.stderr.trim();
-      let error = stderr.length > 0 ? stderr : `Sandbox command failed (${String(result.exitCode)})`;
-      if (/operation not permitted|<sandbox_violations>|connection blocked by network allowlist/iv.test(error)) {
-        error += `\n\n${[
-          'Sandbox restriction: work in the current project, use mktemp for private temporary files,',
-          'and treat global skills as read-only. Network access is limited by the configured allowlist.',
-          'Do not retry an outside path or seek a host-execution workaround.',
-        ].join(' ')}`;
-      }
-
-      throw new Error(error);
-    }
-
-    return result.stdout;
+    return async (strings: TemplateStringsArray, ...commandValues: CommandValue[]) => this.#execute(strings, commandValues, stringsOrOptions);
   }
 
   /** Recreates the session so persisted configuration changes take effect. */

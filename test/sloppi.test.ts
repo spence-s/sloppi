@@ -56,7 +56,7 @@ void test('limits filesystem access to the project and session scratch directory
 
 void test('requires an explicit session before running commands', async (t: TestContext) => {
   const sandbox = new Sandbox('/project', new ConfigStore('/project'));
-  await t.assert.rejects(sandbox.run(['true']), /has not started/v);
+  await t.assert.rejects(sandbox.run`true`, /has not started/v);
 });
 
 void test('resolves global skill aliases before passing paths to SRT', (t: TestContext) => {
@@ -232,10 +232,8 @@ void test('SRT denies writes outside the project and session scratch directory',
   try {
     await mkdir(outsidePath);
     await sandbox.startSession();
-    await t.assert.rejects(
-      sandbox.run(['sh', '-c', 'echo blocked > "$1"', 'sh', join(outsidePath, 'blocked.txt')]),
-      /sandbox restriction/iv,
-    );
+    const result = await sandbox.run`${['sh', '-c', 'echo blocked > "$1"', 'sh', join(outsidePath, 'blocked.txt')]}`;
+    t.assert.notStrictEqual(result.exitCode, 0);
     await t.assert.rejects(access(join(outsidePath, 'blocked.txt')), {code: 'ENOENT'});
   } finally {
     await sandbox.stopSession();
