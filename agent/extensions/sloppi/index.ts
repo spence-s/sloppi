@@ -1,7 +1,7 @@
 import {realpathSync} from 'node:fs';
-import {readFile} from 'node:fs/promises';
 import process from 'node:process';
 import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
+import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {
   ConfigStore,
   type ConfigScope,
@@ -71,8 +71,8 @@ export class Slopbox {
         try {
           if (command === 'status' && parts.length === 0) {
             await config.reload();
-            const session = await sandbox.restartSession();
-            ctx.ui.notify(await readFile(session.settingsPath, 'utf8'), 'info');
+            await sandbox.restartSession();
+            ctx.ui.notify(JSON.stringify(SandboxManager.getConfig(), undefined, 2), 'info');
             return;
           }
 

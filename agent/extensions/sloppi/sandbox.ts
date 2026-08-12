@@ -3,14 +3,15 @@ import {
   mkdir,
   mkdtemp,
   rm,
-  writeFile,
 } from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
-import {fileURLToPath} from 'node:url';
-import {$} from 'execa';
-import {SandboxRuntimeConfigSchema} from '@anthropic-ai/sandbox-runtime';
+import {execa} from 'execa';
+import {
+  SandboxManager,
+  SandboxRuntimeConfigSchema,
+} from '@anthropic-ai/sandbox-runtime';
 import {merge} from 'object-deep-merge';
 import type {ConfigStore} from './config.ts';
 
@@ -34,8 +35,9 @@ export type RunOptions = {
 
 type SandboxSession = {
   directory: string;
-  settingsPath: string;
   scratchPath: string;
+  claudeTemporaryPath: string | undefined;
+  temporaryPath: string | undefined;
 };
 
 export class Sandbox {
@@ -61,8 +63,11 @@ export class Sandbox {
 
     const directory = await mkdtemp(join(tmpdir(), 'sloppi-'));
     const scratchPath = join(directory, 'tmp');
-    const settingsPath = join(directory, 'settings.json');
     await mkdir(scratchPath);
+    const claudeTemporaryPath = process.env.CLAUDE_CODE_TMPDIR;
+    const temporaryPath = process.env.TMPDIR;
+    process.env.CLAUDE_CODE_TMPDIR = scratchPath;
+    process.env.TMPDIR = '/tmp/claude';
     const runtimeConfig = merge({
       network: {allowedDomains: [], deniedDomains: []},
       filesystem: {
@@ -72,9 +77,31 @@ export class Sandbox {
         denyWrite: [],
       },
     }, this.config.getEffectiveConfig());
-    const settings = JSON.stringify(SandboxRuntimeConfigSchema.parse(runtimeConfig));
-    await writeFile(settingsPath, `${settings}\n`);
-    this.session = {directory, settingsPath, scratchPath};
+    try {
+      await SandboxManager.initialize(SandboxRuntimeConfigSchema.parse(runtimeConfig));
+    } catch (error) {
+      if (claudeTemporaryPath === undefined) {
+        delete process.env.CLAUDE_CODE_TMPDIR;
+      } else {
+        process.env.CLAUDE_CODE_TMPDIR = claudeTemporaryPath;
+      }
+
+      if (temporaryPath === undefined) {
+        delete process.env.TMPDIR;
+      } else {
+        process.env.TMPDIR = temporaryPath;
+      }
+
+      await rm(directory, {force: true, recursive: true});
+      throw error;
+    }
+
+    this.session = {
+      directory,
+      scratchPath,
+      claudeTemporaryPath,
+      temporaryPath,
+    };
     return this.session;
   }
 
@@ -91,22 +118,30 @@ export class Sandbox {
       throw new Error('Sandbox session has not started.');
     }
 
-    return $({
+    const command = arguments_.map(argument => `'${argument.replaceAll('\'', '\'"\'"\'')}'`).join(' ');
+    const wrapped = await SandboxManager.wrapWithSandboxArgv(command, '/bin/sh', undefined, options.signal, this.cwd);
+    const executable = wrapped.argv[0];
+    if (executable === undefined) {
+      throw new Error('Sandbox did not provide a command to run.');
+    }
+
+    const result = await execa(executable, wrapped.argv.slice(1), {
       reject: false,
       cwd: this.cwd,
       // Do not pass host credentials or proxy settings into an agent-controlled process.
       env: {
+        ...wrapped.env,
         HOME: currentSession.scratchPath,
         LANG: process.env.LANG ?? 'C.UTF-8',
         PATH: process.env.PATH ?? '',
         TMPDIR: currentSession.scratchPath,
         USER: 'sandbox',
-        ...(options.debugSandbox === true && {SRT_DEBUG: '1'}),
       },
       ...(options.input !== undefined && {input: options.input}),
       ...(options.signal !== undefined && {cancelSignal: options.signal}),
       ...(options.timeout !== undefined && {timeout: options.timeout * 1000}),
-    })`${fileURLToPath(import.meta.resolve('@anthropic-ai/sandbox-runtime/dist/cli.js'))} --settings ${currentSession.settingsPath} -- ${arguments_}`;
+    });
+    return {...result, stderr: SandboxManager.annotateStderrWithSandboxFailures(command, result.stderr)};
   }
 
   /**
@@ -143,7 +178,21 @@ export class Sandbox {
       return;
     }
 
-    await rm(this.session.directory, {force: true, recursive: true});
+    const {session} = this;
+    await SandboxManager.reset();
+    if (session.claudeTemporaryPath === undefined) {
+      delete process.env.CLAUDE_CODE_TMPDIR;
+    } else {
+      process.env.CLAUDE_CODE_TMPDIR = session.claudeTemporaryPath;
+    }
+
+    if (session.temporaryPath === undefined) {
+      delete process.env.TMPDIR;
+    } else {
+      process.env.TMPDIR = session.temporaryPath;
+    }
+
+    await rm(session.directory, {force: true, recursive: true});
     this.session = undefined;
   }
 }

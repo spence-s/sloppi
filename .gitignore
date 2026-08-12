@@ -22,3 +22,5 @@ agent/**/*.log
 agent/models-store.json
 agent/settings.json
 slopbox.json
+
+web-search-cache

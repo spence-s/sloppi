@@ -12,7 +12,7 @@ import {homedir, tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
 import {test, type TestContext} from 'node:test';
-import {SandboxRuntimeConfigSchema} from '@anthropic-ai/sandbox-runtime';
+import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {ConfigStore} from '../agent/extensions/sloppi/config.ts';
 import slopbox, {getBlockedDomain} from '../agent/extensions/sloppi/index.ts';
 import {Sandbox} from '../agent/extensions/sloppi/sandbox.ts';
@@ -30,8 +30,11 @@ void test('limits filesystem access to the project and session scratch directory
 
   try {
     const session = await sandbox.startSession();
-    const settings = await readFile(session.settingsPath, 'utf8');
-    const config = SandboxRuntimeConfigSchema.parse(JSON.parse(settings));
+    const config = SandboxManager.getConfig();
+    if (config === undefined) {
+      throw new Error('Sandbox manager did not initialize.');
+    }
+
     t.assert.deepStrictEqual(config.network, {allowedDomains: [], deniedDomains: []});
     t.assert.deepStrictEqual(config.filesystem.allowRead, [
       '/Users/spencer/Projects/app',
@@ -84,9 +87,12 @@ void test('loads the former project directory configuration', async (t: TestCont
   const sandbox = new Sandbox('/project-a', configStore);
 
   try {
-    const session = await sandbox.startSession();
-    const settings = await readFile(session.settingsPath, 'utf8');
-    const config = SandboxRuntimeConfigSchema.parse(JSON.parse(settings));
+    await sandbox.startSession();
+    const config = SandboxManager.getConfig();
+    if (config === undefined) {
+      throw new Error('Sandbox manager did not initialize.');
+    }
+
     t.assert.ok(config.filesystem.allowRead?.includes('/shared/a'));
     t.assert.ok(config.filesystem.allowWrite.includes('/shared/a'));
     t.assert.ok(!config.filesystem.allowRead?.includes('/shared/b'));
@@ -138,9 +144,12 @@ void test('merges global and project SRT configuration without renaming options'
   const sandbox = new Sandbox('/project', configStore);
 
   try {
-    const session = await sandbox.startSession();
-    const settings = await readFile(session.settingsPath, 'utf8');
-    const config = SandboxRuntimeConfigSchema.parse(JSON.parse(settings));
+    await sandbox.startSession();
+    const config = SandboxManager.getConfig();
+    if (config === undefined) {
+      throw new Error('Sandbox manager did not initialize.');
+    }
+
     t.assert.deepStrictEqual(config.network.allowedDomains, ['global.example', 'project.example']);
     t.assert.deepStrictEqual(config.network.deniedDomains, ['blocked.example']);
     t.assert.ok(config.filesystem.allowRead?.includes('/project-read'));
@@ -198,9 +207,12 @@ void test('resolves directories before adding them to the sandbox policy', async
     configStore.hasLoaded = true;
     const sandbox = new Sandbox('/project', configStore);
     try {
-      const session = await sandbox.startSession();
-      const settings = await readFile(session.settingsPath, 'utf8');
-      const config = SandboxRuntimeConfigSchema.parse(JSON.parse(settings));
+      await sandbox.startSession();
+      const config = SandboxManager.getConfig();
+      if (config === undefined) {
+        throw new Error('Sandbox manager did not initialize.');
+      }
+
       t.assert.ok(config.filesystem.allowRead?.includes(physicalTarget));
       t.assert.ok(config.filesystem.allowWrite.includes(physicalTarget));
     } finally {
