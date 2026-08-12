@@ -6,13 +6,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
-import {
-  dirname,
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-} from 'node:path';
+import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
 import {fileURLToPath} from 'node:url';
 import {$} from 'execa';
@@ -20,43 +14,16 @@ import {SandboxRuntimeConfigSchema} from '@anthropic-ai/sandbox-runtime';
 import {merge} from 'object-deep-merge';
 import type {ConfigStore} from './config.ts';
 
-/**
- Resolves Pi directory symlinks because Seatbelt evaluates physical paths.
- */
-export function resolveSandboxReadPath(path: string): string {
+const agentPath = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent');
+
+const skillPaths = ['skills', 'git', 'npm'].map(directory => {
+  const path = resolve(agentPath, directory);
   try {
     return realpathSync(path);
   } catch {
     return path;
   }
-}
-
-const skillPathAliases = ['skills', 'git', 'npm']
-  .map(directory => resolve(
-    process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'),
-    directory,
-  ))
-  .map(alias => ({alias, path: resolveSandboxReadPath(alias)}));
-const skillPaths = skillPathAliases.map(({path}) => path);
-
-/**
- Rewrites absolute Pi skill paths to their physical paths for Seatbelt.
- */
-export function resolveSandboxToolPath(path: string): string {
-  if (!isAbsolute(path)) {
-    return path;
-  }
-
-  const absolutePath = resolve(path);
-  for (const {alias, path: physicalPath} of skillPathAliases) {
-    const suffix = relative(alias, absolutePath);
-    if (suffix === '' || (!suffix.startsWith('..') && !isAbsolute(suffix))) {
-      return join(physicalPath, suffix);
-    }
-  }
-
-  return path;
-}
+});
 
 export type RunOptions = {
   debugSandbox?: boolean | undefined;

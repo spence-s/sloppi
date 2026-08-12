@@ -1,4 +1,4 @@
-import {realpathSync} from 'node:fs';
+import {existsSync, realpathSync} from 'node:fs';
 import {
   access,
   mkdir,
@@ -15,12 +15,11 @@ import {test, type TestContext} from 'node:test';
 import {SandboxRuntimeConfigSchema} from '@anthropic-ai/sandbox-runtime';
 import {ConfigStore} from '../agent/extensions/sloppi/config.ts';
 import slopbox, {getBlockedDomain} from '../agent/extensions/sloppi/index.ts';
+import {Sandbox} from '../agent/extensions/sloppi/sandbox.ts';
 import {
-  resolveSandboxReadPath,
   resolveSandboxToolPath,
-  Sandbox,
-} from '../agent/extensions/sloppi/sandbox.ts';
-import {SandboxTools} from '../agent/extensions/sloppi/tools.ts';
+  SandboxTools,
+} from '../agent/extensions/sloppi/tools.ts';
 
 void test('limits filesystem access to the project and session scratch directory', async (t: TestContext) => {
   const piAgentPath = join(homedir(), '.pi', 'agent');
@@ -36,9 +35,9 @@ void test('limits filesystem access to the project and session scratch directory
     t.assert.deepStrictEqual(config.network, {allowedDomains: [], deniedDomains: []});
     t.assert.deepStrictEqual(config.filesystem.allowRead, [
       '/Users/spencer/Projects/app',
-      resolveSandboxReadPath(join(piAgentPath, 'skills')),
-      resolveSandboxReadPath(join(piAgentPath, 'git')),
-      resolveSandboxReadPath(join(piAgentPath, 'npm')),
+      existsSync(join(piAgentPath, 'skills')) ? realpathSync(join(piAgentPath, 'skills')) : join(piAgentPath, 'skills'),
+      existsSync(join(piAgentPath, 'git')) ? realpathSync(join(piAgentPath, 'git')) : join(piAgentPath, 'git'),
+      existsSync(join(piAgentPath, 'npm')) ? realpathSync(join(piAgentPath, 'npm')) : join(piAgentPath, 'npm'),
     ]);
     t.assert.deepStrictEqual(config.filesystem.allowWrite, [
       '/Users/spencer/Projects/app',
@@ -66,11 +65,11 @@ void test('resolves global skill aliases before passing paths to SRT', (t: TestC
 
   t.assert.strictEqual(
     resolveSandboxToolPath(join(gitDirectory, gitSuffix)),
-    join(resolveSandboxReadPath(gitDirectory), gitSuffix),
+    join(existsSync(gitDirectory) ? realpathSync(gitDirectory) : gitDirectory, gitSuffix),
   );
   t.assert.strictEqual(
     resolveSandboxToolPath(join(npmDirectory, npmSuffix)),
-    join(resolveSandboxReadPath(npmDirectory), npmSuffix),
+    join(existsSync(npmDirectory) ? realpathSync(npmDirectory) : npmDirectory, npmSuffix),
   );
   t.assert.strictEqual(resolveSandboxToolPath('/tmp/ordinary-file'), '/tmp/ordinary-file');
 });
@@ -191,7 +190,7 @@ void test('resolves directories before adding them to the sandbox policy', async
     await mkdir(target);
     await symlink(target, link);
     const physicalTarget = realpathSync(target);
-    t.assert.strictEqual(resolveSandboxReadPath(link), physicalTarget);
+    t.assert.strictEqual(realpathSync(link), physicalTarget);
     t.assert.strictEqual(new ConfigStore(directory).resolveAllowedDirectory('target'), physicalTarget);
 
     const configStore = new ConfigStore('/project');
