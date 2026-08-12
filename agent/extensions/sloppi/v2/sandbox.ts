@@ -20,7 +20,8 @@ import {
   SandboxRuntimeConfigSchema,
   type SandboxRuntimeConfig,
 } from '@anthropic-ai/sandbox-runtime';
-import {getEffectiveConfig, mergeSandboxConfig, type Config} from '../config.ts';
+import {merge} from 'object-deep-merge';
+import type {ConfigStore} from './config.ts';
 
 // Resolve Pi directory symlinks: Seatbelt evaluates the physical path, not the alias.
 export function resolveSandboxReadPath(path: string): string {
@@ -89,10 +90,10 @@ export function formatSandboxError(message: string, fallback: string): string {
 export function createSandboxConfig(
   cwd: string,
   scratchPath: string,
+  config: ConfigStore,
   allowedDirectories: readonly string[] = [],
-  config: Config = {},
 ): SandboxRuntimeConfig {
-  const required: Config = {
+  const required = {
     network: {allowedDomains: [], deniedDomains: []},
     filesystem: {
       // System files and global skills remain readable; user files do not.
@@ -102,18 +103,18 @@ export function createSandboxConfig(
       denyWrite: [],
     },
   };
-  return SandboxRuntimeConfigSchema.parse(mergeSandboxConfig(getEffectiveConfig(config, cwd), required));
+  return SandboxRuntimeConfigSchema.parse(merge(config.getEffectiveConfig(), required));
 }
 
 async function createSandboxSession(
   cwd: string,
   allowedDirectories: readonly string[],
-  config: Config,
+  config: ConfigStore,
 ): Promise<SandboxSession> {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-'));
   const scratchPath = join(directory, 'tmp');
   const settingsPath = join(directory, 'settings.json');
-  const sandboxConfig = createSandboxConfig(cwd, scratchPath, allowedDirectories, config);
+  const sandboxConfig = createSandboxConfig(cwd, scratchPath, config, allowedDirectories);
 
   await mkdir(scratchPath);
   await writeFile(settingsPath, `${JSON.stringify(sandboxConfig)}\n`);
@@ -126,11 +127,11 @@ async function removeSandboxSession(session: SandboxSession | undefined): Promis
   }
 }
 
-export function createSandbox(cwd: string, loadConfig: () => Promise<Config>) {
+export function createSandbox(cwd: string, config: ConfigStore) {
   let session: SandboxSession | undefined;
 
   const ensureSession = async (): Promise<SandboxSession> => {
-    const config = await loadConfig();
+    await config.load();
     session ??= await createSandboxSession(cwd, [], config);
     return session;
   };
