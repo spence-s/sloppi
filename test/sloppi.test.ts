@@ -1,4 +1,4 @@
-import {existsSync, realpathSync} from 'node:fs';
+import {realpathSync} from 'node:fs';
 import {
   access,
   mkdir,
@@ -8,7 +8,7 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-import {homedir, tmpdir} from 'node:os';
+import {tmpdir} from 'node:os';
 import {join, resolve} from 'node:path';
 import process from 'node:process';
 import {test, type TestContext} from 'node:test';
@@ -34,22 +34,22 @@ void test('requires an explicit session before running commands', async (t: Test
   await t.assert.rejects(sandbox.run`true`, /has not started/v);
 });
 
-void test('resolves global skill aliases before passing paths to SRT', (t: TestContext) => {
-  const agentDirectory = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent');
-  const gitDirectory = join(agentDirectory, 'git');
-  const npmDirectory = join(agentDirectory, 'npm');
-  const gitSuffix = join('github.com', 'DietrichGebert', 'ponytail', 'skills', 'ponytail', 'SKILL.md');
-  const npmSuffix = join('node_modules', 'package', 'skills', 'skill', 'SKILL.md');
+void test('resolves symlinked tool paths before passing them to SRT', async (t: TestContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-tool-path-test-'));
+  const target = join(directory, 'target');
+  const alias = join(directory, 'alias');
+  const skill = join(target, 'SKILL.md');
 
-  t.assert.strictEqual(
-    resolveSandboxToolPath(join(gitDirectory, gitSuffix)),
-    join(existsSync(gitDirectory) ? realpathSync(gitDirectory) : gitDirectory, gitSuffix),
-  );
-  t.assert.strictEqual(
-    resolveSandboxToolPath(join(npmDirectory, npmSuffix)),
-    join(existsSync(npmDirectory) ? realpathSync(npmDirectory) : npmDirectory, npmSuffix),
-  );
-  t.assert.strictEqual(resolveSandboxToolPath('/tmp/ordinary-file'), '/tmp/ordinary-file');
+  try {
+    await mkdir(target);
+    await writeFile(skill, 'skill');
+    await symlink(target, alias);
+
+    t.assert.strictEqual(resolveSandboxToolPath(join(alias, 'SKILL.md')), realpathSync(skill));
+    t.assert.strictEqual(resolveSandboxToolPath(join(directory, 'missing')), join(directory, 'missing'));
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
 });
 
 void test('loads the former project directory configuration', (t: TestContext) => {

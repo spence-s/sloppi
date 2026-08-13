@@ -1,12 +1,5 @@
 import {Buffer} from 'node:buffer';
 import {realpathSync} from 'node:fs';
-import {homedir} from 'node:os';
-import {
-  isAbsolute,
-  join,
-  relative,
-  resolve,
-} from 'node:path';
 import process from 'node:process';
 import {
   createBashTool,
@@ -26,34 +19,13 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import type {Sandbox} from './sandbox.ts';
 
-const skillPathAliases = ['skills', 'git', 'npm']
-  .map(directory => resolve(
-    process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'),
-    directory,
-  ))
-  .map(alias => {
-    try {
-      return {alias, path: realpathSync(alias)};
-    } catch {
-      return {alias, path: alias};
-    }
-  });
-
-/** Rewrites absolute Pi skill paths to their physical paths for Seatbelt. */
+/** Resolves symlinked tool paths for Seatbelt. */
 export function resolveSandboxToolPath(path: string): string {
-  if (!isAbsolute(path)) {
+  try {
+    return realpathSync(path);
+  } catch {
     return path;
   }
-
-  const absolutePath = resolve(path);
-  for (const {alias, path: physicalPath} of skillPathAliases) {
-    const suffix = relative(alias, absolutePath);
-    if (suffix === '' || (!suffix.startsWith('..') && !isAbsolute(suffix))) {
-      return join(physicalPath, suffix);
-    }
-  }
-
-  return path;
 }
 
 type FindArgumentsInput = {
