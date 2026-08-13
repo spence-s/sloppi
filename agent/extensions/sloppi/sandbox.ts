@@ -71,6 +71,8 @@ export class Sandbox {
     }, this.config.getEffectiveConfig());
 
     await SandboxManager.initialize(SandboxRuntimeConfigSchema.parse(runtimeConfig));
+
+    this.session = {scratchPath};
   }
 
   /** Runs a shell command in the active session. */

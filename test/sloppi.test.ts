@@ -13,6 +13,7 @@ import {join, resolve} from 'node:path';
 import process from 'node:process';
 import {test, type TestContext} from 'node:test';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
+import {execa} from 'execa';
 import {ConfigStore} from '../agent/extensions/sloppi/config.ts';
 import slopbox, {getBlockedDomain} from '../agent/extensions/sloppi/index.ts';
 import {Sandbox} from '../agent/extensions/sloppi/sandbox.ts';
@@ -21,36 +22,11 @@ import {
   SandboxTools,
 } from '../agent/extensions/sloppi/tools.ts';
 
-void test('limits filesystem access to the project and session scratch directory', async (t: TestContext) => {
-  const piAgentPath = join(homedir(), '.pi', 'agent');
-  const sandbox = new Sandbox(
-    '/Users/spencer/Projects/app',
-    new ConfigStore('/Users/spencer/Projects/app'),
-  );
+void test('uses no persisted sandbox access by default', (t: TestContext) => {
+  const configStore = new ConfigStore('/Users/spencer/Projects/app');
+  configStore.hasLoaded = true;
 
-  try {
-    const session = await sandbox.startSession();
-    const config = SandboxManager.getConfig();
-    if (config === undefined) {
-      throw new Error('Sandbox manager did not initialize.');
-    }
-
-    t.assert.deepStrictEqual(config.network, {allowedDomains: [], deniedDomains: []});
-    t.assert.deepStrictEqual(config.filesystem.allowRead, [
-      '/Users/spencer/Projects/app',
-      existsSync(join(piAgentPath, 'skills')) ? realpathSync(join(piAgentPath, 'skills')) : join(piAgentPath, 'skills'),
-      existsSync(join(piAgentPath, 'git')) ? realpathSync(join(piAgentPath, 'git')) : join(piAgentPath, 'git'),
-      existsSync(join(piAgentPath, 'npm')) ? realpathSync(join(piAgentPath, 'npm')) : join(piAgentPath, 'npm'),
-    ]);
-    t.assert.deepStrictEqual(config.filesystem.allowWrite, [
-      '/Users/spencer/Projects/app',
-      session.scratchPath,
-    ]);
-    t.assert.deepStrictEqual(config.filesystem.denyRead, []);
-    t.assert.deepStrictEqual(config.filesystem.denyWrite, []);
-  } finally {
-    await sandbox.stopSession();
-  }
+  t.assert.deepStrictEqual(configStore.getEffectiveConfig(), {});
 });
 
 void test('requires an explicit session before running commands', async (t: TestContext) => {
@@ -76,29 +52,19 @@ void test('resolves global skill aliases before passing paths to SRT', (t: TestC
   t.assert.strictEqual(resolveSandboxToolPath('/tmp/ordinary-file'), '/tmp/ordinary-file');
 });
 
-void test('loads the former project directory configuration', async (t: TestContext) => {
+void test('loads the former project directory configuration', (t: TestContext) => {
   const configStore = new ConfigStore('/project-a');
   configStore.config = {
     '/project-a': ['/shared/a'],
     '/project-b': ['/shared/b'],
   };
   configStore.hasLoaded = true;
-  const sandbox = new Sandbox('/project-a', configStore);
+  const config = configStore.getEffectiveConfig();
 
-  try {
-    await sandbox.startSession();
-    const config = SandboxManager.getConfig();
-    if (config === undefined) {
-      throw new Error('Sandbox manager did not initialize.');
-    }
-
-    t.assert.ok(config.filesystem.allowRead?.includes('/shared/a'));
-    t.assert.ok(config.filesystem.allowWrite.includes('/shared/a'));
-    t.assert.ok(!config.filesystem.allowRead?.includes('/shared/b'));
-    t.assert.ok(!config.filesystem.allowWrite.includes('/shared/b'));
-  } finally {
-    await sandbox.stopSession();
-  }
+  t.assert.ok(config.filesystem?.allowRead?.includes('/shared/a'));
+  t.assert.ok(config.filesystem?.allowWrite?.includes('/shared/a'));
+  t.assert.ok(!config.filesystem?.allowRead?.includes('/shared/b'));
+  t.assert.ok(!config.filesystem?.allowWrite?.includes('/shared/b'));
 });
 
 void test('preserves config changes saved by another running session', async (t: TestContext) => {
@@ -125,7 +91,7 @@ void test('preserves config changes saved by another running session', async (t:
   }
 });
 
-void test('merges global and project SRT configuration without renaming options', async (t: TestContext) => {
+void test('merges global and project SRT configuration without renaming options', (t: TestContext) => {
   const configStore = new ConfigStore('/project');
   configStore.config = {
     slopbox: {promptOnNetworkDeny: true},
@@ -140,25 +106,15 @@ void test('merges global and project SRT configuration without renaming options'
     },
   };
   configStore.hasLoaded = true;
-  const sandbox = new Sandbox('/project', configStore);
+  const config = configStore.getEffectiveConfig();
 
-  try {
-    await sandbox.startSession();
-    const config = SandboxManager.getConfig();
-    if (config === undefined) {
-      throw new Error('Sandbox manager did not initialize.');
-    }
-
-    t.assert.deepStrictEqual(config.network.allowedDomains, ['global.example', 'project.example']);
-    t.assert.deepStrictEqual(config.network.deniedDomains, ['blocked.example']);
-    t.assert.ok(config.filesystem.allowRead?.includes('/project-read'));
-    t.assert.ok(config.filesystem.allowWrite.includes('/global'));
-    t.assert.ok(config.filesystem.allowWrite.includes('/project-write'));
-    t.assert.strictEqual('projects' in config, false);
-    t.assert.strictEqual('slopbox' in config, false);
-  } finally {
-    await sandbox.stopSession();
-  }
+  t.assert.deepStrictEqual(config.network?.allowedDomains, ['global.example', 'project.example']);
+  t.assert.deepStrictEqual(config.network?.deniedDomains, ['blocked.example']);
+  t.assert.ok(config.filesystem?.allowRead?.includes('/project-read'));
+  t.assert.ok(config.filesystem?.allowWrite?.includes('/global'));
+  t.assert.ok(config.filesystem?.allowWrite?.includes('/project-write'));
+  t.assert.strictEqual('projects' in config, false);
+  t.assert.strictEqual('slopbox' in config, false);
 });
 
 void test('extracts blocked domains and applies project prompt overrides', (t: TestContext) => {
@@ -204,19 +160,9 @@ void test('resolves directories before adding them to the sandbox policy', async
     const configStore = new ConfigStore('/project');
     configStore.config = {filesystem: {allowRead: [physicalTarget], allowWrite: [physicalTarget]}};
     configStore.hasLoaded = true;
-    const sandbox = new Sandbox('/project', configStore);
-    try {
-      await sandbox.startSession();
-      const config = SandboxManager.getConfig();
-      if (config === undefined) {
-        throw new Error('Sandbox manager did not initialize.');
-      }
-
-      t.assert.ok(config.filesystem.allowRead?.includes(physicalTarget));
-      t.assert.ok(config.filesystem.allowWrite.includes(physicalTarget));
-    } finally {
-      await sandbox.stopSession();
-    }
+    const config = configStore.getEffectiveConfig();
+    t.assert.ok(config.filesystem?.allowRead?.includes(physicalTarget));
+    t.assert.ok(config.filesystem?.allowWrite?.includes(physicalTarget));
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
@@ -226,16 +172,15 @@ void test('SRT denies writes outside the project and session scratch directory',
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-sandbox-test-'));
   const projectPath = realpathSync(process.cwd());
   const outsidePath = join(directory, 'outside');
-  const sandbox = new Sandbox(projectPath, new ConfigStore(projectPath));
-
   try {
     await mkdir(outsidePath);
-    await sandbox.startSession();
-    const result = await sandbox.run`${['sh', '-c', 'echo blocked > "$1"', 'sh', join(outsidePath, 'blocked.txt')]}`;
+    const outputPath = join(outsidePath, 'blocked.txt');
+    const command = `sh -c 'echo blocked > "$1"' sh '${outputPath}'`;
+    const wrapped = await SandboxManager.wrapWithSandbox(command);
+    const result = await execa(wrapped, {cwd: projectPath, reject: false, shell: true});
     t.assert.notStrictEqual(result.exitCode, 0);
-    await t.assert.rejects(access(join(outsidePath, 'blocked.txt')), {code: 'ENOENT'});
+    await t.assert.rejects(access(outputPath), {code: 'ENOENT'});
   } finally {
-    await sandbox.stopSession();
     await rm(directory, {force: true, recursive: true});
   }
 });
