@@ -141,7 +141,7 @@ export class SandboxTools {
         }
       },
       async writeFile(path, content) {
-        const result = await sandbox.run({input: content})`cat > ${path}`;
+        const result = await sandbox.run`printf %s ${content} > ${path}`;
         if (result.exitCode !== 0) {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot write ${path}`);
         }
@@ -160,48 +160,10 @@ export class SandboxTools {
     };
 
     const bash: BashOperations = {
-      async exec(command, _commandCwd, {onData, signal, timeout}) {
-        const result = await sandbox.run({signal, timeout})`sh -lc ${command}`;
+      async exec(command, commandCwd, {onData}) {
+        const result = await sandbox.run({cwd: commandCwd})`sh -lc ${command}`;
         onData(Buffer.from(result.stdout));
-
-        const blocked = /\[SandboxDebug\] No matching config rule, denying: (?<domain>\S+)/v.exec(result.stderr)?.groups?.domain;
-        let isDebugBlock = false;
-        const cleanStderr = result.stderr
-          .split('\n')
-          .filter(line => {
-            if (line.startsWith('[SandboxDebug]')) {
-              isDebugBlock = line.endsWith('{');
-              return false;
-            }
-
-            if (isDebugBlock) {
-              isDebugBlock = line !== '}';
-              return false;
-            }
-
-            return true;
-          })
-          .join('\n')
-          .trim();
-        const annotatedStderr = blocked === undefined
-          ? cleanStderr
-          : `${cleanStderr}\n<sandbox_violations>\ndeny network-outbound ${blocked} (host is not on the allow list)\n</sandbox_violations>`;
-        let stderr = annotatedStderr;
-        if (result.exitCode !== 0) {
-          if (stderr.length === 0) {
-            stderr = `Sandbox command failed (${String(result.exitCode)})`;
-          }
-
-          if (/operation not permitted|<sandbox_violations>|connection blocked by network allowlist/iv.test(stderr)) {
-            stderr += `\n\n${[
-              'Sandbox restriction: work in the current project, use mktemp for private temporary files,',
-              'and treat global skills as read-only. Network access is limited by the configured allowlist.',
-              'Do not retry an outside path or seek a host-execution workaround.',
-            ].join(' ')}`;
-          }
-        }
-
-        onData(Buffer.from(stderr));
+        onData(Buffer.from(result.stderr));
         return {exitCode: result.exitCode ?? null};
       },
     };
@@ -261,7 +223,7 @@ export class SandboxTools {
 
     pi.registerTool({
       ...createGrepTool(cwd),
-      async execute(_id, {pattern, path = '.', glob, ignoreCase, literal, context, limit = 100}, signal) {
+      async execute(_id, {pattern, path = '.', glob, ignoreCase, literal, context, limit = 100}) {
         const arguments_ = ['rg', '--line-number', '--color=never', '--hidden', '--glob', '!.git/**', '--glob', '!node_modules/**'];
         if (ignoreCase === true) {
           arguments_.push('--ignore-case');
@@ -281,7 +243,7 @@ export class SandboxTools {
 
         arguments_.push('--', pattern, resolveSandboxToolPath(path));
 
-        const result = await sandbox.run({signal})`${arguments_}`;
+        const result = await sandbox.run`${arguments_}`;
         if (result.exitCode !== 0 && result.exitCode !== 1) {
           const stderr = result.stderr.trim();
           let error = stderr.length > 0 ? stderr : `rg failed (${String(result.exitCode)})`;

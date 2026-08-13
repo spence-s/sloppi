@@ -9,7 +9,7 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
-import {dirname, join, resolve} from 'node:path';
+import {join, resolve} from 'node:path';
 import process from 'node:process';
 import {test, type TestContext} from 'node:test';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
@@ -46,9 +46,8 @@ void test('limits filesystem access to the project and session scratch directory
       '/Users/spencer/Projects/app',
       session.scratchPath,
     ]);
+    t.assert.deepStrictEqual(config.filesystem.denyRead, []);
     t.assert.deepStrictEqual(config.filesystem.denyWrite, []);
-    const userDirectory = dirname(homedir());
-    t.assert.ok(config.filesystem.denyRead.includes(userDirectory));
   } finally {
     await sandbox.stopSession();
   }
