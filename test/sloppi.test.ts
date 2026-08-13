@@ -17,10 +17,7 @@ import {execa} from 'execa';
 import {ConfigStore} from '../agent/extensions/sloppi/config.ts';
 import slopbox, {getBlockedDomain} from '../agent/extensions/sloppi/index.ts';
 import {Sandbox} from '../agent/extensions/sloppi/sandbox.ts';
-import {
-  resolveSandboxToolPath,
-  SandboxTools,
-} from '../agent/extensions/sloppi/tools.ts';
+import {SandboxTools} from '../agent/extensions/sloppi/tools.ts';
 
 void test('uses no persisted sandbox access by default', (t: TestContext) => {
   const configStore = new ConfigStore('/Users/spencer/Projects/app');
@@ -32,24 +29,6 @@ void test('uses no persisted sandbox access by default', (t: TestContext) => {
 void test('requires an explicit session before running commands', async (t: TestContext) => {
   const sandbox = new Sandbox('/project', new ConfigStore('/project'));
   await t.assert.rejects(sandbox.run`true`, /has not started/v);
-});
-
-void test('resolves symlinked tool paths before passing them to SRT', async (t: TestContext) => {
-  const directory = await mkdtemp(join(tmpdir(), 'sloppi-tool-path-test-'));
-  const target = join(directory, 'target');
-  const alias = join(directory, 'alias');
-  const skill = join(target, 'SKILL.md');
-
-  try {
-    await mkdir(target);
-    await writeFile(skill, 'skill');
-    await symlink(target, alias);
-
-    t.assert.strictEqual(resolveSandboxToolPath(join(alias, 'SKILL.md')), realpathSync(skill));
-    t.assert.strictEqual(resolveSandboxToolPath(join(directory, 'missing')), join(directory, 'missing'));
-  } finally {
-    await rm(directory, {force: true, recursive: true});
-  }
 });
 
 void test('loads the former project directory configuration', (t: TestContext) => {

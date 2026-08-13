@@ -1,5 +1,4 @@
 import {Buffer} from 'node:buffer';
-import {realpathSync} from 'node:fs';
 import process from 'node:process';
 import {
   createBashTool,
@@ -18,15 +17,6 @@ import {
   type WriteOperations,
 } from '@earendil-works/pi-coding-agent';
 import type {Sandbox} from './sandbox.ts';
-
-/** Resolves symlinked tool paths for Seatbelt. */
-export function resolveSandboxToolPath(path: string): string {
-  try {
-    return realpathSync(path);
-  } catch {
-    return path;
-  }
-}
 
 type FindArgumentsInput = {
   platform: string;
@@ -81,13 +71,13 @@ export class SandboxTools {
     const {pi, cwd, sandbox} = this;
     const read: ReadOperations = {
       async access(path) {
-        const result = await sandbox.run`test -r ${resolveSandboxToolPath(path)}`;
+        const result = await sandbox.run`test -r ${path}`;
         if (result.exitCode !== 0) {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot read ${path}`);
         }
       },
       async readFile(path) {
-        const result = await sandbox.run`base64 < ${resolveSandboxToolPath(path)} | tr -d '\n'`;
+        const result = await sandbox.run`base64 < ${path} | tr -d '\n'`;
         if (result.exitCode !== 0) {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot read ${path}`);
         }
@@ -95,7 +85,7 @@ export class SandboxTools {
         return Buffer.from(result.stdout, 'base64');
       },
       async detectImageMimeType(path) {
-        const result = await sandbox.run`file --mime-type -b -- ${resolveSandboxToolPath(path)}`;
+        const result = await sandbox.run`file --mime-type -b -- ${path}`;
         if (result.exitCode !== 0) {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot identify ${path}`);
         }
@@ -142,14 +132,14 @@ export class SandboxTools {
 
     const find: FindOperations = {
       async exists(path) {
-        const result = await sandbox.run`test -e ${resolveSandboxToolPath(path)}`;
+        const result = await sandbox.run`test -e ${path}`;
         return result.exitCode === 0;
       },
       async glob(pattern, path, {ignore, limit}) {
         const result = await sandbox.run`${SandboxTools.getFindArguments({
           platform: process.platform,
           pattern,
-          path: resolveSandboxToolPath(path),
+          path,
           ignore,
           limit,
         })}`;
@@ -164,20 +154,20 @@ export class SandboxTools {
 
     const ls: LsOperations = {
       async exists(path) {
-        const result = await sandbox.run`test -e ${resolveSandboxToolPath(path)}`;
+        const result = await sandbox.run`test -e ${path}`;
         return result.exitCode === 0;
       },
       async stat(path) {
-        const exists = await sandbox.run`test -e ${resolveSandboxToolPath(path)}`;
+        const exists = await sandbox.run`test -e ${path}`;
         if (exists.exitCode !== 0) {
           throw new Error(`Path not found: ${path}`);
         }
 
-        const directory = await sandbox.run`test -d ${resolveSandboxToolPath(path)}`;
+        const directory = await sandbox.run`test -d ${path}`;
         return {isDirectory: () => directory.exitCode === 0};
       },
       async readdir(path) {
-        const result = await sandbox.run`ls -1A -- ${resolveSandboxToolPath(path)}`;
+        const result = await sandbox.run`ls -1A -- ${path}`;
         if (result.exitCode !== 0) {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot list ${path}`);
         }
@@ -213,7 +203,7 @@ export class SandboxTools {
           arguments_.push('--context', String(context));
         }
 
-        arguments_.push('--', pattern, resolveSandboxToolPath(path));
+        arguments_.push('--', pattern, path);
 
         const result = await sandbox.run`${arguments_}`;
         if (result.exitCode !== 0 && result.exitCode !== 1) {
