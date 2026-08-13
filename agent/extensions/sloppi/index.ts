@@ -14,16 +14,6 @@ const sandboxedTools = new Set(['bash', 'edit', 'find', 'grep', 'ls', 'read', 'w
 // These provider-backed tools intentionally stay on the credential-holding host.
 const hostTools = new Set(['fetch_content', 'get_search_content', 'source_check', 'web_search']);
 
-const sandboxSystemPrompt = `
-## Sloppi Sandbox
-
-Filesystem tools can write only the current project, explicitly allowed directories,
-and private temporary storage; global skills are read-only. Network access is
-allowlisted, and host credentials, signing agents, and other host services are
-unavailable unless explicitly configured. Treat a sandbox denial as a real boundary:
-do not retry outside it or seek a workaround.
-`.trim();
-
 export class Slopbox {
   pi: ExtensionAPI;
   cwd: string;
@@ -89,9 +79,32 @@ export class Slopbox {
       },
     });
 
-    pi.on('before_agent_start', event => ({
-      systemPrompt: `${event.systemPrompt}\n\n${sandboxSystemPrompt}`,
-    }));
+    pi.on('before_agent_start', async event => {
+      const sandboxSystemPrompt = `
+      ## Sloppi Sandbox
+
+      Filesystem tools can write only to the paths listed below and private temporary
+      storage; global skills are read-only. Sandboxed network access is allowlisted, and
+      host credentials, signing agents, and other host services are unavailable unless
+      explicitly configured. Treat a sandbox denial as a real boundary: do not retry
+      outside it or seek a workaround.
+      `.trim();
+
+      await config.load();
+      const effectiveConfig = config.getEffectiveConfig();
+      const writePaths = [...new Set([cwd, ...(effectiveConfig.filesystem?.allowWrite ?? [])])];
+      const allowedDomains = effectiveConfig.network?.allowedDomains ?? [];
+      const accessSummary = [
+        'Writable paths:',
+        ...writePaths.map(path => `- ${JSON.stringify(path)}`),
+        '',
+        allowedDomains.length > 0
+          ? `Allowed sandboxed network destinations: ${allowedDomains.map(domain => JSON.stringify(domain)).join(', ')}`
+          : 'No sandboxed network destinations are allowed.',
+      ].join('\n');
+
+      return {systemPrompt: `${event.systemPrompt}\n\n${sandboxSystemPrompt}\n\n${accessSummary}`};
+    });
 
     pi.on('tool_call', event => {
       if (!sandboxedTools.has(event.toolName) && !hostTools.has(event.toolName)) {

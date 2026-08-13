@@ -14,19 +14,10 @@ import {
 import {merge} from 'object-deep-merge';
 import type {ConfigStore} from './config.ts';
 
-const agentPath = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent');
-
-const skillPaths = ['skills', 'git', 'npm'].map(directory => {
-  const path = resolve(agentPath, directory);
-  try {
-    return realpathSync(path);
-  } catch {
-    return path;
-  }
-});
-
 type CommandValue = string | number | ReadonlyArray<string | number>;
+
 type RunOptions = {cwd: string};
+
 type CommandResult = {
   exitCode?: number | undefined;
   stderr: string;
@@ -43,7 +34,7 @@ export class Sandbox {
   config: ConfigStore;
 
   /**
-    Creates a sandbox for a project using its persisted access configuration.
+   Creates a sandbox for a project using its persisted access configuration.
    */
   constructor(cwd: string, config: ConfigStore) {
     this.cwd = cwd;
@@ -60,6 +51,16 @@ export class Sandbox {
 
     const scratchPath = await mkdtemp(join(tmpdir(), 'sloppi-'));
 
+    const agentPath = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent');
+
+    const skillPaths = ['skills', 'git', 'npm'].map(directory => {
+      const path = resolve(agentPath, directory);
+      try {
+        return realpathSync(path);
+      } catch {
+        return path;
+      }
+    });
     const runtimeConfig = merge({
       network: {allowedDomains: [], deniedDomains: []},
       filesystem: {

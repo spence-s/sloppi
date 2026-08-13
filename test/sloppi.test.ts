@@ -15,7 +15,7 @@ import {test, type TestContext} from 'node:test';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {execa} from 'execa';
 import {ConfigStore} from '../agent/extensions/sloppi/config.ts';
-import slopbox from '../agent/extensions/sloppi/index.ts';
+import slopbox, {Slopbox} from '../agent/extensions/sloppi/index.ts';
 import {Sandbox} from '../agent/extensions/sloppi/sandbox.ts';
 
 void test('uses no persisted sandbox access by default', (t: TestContext) => {
@@ -162,6 +162,45 @@ void test('SRT denies writes outside the project and session scratch directory',
     const result = await execa(wrapped, {cwd: projectPath, reject: false, shell: true});
     t.assert.notStrictEqual(result.exitCode, 0);
     await t.assert.rejects(access(outputPath), {code: 'ENOENT'});
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
+});
+
+void test('adds current sandbox access to the system prompt', async (t: TestContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-prompt-test-'));
+  const configPath = join(directory, 'slopbox.json');
+  const handlers = new Map<string, (...arguments_: unknown[]) => unknown>();
+  const pi = {
+    on(name: string, handler: (...arguments_: unknown[]) => unknown) {
+      handlers.set(name, handler);
+    },
+    registerCommand() {
+      return undefined;
+    },
+    registerTool() {
+      return undefined;
+    },
+  };
+
+  try {
+    await writeFile(configPath, JSON.stringify({
+      filesystem: {allowWrite: ['/shared']},
+      network: {allowedDomains: ['api.example.com']},
+    }));
+    const extension = new Slopbox(pi as unknown as Parameters<typeof slopbox>[0]);
+    extension.config = new ConfigStore(extension.cwd, configPath);
+    extension.register();
+
+    const handler = handlers.get('before_agent_start');
+    if (handler === undefined) {
+      throw new Error('before_agent_start handler was not registered');
+    }
+
+    const result = await handler({systemPrompt: 'base'}) as {systemPrompt: string};
+    t.assert.match(result.systemPrompt, new RegExp(JSON.stringify(extension.cwd), 'v'));
+    t.assert.match(result.systemPrompt, /"\/shared"/v);
+    t.assert.match(result.systemPrompt, /"api\.example\.com"/v);
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
