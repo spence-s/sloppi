@@ -4,7 +4,7 @@ import {
   rm,
 } from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
-import {join, resolve} from 'node:path';
+import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
 import {execa} from 'execa';
 import {
@@ -65,7 +65,7 @@ export class Sandbox {
       filesystem: {
         allowRead: [this.cwd, ...skillPaths],
         allowWrite: [this.cwd, scratchPath],
-        denyRead: [],
+        denyRead: [dirname(homedir())],
         denyWrite: [],
       },
     }, this.config.getEffectiveConfig());

@@ -8,8 +8,8 @@ import {
   symlink,
   writeFile,
 } from 'node:fs/promises';
-import {tmpdir} from 'node:os';
-import {join, resolve} from 'node:path';
+import {homedir, tmpdir} from 'node:os';
+import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
 import {test, type TestContext} from 'node:test';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
@@ -28,6 +28,17 @@ void test('uses no persisted sandbox access by default', (t: TestContext) => {
 void test('requires an explicit session before running commands', async (t: TestContext) => {
   const sandbox = new Sandbox('/project', new ConfigStore('/project'));
   await t.assert.rejects(sandbox.run`true`, /has not started/v);
+});
+
+void test('denies reads outside the user home directory', async (t: TestContext) => {
+  const sandbox = new Sandbox('/Users/spencer/Projects/app', new ConfigStore('/Users/spencer/Projects/app'));
+  const homeDirectory = dirname(homedir());
+  try {
+    await sandbox.startSession();
+    t.assert.ok(SandboxManager.getConfig()?.filesystem?.denyRead?.includes(homeDirectory));
+  } finally {
+    await sandbox.stopSession();
+  }
 });
 
 void test('loads the former project directory configuration', (t: TestContext) => {
