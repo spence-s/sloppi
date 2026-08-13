@@ -1,5 +1,4 @@
 import {Buffer} from 'node:buffer';
-import process from 'node:process';
 import {
   createBashTool,
   createEditTool,
@@ -18,45 +17,7 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import type {Sandbox} from './sandbox.ts';
 
-type FindArgumentsInput = {
-  platform: string;
-  pattern: string;
-  path: string;
-  ignore: readonly string[];
-  limit: number;
-};
-
 export class SandboxTools {
-  static getFindArguments({platform, pattern, path, ignore, limit}: FindArgumentsInput): string[] {
-    if (platform === 'darwin') {
-      const name = pattern.includes('/') ? '-path' : '-name';
-      const match = name === '-path' ? `*${pattern}` : pattern;
-      return [
-        'find',
-        path,
-        '-type',
-        'f',
-        ...ignore.flatMap(entry => ['!', '-path', `*${entry}`]),
-        name,
-        match,
-        '-print',
-      ];
-    }
-
-    return [
-      'fd',
-      '--glob',
-      '--color=never',
-      '--hidden',
-      ...ignore.flatMap(entry => ['--exclude', entry]),
-      '--max-results',
-      String(limit),
-      '--',
-      pattern,
-      path,
-    ];
-  }
-
   pi: ExtensionAPI;
   cwd: string;
   sandbox: Sandbox;
@@ -136,19 +97,15 @@ export class SandboxTools {
         return result.exitCode === 0;
       },
       async glob(pattern, path, {ignore, limit}) {
-        const result = await sandbox.run`${SandboxTools.getFindArguments({
-          platform: process.platform,
-          pattern,
-          path,
-          ignore,
-          limit,
-        })}`;
+        const name = pattern.includes('/') ? '-path' : '-name';
+        const match = name === '-path' ? `*${pattern}` : pattern;
+        const result = await sandbox.run`${['find', path, '-type', 'f', ...ignore.flatMap(entry => ['!', '-path', `*${entry}`]), name, match, '-print']}`;
         if (result.exitCode !== 0) {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot find ${pattern}`);
         }
 
         const results = result.stdout.trim().split('\n').filter(Boolean);
-        return process.platform === 'darwin' ? results.slice(0, limit) : results;
+        return results.slice(0, limit);
       },
     };
 

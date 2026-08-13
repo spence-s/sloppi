@@ -17,7 +17,6 @@ import {execa} from 'execa';
 import {ConfigStore} from '../agent/extensions/sloppi/config.ts';
 import slopbox, {getBlockedDomain} from '../agent/extensions/sloppi/index.ts';
 import {Sandbox} from '../agent/extensions/sloppi/sandbox.ts';
-import {SandboxTools} from '../agent/extensions/sloppi/tools.ts';
 
 void test('uses no persisted sandbox access by default', (t: TestContext) => {
   const configStore = new ConfigStore('/Users/spencer/Projects/app');
@@ -182,29 +181,3 @@ void test('registers /slopbox to allow directories during a session', (t: TestCo
   t.assert.deepStrictEqual(commands, ['slopbox']);
 });
 
-void test('uses native find arguments on macOS', (t: TestContext) => {
-  t.assert.deepStrictEqual(
-    SandboxTools.getFindArguments({
-      platform: 'darwin',
-      pattern: '*.test.ts',
-      path: 'test',
-      ignore: ['**/node_modules/**', '**/.git/**'],
-      limit: 100,
-    }),
-    [
-      'find',
-      'test',
-      '-type',
-      'f',
-      '!',
-      '-path',
-      '***/node_modules/**',
-      '!',
-      '-path',
-      '***/.git/**',
-      '-name',
-      '*.test.ts',
-      '-print',
-    ],
-  );
-});
