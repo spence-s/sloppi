@@ -101,6 +101,7 @@ export class Sandbox {
         extendEnv: false,
         env: {
           HOME: currentSession.scratchPath,
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
           LANG: process.env.LANG ?? 'C.UTF-8',
           TMPDIR: currentSession.scratchPath,
           USER: 'sandbox',

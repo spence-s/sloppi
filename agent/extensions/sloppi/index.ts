@@ -24,25 +24,6 @@ unavailable unless explicitly configured. Treat a sandbox denial as a real bound
 do not retry outside it or seek a workaround.
 `.trim();
 
-export function getBlockedDomain(message: string, command = ''): string | undefined {
-  const violation = /deny network-outbound (?<host>.+):(?<port>\d+) \(host is not on the allow list\)/v.exec(message);
-  if (violation?.groups !== undefined) {
-    return `${violation.groups.host}:${violation.groups.port}`;
-  }
-
-  if (!/connection blocked by network allowlist|connect tunnel failed, response 403/iv.test(message)) {
-    return undefined;
-  }
-
-  const url = /https?:\/\/[^\s"'`]+/v.exec(command)?.[0];
-  if (url === undefined) {
-    return undefined;
-  }
-
-  const parsed = new URL(url);
-  return `${parsed.hostname}:${parsed.port.length > 0 ? parsed.port : (parsed.protocol === 'https:' ? '443' : '80')}`;
-}
-
 export class Slopbox {
   pi: ExtensionAPI;
   cwd: string;
@@ -128,9 +109,26 @@ export class Slopbox {
         .filter(entry => entry.type === 'text')
         .map(entry => entry.text)
         .join('\n');
-      const command = typeof event.input.command === 'string' ? event.input.command : '';
-      const suggestedDomain = getBlockedDomain(message, command);
-      if (suggestedDomain === undefined || !config.shouldPrompt() || config.isDomainAllowed(suggestedDomain)) {
+      const violation = /deny network-outbound (?<host>.+):(?<port>\d+) \(host is not on the allow list\)/v.exec(message);
+      let suggestedDomain: string | undefined;
+      if (violation?.groups === undefined) {
+        if (!/connection blocked by network allowlist|connect tunnel failed, response 403/iv.test(message)) {
+          return;
+        }
+
+        const command = typeof event.input.command === 'string' ? event.input.command : '';
+        const url = /https?:\/\/[^\s"'`]+/v.exec(command)?.[0];
+        if (url === undefined) {
+          return;
+        }
+
+        const parsed = new URL(url);
+        suggestedDomain = `${parsed.hostname}:${parsed.port.length > 0 ? parsed.port : (parsed.protocol === 'https:' ? '443' : '80')}`;
+      } else {
+        suggestedDomain = `${violation.groups.host}:${violation.groups.port}`;
+      }
+
+      if (!config.shouldPrompt() || config.isDomainAllowed(suggestedDomain)) {
         return;
       }
 
@@ -183,6 +181,7 @@ export class Slopbox {
         ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
       }
     });
+
     pi.on('session_shutdown', async () => {
       await sandbox.stopSession();
     });

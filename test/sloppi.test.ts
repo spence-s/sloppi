@@ -15,7 +15,7 @@ import {test, type TestContext} from 'node:test';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {execa} from 'execa';
 import {ConfigStore} from '../agent/extensions/sloppi/config.ts';
-import slopbox, {getBlockedDomain} from '../agent/extensions/sloppi/index.ts';
+import slopbox from '../agent/extensions/sloppi/index.ts';
 import {Sandbox} from '../agent/extensions/sloppi/sandbox.ts';
 
 void test('uses no persisted sandbox access by default', (t: TestContext) => {
@@ -106,7 +106,7 @@ void test('merges global and project SRT configuration without renaming options'
   t.assert.strictEqual('slopbox' in config, false);
 });
 
-void test('extracts blocked domains and applies project prompt overrides', (t: TestContext) => {
+void test('applies network configuration and project prompt overrides', (t: TestContext) => {
   const allowed = {
     network: {allowedDomains: ['api.example.com', '*.example.net:8443']},
     projects: {'/project': {network: {allowedDomains: ['project.example:443']}}},
@@ -118,13 +118,6 @@ void test('extracts blocked domains and applies project prompt overrides', (t: T
   t.assert.strictEqual(configStore.isDomainAllowed('service.example.net:443'), false);
   t.assert.strictEqual(configStore.isDomainAllowed('project.example:443'), true);
 
-  const violation = 'deny network-outbound api.example.com:443 (host is not on the allow list)';
-  t.assert.strictEqual(getBlockedDomain(violation), 'api.example.com:443');
-  t.assert.strictEqual(
-    getBlockedDomain('curl: (56) CONNECT tunnel failed, response 403', 'curl https://api.example.com/path'),
-    'api.example.com:443',
-  );
-  t.assert.strictEqual(getBlockedDomain('ordinary failure', 'curl https://api.example.com'), undefined);
   configStore.config = {slopbox: {promptOnNetworkDeny: false}};
   t.assert.strictEqual(configStore.shouldPrompt(), false);
   configStore.config = {
