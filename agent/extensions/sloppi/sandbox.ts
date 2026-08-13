@@ -98,12 +98,10 @@ export class Sandbox {
         shell: true,
         reject: false,
         cwd,
-        // Do not pass host credentials or proxy settings into an agent-controlled process.
+        extendEnv: false,
         env: {
-          ...process.env,
           HOME: currentSession.scratchPath,
           LANG: process.env.LANG ?? 'C.UTF-8',
-          PATH: process.env.PATH ?? '',
           TMPDIR: currentSession.scratchPath,
           USER: 'sandbox',
         },
