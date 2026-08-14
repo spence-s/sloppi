@@ -18,7 +18,7 @@ type PartialWithUndefined<T> = T extends ReadonlyArray<infer Item>
 
 export type Config = PartialWithUndefined<SandboxRuntimeConfig> & {
   projects?: Record<string, Config> | undefined;
-  slopbox?: {promptOnNetworkDeny?: boolean | undefined} | undefined;
+  sandbox?: {promptOnNetworkDeny?: boolean | undefined} | undefined;
   [key: string]: unknown;
 };
 export type ConfigScope = 'global' | 'project';
@@ -29,10 +29,10 @@ export class ConfigStore {
   cwd: string;
   path: string;
 
-  /** Creates a store for the current project's Slopbox configuration. */
+  /** Creates a store for the current project's Sandbox configuration. */
   constructor(cwd: string, path?: string) {
     this.cwd = cwd;
-    this.path = path ?? resolve(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'), '..', 'slopbox.json');
+    this.path = path ?? resolve(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'), '..', 'sandbox.json');
   }
 
   /** Reloads the configuration file, treating a missing file as an empty configuration. */
@@ -93,8 +93,8 @@ export class ConfigStore {
 
   /** Merges global SRT settings with the current project's overrides. */
   getEffectiveConfig(): SandboxRuntimeConfig {
-    const {projects: _projects, slopbox: _slopbox, ...globalConfig} = this.config;
-    const {slopbox: _projectSlopbox, ...projectConfig} = this.getScopedConfig('project');
+    const {projects: _projects, sandbox: _sandbox, ...globalConfig} = this.config;
+    const {sandbox: _projectSandbox, ...projectConfig} = this.getScopedConfig('project');
     return merge(globalConfig, projectConfig);
   }
 
@@ -157,9 +157,9 @@ export class ConfigStore {
   async setPrompting(scope: ConfigScope, isEnabled: boolean): Promise<void> {
     await this.reload();
     const scopedConfig = this.getScopedConfig(scope);
-    const slopboxConfig = scopedConfig.slopbox ?? {};
-    slopboxConfig.promptOnNetworkDeny = isEnabled;
-    scopedConfig.slopbox = slopboxConfig;
+    const sandboxConfig = scopedConfig.sandbox ?? {};
+    sandboxConfig.promptOnNetworkDeny = isEnabled;
+    scopedConfig.sandbox = sandboxConfig;
     const {[this.cwd]: _legacy, ...updatedConfig} = this.config;
     this.config = updatedConfig;
     await mkdir(dirname(this.path), {recursive: true});
@@ -168,9 +168,9 @@ export class ConfigStore {
 
   /** Returns the current project's prompt setting, falling back to global and then true. */
   shouldPrompt(): boolean {
-    const globalPromptSetting = this.config.slopbox?.promptOnNetworkDeny;
+    const globalPromptSetting = this.config.sandbox?.promptOnNetworkDeny;
     const projectConfig = this.getScopedConfig('project');
-    const projectPromptSetting = projectConfig.slopbox?.promptOnNetworkDeny;
+    const projectPromptSetting = projectConfig.sandbox?.promptOnNetworkDeny;
     return typeof projectPromptSetting === 'boolean'
       ? projectPromptSetting
       : (typeof globalPromptSetting === 'boolean' ? globalPromptSetting : true);

@@ -6,7 +6,7 @@ import {
   type ConfigScope,
 } from './config.ts';
 import {SandboxCommand} from './command.ts';
-import {Sandbox} from './sandbox.ts';
+import {SandboxSessionManager} from './session-manager.ts';
 import {SandboxTools} from './tools.ts';
 
 // Only these tools may execute commands; everything else stays explicitly allowlisted.
@@ -14,18 +14,18 @@ const sandboxedTools = new Set(['bash', 'edit', 'find', 'grep', 'ls', 'read', 'w
 // These provider-backed tools intentionally stay on the credential-holding host.
 const hostTools = new Set(['fetch_content', 'get_search_content', 'source_check', 'web_search']);
 
-export class Slopbox {
+export class Sandbox {
   pi: ExtensionAPI;
   cwd: string;
   config: ConfigStore;
-  sandbox: Sandbox;
+  sandbox: SandboxSessionManager;
   isPromptInProgress = false;
 
   constructor(pi: ExtensionAPI) {
     this.pi = pi;
     this.cwd = realpathSync(process.cwd());
     this.config = new ConfigStore(this.cwd);
-    this.sandbox = new Sandbox(this.cwd, this.config);
+    this.sandbox = new SandboxSessionManager(this.cwd, this.config);
   }
 
   register(): void {
@@ -105,7 +105,7 @@ export class Slopbox {
         const projectChoice = `Allow ${suggestedDomain} for this project`;
         const globalChoice = `Allow ${suggestedDomain} for all projects`;
         const customChoice = 'Customize the SRT domain pattern…';
-        const choice = await ctx.ui.select('Slopbox blocked a network request', [
+        const choice = await ctx.ui.select('Sandbox blocked a network request', [
           projectChoice,
           globalChoice,
           customChoice,
@@ -134,7 +134,7 @@ export class Slopbox {
     });
 
     pi.on('session_start', async (_event, ctx) => {
-      ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'sloppi')} ${ctx.ui.theme.bold(ctx.ui.theme.fg('warning', '●'))} ${ctx.ui.theme.fg('dim', '│')}`);
+      ctx.ui.setStatus('0:sandbox', `${ctx.ui.theme.fg('accent', 'sandbox')} ${ctx.ui.theme.bold(ctx.ui.theme.fg('warning', '●'))} ${ctx.ui.theme.fg('dim', '│')}`);
       try {
         await sandbox.startSession();
         const result = await sandbox.run`true`;
@@ -142,10 +142,10 @@ export class Slopbox {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : 'Sandbox command failed');
         }
 
-        ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'sloppi')} ${ctx.ui.theme.bold(ctx.ui.theme.fg('success', '●'))} ${ctx.ui.theme.fg('dim', '│')}`);
+        ctx.ui.setStatus('0:sandbox', `${ctx.ui.theme.fg('accent', 'sandbox')} ${ctx.ui.theme.bold(ctx.ui.theme.fg('success', '●'))} ${ctx.ui.theme.fg('dim', '│')}`);
         ctx.ui.notify(`Sandboxed tools can access only ${cwd}.`, 'info');
       } catch (error) {
-        ctx.ui.setStatus('0:slopbox', `${ctx.ui.theme.fg('accent', 'sloppi')} ${ctx.ui.theme.bold(ctx.ui.theme.fg('error', '●'))} ${ctx.ui.theme.fg('dim', '│')}`);
+        ctx.ui.setStatus('0:sandbox', `${ctx.ui.theme.fg('accent', 'sandbox')} ${ctx.ui.theme.bold(ctx.ui.theme.fg('error', '●'))} ${ctx.ui.theme.fg('dim', '│')}`);
         ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
       }
     });
@@ -156,6 +156,6 @@ export class Slopbox {
   }
 }
 
-export default function slopbox(pi: ExtensionAPI): void {
-  new Slopbox(pi).register();
+export default function sandboxExtension(pi: ExtensionAPI): void {
+  new Sandbox(pi).register();
 }

@@ -41,7 +41,7 @@ Sloppi does not change Pi's project trust behavior.
 - macOS: `brew install ripgrep`
 - Linux: install `bubblewrap`, `socat`, `ripgrep`, and `fd`
 
-Slopbox currently supports macOS and Linux. Its status line uses Nerd Font icons but remains usable without them.
+Sandbox currently supports macOS and Linux. Its status line uses Nerd Font icons but remains usable without them.
 
 For web research in ask mode, install [`pi-web-access`](https://github.com/nicobailon/pi-web-access) separately:
 
@@ -52,15 +52,15 @@ pi install npm:pi-web-access
 ## Extensions
 
 - `ask-mode.ts` — `/ask on|off|toggle|status` limits Pi to read-only and available web research tools.
-- `slopbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access.
+- `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access.
 - `startup-banner.ts` — replaces Pi's TUI header.
 - `status-line.ts` — adds OS and Git status below Pi's footer.
 
-Slopbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. It blocks unapproved extension tools from host execution; Pi web-access tools remain host-side so provider credentials are not exposed to sandboxed commands.
+Sandbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. It blocks unapproved extension tools from host execution; Pi web-access tools remain host-side so provider credentials are not exposed to sandboxed commands.
 
 ## Sandbox configuration
 
-Slopbox writes `slopbox.json` beside Pi's agent directory. This is `~/.pi/slopbox.json` by default and follows `PI_CODING_AGENT_DIR` when that environment variable is set.
+Sandbox writes `sandbox.json` beside Pi's agent directory. This is `~/.pi/sandbox.json` by default and follows `PI_CODING_AGENT_DIR` when that environment variable is set.
 
 Global SRT options live at the root. Project overrides live under `projects["/absolute/project/path"]`; arrays are combined and project scalar values override global values.
 
@@ -84,7 +84,7 @@ Use `/sandbox` to view access, allow a folder or website, and configure network-
 
 By default, filesystem tools can write only the current project and private session scratch space. Global Pi skills and Git/npm package directories are readable. Network access is denied until allowed. A blocked network request can prompt to add a project or global domain rule; use `/sandbox` to disable those prompts.
 
-Slopbox is an additional experimental boundary, not a guarantee. Broad filesystem paths, domains, Unix sockets, Apple Events, or weaker SRT isolation options reduce its protection. See [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime) for platform limitations.
+Sandbox is an additional experimental boundary, not a guarantee. Broad filesystem paths, domains, Unix sockets, Apple Events, or weaker SRT isolation options reduce its protection. See [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime) for platform limitations.
 
 ## Development
 

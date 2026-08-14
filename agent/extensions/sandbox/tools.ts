@@ -15,14 +15,14 @@ import {
   type ReadOperations,
   type WriteOperations,
 } from '@earendil-works/pi-coding-agent';
-import type {Sandbox} from './sandbox.ts';
+import type {SandboxSessionManager} from './session-manager.ts';
 
 export class SandboxTools {
   pi: ExtensionAPI;
   cwd: string;
-  sandbox: Sandbox;
+  sandbox: SandboxSessionManager;
 
-  constructor(pi: ExtensionAPI, cwd: string, sandbox: Sandbox) {
+  constructor(pi: ExtensionAPI, cwd: string, sandbox: SandboxSessionManager) {
     this.pi = pi;
     this.cwd = cwd;
     this.sandbox = sandbox;
@@ -168,7 +168,7 @@ export class SandboxTools {
           let error = stderr.length > 0 ? stderr : `rg failed (${String(result.exitCode)})`;
           if (/operation not permitted|<sandbox_violations>|connection blocked by network allowlist/iv.test(error)) {
             error += `\n\n${[
-              'Sandbox restriction: work in the current project, use mktemp for private temporary files,',
+              'SandboxSessionManager restriction: work in the current project, use mktemp for private temporary files,',
               'and treat global skills as read-only. Network access is limited by the configured allowlist.',
               'Do not retry an outside path or seek a host-execution workaround.',
             ].join(' ')}`;

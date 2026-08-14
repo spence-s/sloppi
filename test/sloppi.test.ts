@@ -14,9 +14,10 @@ import process from 'node:process';
 import {test, type TestContext} from 'node:test';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {execa} from 'execa';
+import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import {ConfigStore} from '../agent/extensions/sandbox/config.ts';
-import slopbox, {Slopbox} from '../agent/extensions/sandbox/index.ts';
-import {Sandbox} from '../agent/extensions/sandbox/sandbox.ts';
+import sandboxExtension, {Sandbox as SandboxExtension} from '../agent/extensions/sandbox/index.ts';
+import {SandboxSessionManager} from '../agent/extensions/sandbox/session-manager.ts';
 
 void test('uses no persisted sandbox access by default', (t: TestContext) => {
   const configStore = new ConfigStore('/Users/spencer/Projects/app');
@@ -26,12 +27,12 @@ void test('uses no persisted sandbox access by default', (t: TestContext) => {
 });
 
 void test('requires an explicit session before running commands', async (t: TestContext) => {
-  const sandbox = new Sandbox('/project', new ConfigStore('/project'));
+  const sandbox = new SandboxSessionManager('/project', new ConfigStore('/project'));
   await t.assert.rejects(sandbox.run`true`, /has not started/v);
 });
 
 void test('denies reads outside the user home directory', async (t: TestContext) => {
-  const sandbox = new Sandbox('/Users/spencer/Projects/app', new ConfigStore('/Users/spencer/Projects/app'));
+  const sandbox = new SandboxSessionManager('/Users/spencer/Projects/app', new ConfigStore('/Users/spencer/Projects/app'));
   const homeDirectory = dirname(homedir());
   try {
     await sandbox.startSession();
@@ -58,12 +59,12 @@ void test('loads the former project directory configuration', (t: TestContext) =
 
 void test('preserves config changes saved by another running session', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-config-test-'));
-  const configPath = join(directory, 'slopbox.json');
+  const configPath = join(directory, 'sandbox.json');
   const first = new ConfigStore('/project-a', configPath);
   const second = new ConfigStore('/project-b', configPath);
 
   try {
-    await writeFile(configPath, `${JSON.stringify({slopbox: {otherSetting: true}})}\n`);
+    await writeFile(configPath, `${JSON.stringify({sandbox: {otherSetting: true}})}\n`);
     await Promise.all([first.load(), second.load()]);
     await first.addDomain('global', 'first.example');
     await second.addDomain('global', 'second.example');
@@ -71,10 +72,10 @@ void test('preserves config changes saved by another running session', async (t:
 
     const saved = JSON.parse(await readFile(configPath, 'utf8')) as {
       network: {allowedDomains: string[]};
-      slopbox: {otherSetting: boolean; promptOnNetworkDeny: boolean};
+      sandbox: {otherSetting: boolean; promptOnNetworkDeny: boolean};
     };
     t.assert.deepStrictEqual(saved.network.allowedDomains, ['first.example', 'second.example']);
-    t.assert.deepStrictEqual(saved.slopbox, {otherSetting: true, promptOnNetworkDeny: false});
+    t.assert.deepStrictEqual(saved.sandbox, {otherSetting: true, promptOnNetworkDeny: false});
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
@@ -83,12 +84,12 @@ void test('preserves config changes saved by another running session', async (t:
 void test('merges global and project SRT configuration without renaming options', (t: TestContext) => {
   const configStore = new ConfigStore('/project');
   configStore.config = {
-    slopbox: {promptOnNetworkDeny: true},
+    sandbox: {promptOnNetworkDeny: true},
     network: {allowedDomains: ['global.example'], deniedDomains: ['blocked.example']},
     filesystem: {allowWrite: ['/global']},
     projects: {
       '/project': {
-        slopbox: {promptOnNetworkDeny: false},
+        sandbox: {promptOnNetworkDeny: false},
         network: {allowedDomains: ['project.example']},
         filesystem: {allowRead: ['/project-read'], allowWrite: ['/project-write']},
       },
@@ -103,7 +104,7 @@ void test('merges global and project SRT configuration without renaming options'
   t.assert.ok(config.filesystem?.allowWrite?.includes('/global'));
   t.assert.ok(config.filesystem?.allowWrite?.includes('/project-write'));
   t.assert.strictEqual('projects' in config, false);
-  t.assert.strictEqual('slopbox' in config, false);
+  t.assert.strictEqual('sandbox' in config, false);
 });
 
 void test('applies network configuration and project prompt overrides', (t: TestContext) => {
@@ -118,11 +119,11 @@ void test('applies network configuration and project prompt overrides', (t: Test
   t.assert.strictEqual(configStore.isDomainAllowed('service.example.net:443'), false);
   t.assert.strictEqual(configStore.isDomainAllowed('project.example:443'), true);
 
-  configStore.config = {slopbox: {promptOnNetworkDeny: false}};
+  configStore.config = {sandbox: {promptOnNetworkDeny: false}};
   t.assert.strictEqual(configStore.shouldPrompt(), false);
   configStore.config = {
-    slopbox: {promptOnNetworkDeny: false},
-    projects: {'/project': {slopbox: {promptOnNetworkDeny: true}}},
+    sandbox: {promptOnNetworkDeny: false},
+    projects: {'/project': {sandbox: {promptOnNetworkDeny: true}}},
   };
   t.assert.strictEqual(configStore.shouldPrompt(), true);
 });
@@ -169,7 +170,7 @@ void test('SRT denies writes outside the project and session scratch directory',
 
 void test('adds current sandbox access to the system prompt', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-prompt-test-'));
-  const configPath = join(directory, 'slopbox.json');
+  const configPath = join(directory, 'sandbox.json');
   const handlers = new Map<string, (...arguments_: unknown[]) => unknown>();
   const pi = {
     on(name: string, handler: (...arguments_: unknown[]) => unknown) {
@@ -181,14 +182,14 @@ void test('adds current sandbox access to the system prompt', async (t: TestCont
     registerTool() {
       return undefined;
     },
-  };
+  } as unknown as ExtensionAPI;
 
   try {
     await writeFile(configPath, JSON.stringify({
       filesystem: {allowWrite: ['/shared']},
       network: {allowedDomains: ['api.example.com']},
     }));
-    const extension = new Slopbox(pi as unknown as Parameters<typeof slopbox>[0]);
+    const extension = new SandboxExtension(pi);
     extension.config = new ConfigStore(extension.cwd, configPath);
     extension.register();
 
@@ -209,7 +210,7 @@ void test('adds current sandbox access to the system prompt', async (t: TestCont
 void test('registers /sandbox to manage access during a session', (t: TestContext) => {
   const commands: string[] = [];
 
-  slopbox({
+  sandboxExtension({
     on() {
       return undefined;
     },
@@ -219,7 +220,7 @@ void test('registers /sandbox to manage access during a session', (t: TestContex
     registerTool() {
       return undefined;
     },
-  } as unknown as Parameters<typeof slopbox>[0]);
+  } as unknown as Parameters<typeof sandboxExtension>[0]);
 
   t.assert.deepStrictEqual(commands, ['sandbox']);
 });

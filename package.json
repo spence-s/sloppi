@@ -28,7 +28,6 @@
   "scripts": {
     "build": "rimraf dist && tsc -p tsconfig.build.json",
     "check": "tsc -p tsconfig.json",
-    "dev": "node --watch agent/extensions/slopbox/index.ts",
     "lint": "xo",
     "release": "np",
     "test": "PI_DEV=false node --test test/**/*",

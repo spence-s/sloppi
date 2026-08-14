@@ -21,6 +21,6 @@ agent/**/*.jsonl
 agent/**/*.log
 agent/models-store.json
 agent/settings.json
-slopbox.json
+sandbox.json
 
 web-search-cache

@@ -4,13 +4,13 @@ import type {
 } from '@earendil-works/pi-coding-agent';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import type {ConfigScope, ConfigStore} from './config.ts';
-import type {Sandbox} from './sandbox.ts';
+import type {SandboxSessionManager} from './session-manager.ts';
 
 export class SandboxCommand {
   config: ConfigStore;
-  sandbox: Sandbox;
+  sandbox: SandboxSessionManager;
 
-  constructor(config: ConfigStore, sandbox: Sandbox) {
+  constructor(config: ConfigStore, sandbox: SandboxSessionManager) {
     this.config = config;
     this.sandbox = sandbox;
   }

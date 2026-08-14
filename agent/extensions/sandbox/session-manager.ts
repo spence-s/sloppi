@@ -28,7 +28,7 @@ type SandboxSession = {
   scratchPath: string;
 };
 
-export class Sandbox {
+export class SandboxSessionManager {
   session: SandboxSession | undefined;
   cwd: string;
   config: ConfigStore;
