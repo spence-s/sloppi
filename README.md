@@ -55,6 +55,7 @@ pi install npm:pi-web-access
 - `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access.
 - `startup-banner.ts` — replaces Pi's TUI header.
 - `status-line.ts` — adds OS and Git status below Pi's footer.
+- `zshrc.ts` — loads zsh aliases for host-side `!` commands.
 
 Sandbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. It blocks unapproved extension tools from host execution; Pi web-access tools remain host-side so provider credentials are not exposed to sandboxed commands.
 
