@@ -1,8 +1,5 @@
 import {realpathSync} from 'node:fs';
-import {
-  mkdtemp,
-  rm,
-} from 'node:fs/promises';
+import {mkdtemp, rm} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';

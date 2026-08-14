@@ -1,10 +1,7 @@
 import {realpathSync} from 'node:fs';
 import process from 'node:process';
 import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
-import {
-  ConfigStore,
-  type ConfigScope,
-} from './config.ts';
+import {ConfigStore, type ConfigScope} from './config.ts';
 import {SandboxCommand} from './command.ts';
 import {SandboxSessionManager} from './session-manager.ts';
 import {SandboxTools} from './tools.ts';

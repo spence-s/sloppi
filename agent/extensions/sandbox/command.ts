@@ -1,7 +1,4 @@
-import type {
-  ExtensionAPI,
-  ExtensionContext,
-} from '@earendil-works/pi-coding-agent';
+import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import type {ConfigScope, ConfigStore} from './config.ts';
 import type {SandboxSessionManager} from './session-manager.ts';
