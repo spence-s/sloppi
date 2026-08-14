@@ -10,7 +10,7 @@ type AskModeState = {
   toolsBeforeAskMode: string[] | undefined;
 };
 
-const askModeStatusId = '0:ask-mode';
+const askModeStatusId = 'ask-mode';
 const askModeEntryType = 'ask-mode';
 const askModeTools = ['read', 'grep', 'find', 'ls', 'web_search', 'source_check', 'fetch_content', 'get_search_content'];
 const askModeEnabledContext =
@@ -63,7 +63,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
     ctx.ui.setStatus(
       askModeStatusId,
-      ctx.ui.theme.fg(isAskModeEnabled ? 'accent' : 'dim', isAskModeEnabled ? 'ask' : 'default'),
+      ctx.ui.theme.fg(isAskModeEnabled ? 'accent' : 'dim', `󰒓 ${isAskModeEnabled ? 'ask' : 'default'}`),
     );
 
     if (!shouldNotify) {
@@ -112,7 +112,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
     ctx.ui.setStatus(
       askModeStatusId,
-      ctx.ui.theme.fg(isAskModeEnabled ? 'accent' : 'dim', isAskModeEnabled ? 'ask' : 'default'),
+      ctx.ui.theme.fg(isAskModeEnabled ? 'accent' : 'dim', `󰒓 ${isAskModeEnabled ? 'ask' : 'default'}`),
     );
   };
 

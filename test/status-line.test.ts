@@ -11,7 +11,7 @@ void describe('status line', () => {
     );
   });
 
-  void test('renders OS, git, sandbox, and mode in order', async (t: TestContext) => {
+  void test('renders a two-sided shell-style status line', async (t: TestContext) => {
     type Handler = (event: unknown, ctx: ExtensionContext) => Promise<void>;
     type FooterFactory = Exclude<Parameters<ExtensionContext['ui']['setFooter']>[0], undefined>;
     let sessionStart: Handler | undefined;
@@ -36,6 +36,7 @@ void describe('status line', () => {
 
     const theme = {
       bg: (_token: string, text: string) => text,
+      bold: (text: string) => text,
       fg: (_token: string, text: string) => text,
     };
     const ctx = {
@@ -78,8 +79,8 @@ void describe('status line', () => {
       {
         getAvailableProviderCount: () => 1,
         getExtensionStatuses: () => new Map([
-          ['0:sandbox', 'sandbox status'],
-          ['0:ask-mode', 'default'],
+          ['sandbox', 'sandbox status'],
+          ['ask-mode', 'default'],
           ['third-party', 'third-party status'],
           ['ponytail', 'ponytail status'],
         ]),
@@ -89,18 +90,16 @@ void describe('status line', () => {
     );
     const lines = footer.render(180);
 
-    t.assert.strictEqual(lines.length, 3);
-    t.assert.match(lines[0] ?? '', /(?:macOS|Linux).*repo.*main.*~1.*sandbox status.*default.*12345678/v);
-    t.assert.match(lines[1] ?? '', /no model.*off.*25\.0%.*50K\/200K.*idle.*trusted/v);
-    t.assert.match(lines[2] ?? '', /\$0\.000.*0 turns.*2\/3 tools.*1 skills\/1 prompts.*third-party status/v);
-    t.assert.doesNotMatch(lines.join('\n'), /ponytail status/v);
-    t.assert.deepStrictEqual(
-      lines.map(line => [line.includes(''), /[]/v.test(line)]),
-      [[true, false], [true, false], [true, false]],
-    );
+    t.assert.strictEqual(lines.length, 2);
+    t.assert.deepStrictEqual(lines.map(line => line.slice(0, 2)), ['╭─', '╰─']);
+    t.assert.match(lines[0] ?? '', /repo.*on.*main.*~1/v);
+    t.assert.match(lines[0] ?? '', /─/v);
+    t.assert.match(lines[0] ?? '', /no model$/v);
+    t.assert.match(lines[1] ?? '', /idle.*off.*sandbox status.*default.*25\.0%.*50K\/200K/v);
+    t.assert.doesNotMatch(lines.join('\n'), /third-party status|ponytail status|trusted|untrusted|[]/v);
 
     const responsiveLines = [100, 60].map(width => footer.render(width));
-    t.assert.deepStrictEqual(responsiveLines.map(rendered => rendered.length), [2, 1]);
+    t.assert.deepStrictEqual(responsiveLines.map(rendered => rendered.length), [2, 2]);
     t.assert.deepStrictEqual(
       responsiveLines.map((rendered, index) => rendered.every(line => visibleWidth(line) <= [100, 60][index]!)),
       [true, true],

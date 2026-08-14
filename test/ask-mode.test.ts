@@ -160,7 +160,7 @@ void describe('ask-mode', () => {
       'fetch_content',
       'get_search_content',
     ]);
-    t.assert.strictEqual(harness.getStatus(), 'ask');
+    t.assert.strictEqual(harness.getStatus(), '󰒓 ask');
 
     const beforeAgentStartResult = await harness.getBeforeAgentStart()();
     t.assert.strictEqual(
@@ -181,7 +181,7 @@ void describe('ask-mode', () => {
       'edit',
       'write',
     ]);
-    t.assert.strictEqual(harness.getStatus(), 'default');
+    t.assert.strictEqual(harness.getStatus(), '󰒓 default');
 
     const beforeAgentStartResult = await harness.getBeforeAgentStart()();
     t.assert.strictEqual(

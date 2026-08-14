@@ -131,7 +131,7 @@ export class Sandbox {
     });
 
     pi.on('session_start', async (_event, ctx) => {
-      ctx.ui.setStatus('0:sandbox', `${ctx.ui.theme.fg('accent', 'sandbox:')}${ctx.ui.theme.bold(ctx.ui.theme.fg('warning', '●'))}`);
+      ctx.ui.setStatus('sandbox', `${ctx.ui.theme.bold(ctx.ui.theme.fg('warning', '󰂪'))} ${ctx.ui.theme.fg('muted', 'sandbox starting')}`);
       try {
         await sandbox.startSession();
         const result = await sandbox.run`true`;
@@ -139,10 +139,10 @@ export class Sandbox {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : 'Sandbox command failed');
         }
 
-        ctx.ui.setStatus('0:sandbox', `${ctx.ui.theme.fg('accent', 'sandbox:')}${ctx.ui.theme.bold(ctx.ui.theme.fg('success', '●'))}`);
+        ctx.ui.setStatus('sandbox', `${ctx.ui.theme.bold(ctx.ui.theme.fg('success', '󰕥'))} ${ctx.ui.theme.fg('muted', 'sandboxed')}`);
         ctx.ui.notify(`Sandboxed tools can access only ${cwd}.`, 'info');
       } catch (error) {
-        ctx.ui.setStatus('0:sandbox', `${ctx.ui.theme.fg('accent', 'sandbox:')}${ctx.ui.theme.bold(ctx.ui.theme.fg('error', '●'))}`);
+        ctx.ui.setStatus('sandbox', `${ctx.ui.theme.bold(ctx.ui.theme.fg('error', '󰻌'))} ${ctx.ui.theme.fg('muted', 'sandbox failed')}`);
         ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
       }
     });
