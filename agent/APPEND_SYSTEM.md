@@ -1,13 +1,6 @@
 # Extended directions for coding agents
 
-## Environment
-
-Available CLI tools: `git`, `rg`, `fd`, `fzf`, `jq`, `yq`, `bat`, `eza`, `tree`,
-`curl`, `wget`, `tmux`, `shellcheck`, `sqlite3`, `file`, `lsof`, `ps`, `pkill`,
-`nc`, and `dig`.
-
-Prefer `rg` for text search, `fd` for file discovery, `jq`/`yq` for structured
-data, and project scripts for validation.
+## Code Style
 
 Write code like a book: the reader should be able to follow its behavior top to bottom and left to right.
 
