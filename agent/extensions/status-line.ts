@@ -11,8 +11,6 @@ type GitStatus = {
   untracked: number;
 };
 
-const gateStatusIds = ['0:sudo-gate'];
-
 export function parseGitStatus(output: string): GitStatus {
   const status = {staged: 0, modified: 0, untracked: 0};
 
@@ -78,7 +76,6 @@ export default function statusLine(pi: ExtensionAPI): void {
             ? model
             : `${usage.percent === null ? '?' : usage.percent.toFixed(1)}%/${String(usage.contextWindow)}  ${model}`;
           const thirdPartyStatuses = [...footerData.getExtensionStatuses()]
-            .filter(([id]) => !gateStatusIds.includes(id))
             .toSorted(([left], [right]) => left.localeCompare(right))
             .map(([, status]) => status)
             .join(' ');
@@ -93,9 +90,6 @@ export default function statusLine(pi: ExtensionAPI): void {
           const git = gitStatus === undefined
             ? []
             : [`${theme.fg('accent', '')} ${theme.fg(gitState === '✓' ? 'success' : 'warning', gitState)}`];
-          const gateStatuses = gateStatusIds
-            .map(id => footerData.getExtensionStatuses().get(id))
-            .filter(status => status !== undefined);
           let osLabel: string = process.platform;
           if (process.platform === 'darwin') {
             osLabel = ' macOS';
@@ -106,7 +100,6 @@ export default function statusLine(pi: ExtensionAPI): void {
           const ownStatus = [
             theme.fg('accent', osLabel),
             ...git,
-            ...gateStatuses,
           ].join(theme.fg('dim', ' | '));
           return [
             theme.fg('dim', truncateToWidth(location, width)),

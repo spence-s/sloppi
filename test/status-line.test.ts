@@ -10,7 +10,7 @@ void describe('status line', () => {
     );
   });
 
-  void test('renders OS and git below third-party extension statuses', async (t: TestContext) => {
+  void test('renders OS and git below extension statuses', async (t: TestContext) => {
     type Handler = (event: unknown, ctx: ExtensionContext) => Promise<void>;
     type FooterFactory = Exclude<Parameters<ExtensionContext['ui']['setFooter']>[0], undefined>;
     let sessionStart: Handler | undefined;
@@ -61,7 +61,6 @@ void describe('status line', () => {
       {
         getAvailableProviderCount: () => 1,
         getExtensionStatuses: () => new Map([
-          ['0:sudo-gate', 'sudo: denied'],
           ['third-party', 'third-party status'],
         ]),
         getGitBranch: () => null,
@@ -73,7 +72,7 @@ void describe('status line', () => {
     t.assert.strictEqual(lines.at(-2), 'third-party status');
     t.assert.match(
       lines.at(-1) ?? '',
-      /(?:macOS|Linux) \| .*~1 \| sudo: denied$/v,
+      /(?:macOS|Linux) \| .*~1$/v,
     );
   });
 });
