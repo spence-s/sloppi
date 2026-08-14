@@ -74,7 +74,7 @@
   "pi": {
     "extensions": [
       "./agent/extensions/ask-mode.ts",
-      "./agent/extensions/slopbox/index.ts",
+      "./agent/extensions/sloppi/index.ts",
       "./agent/extensions/startup-banner.ts",
       "./agent/extensions/status-line.ts"
     ]

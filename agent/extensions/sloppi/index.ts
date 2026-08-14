@@ -1,11 +1,11 @@
 import {realpathSync} from 'node:fs';
 import process from 'node:process';
 import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
-import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {
   ConfigStore,
   type ConfigScope,
 } from './config.ts';
+import {SandboxCommand} from './command.ts';
 import {Sandbox} from './sandbox.ts';
 import {SandboxTools} from './tools.ts';
 
@@ -32,52 +32,7 @@ export class Slopbox {
     const {pi, cwd, config, sandbox} = this;
     new SandboxTools(pi, cwd, sandbox).register();
 
-    pi.registerCommand('slopbox', {
-      description: 'Configure sandbox access. Usage: /slopbox [global] add|allow|status <value>',
-      async handler(args, ctx) {
-        const parts = args.trim().split(/\s+/v).filter(Boolean);
-        const scope: ConfigScope = parts[0] === 'global' ? 'global' : 'project';
-        if (scope === 'global') {
-          parts.shift();
-        }
-
-        const command = parts.shift();
-        try {
-          if (command === 'status' && parts.length === 0) {
-            await config.reload();
-            await sandbox.restartSession();
-            ctx.ui.notify(JSON.stringify(SandboxManager.getConfig(), undefined, 2), 'info');
-            return;
-          }
-
-          if (command === 'add' && parts.length > 0) {
-            const directory = config.resolveAllowedDirectory(parts.join(' '));
-            await config.addDirectory(scope, directory);
-            await sandbox.restartSession();
-            ctx.ui.notify(`slopbox allows ${directory} (${scope}).`, 'info');
-            return;
-          }
-
-          if (command === 'allow' && parts.length === 1) {
-            await config.addDomain(scope, parts[0] ?? '');
-            await sandbox.restartSession();
-            ctx.ui.notify(`slopbox allows ${parts[0]} (${scope}).`, 'info');
-            return;
-          }
-
-          if (command === 'prompt' && (parts[0] === 'on' || parts[0] === 'off')) {
-            await config.setPrompting(scope, parts[0] === 'on');
-            await sandbox.restartSession();
-            ctx.ui.notify(`slopbox network prompts are ${parts[0]} (${scope}).`, 'info');
-            return;
-          }
-
-          ctx.ui.notify('Usage: /slopbox [global] add <directory> | allow <domain> | prompt on|off | status', 'info');
-        } catch (error) {
-          ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
-        }
-      },
-    });
+    new SandboxCommand(config, sandbox).register(pi);
 
     pi.on('before_agent_start', async event => {
       const sandboxSystemPrompt = `

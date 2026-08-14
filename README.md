@@ -52,7 +52,7 @@ pi install npm:pi-web-access
 ## Extensions
 
 - `ask-mode.ts` — `/ask on|off|toggle|status` limits Pi to read-only and available web research tools.
-- `slopbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime.
+- `slopbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access.
 - `startup-banner.ts` — replaces Pi's TUI header.
 - `status-line.ts` — adds OS and Git status below Pi's footer.
 
@@ -80,17 +80,9 @@ Global SRT options live at the root. Project overrides live under `projects["/ab
 }
 ```
 
-Commands update the same trusted user-level file:
+Use `/sandbox` to view access, allow a folder or website, and configure network-deny prompts. It asks whether each change applies to the current project or all projects.
 
-```text
-/slopbox status
-/slopbox add ../shared
-/slopbox allow api.example.com:443
-/slopbox prompt off
-/slopbox global allow registry.npmjs.org:443
-```
-
-By default, filesystem tools can write only the current project and private session scratch space. Global Pi skills and Git/npm package directories are readable. Network access is denied until allowed. A blocked network request can prompt to add a project or global domain rule; use `/slopbox prompt off` to disable prompts.
+By default, filesystem tools can write only the current project and private session scratch space. Global Pi skills and Git/npm package directories are readable. Network access is denied until allowed. A blocked network request can prompt to add a project or global domain rule; use `/sandbox` to disable those prompts.
 
 Slopbox is an additional experimental boundary, not a guarantee. Broad filesystem paths, domains, Unix sockets, Apple Events, or weaker SRT isolation options reduce its protection. See [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime) for platform limitations.
 

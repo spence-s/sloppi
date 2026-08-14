@@ -16,7 +16,7 @@ export function getBannerLines(width: number, theme: BannerTheme): string[] {
     return [
       ...wideLogo.map(line => theme.fg('accent', line)),
       theme.fg('muted', '  personal coding command center'),
-      theme.fg('dim', '  /ask [on|off]  ·  /slopbox status  ·  /hotkeys'),
+      theme.fg('dim', '  /ask [on|off]  ·  /sandbox  ·  /hotkeys'),
       '',
     ];
   }
@@ -25,7 +25,7 @@ export function getBannerLines(width: number, theme: BannerTheme): string[] {
     return [
       theme.fg('accent', '✦ SLOPPI  🍜 '.slice(0, Math.max(0, width)))
       + theme.fg('muted', 'personal coding command center'.slice(0, Math.max(0, width))),
-      theme.fg('dim', '/ask [on|off]  ·  /slopbox status  ·  /hotkeys'.slice(0, Math.max(0, width))),
+      theme.fg('dim', '/ask [on|off]  ·  /sandbox  ·  /hotkeys'.slice(0, Math.max(0, width))),
       '',
     ];
   }

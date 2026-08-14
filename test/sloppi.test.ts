@@ -206,7 +206,7 @@ void test('adds current sandbox access to the system prompt', async (t: TestCont
   }
 });
 
-void test('registers /slopbox to allow directories during a session', (t: TestContext) => {
+void test('registers /sandbox to manage access during a session', (t: TestContext) => {
   const commands: string[] = [];
 
   slopbox({
@@ -221,6 +221,6 @@ void test('registers /slopbox to allow directories during a session', (t: TestCo
     },
   } as unknown as Parameters<typeof slopbox>[0]);
 
-  t.assert.deepStrictEqual(commands, ['slopbox']);
+  t.assert.deepStrictEqual(commands, ['sandbox']);
 });
 
