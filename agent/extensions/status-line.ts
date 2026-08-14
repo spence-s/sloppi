@@ -159,8 +159,8 @@ export default function statusLine(pi: ExtensionAPI): void {
           const compaction = theme.fg('muted', `󰆏 ${compactions}`);
 
           return [
-            renderRow(workspace, `${model}  ${cost}`, '╭─', true),
-            renderRow(status, `${context}  ${compaction}`, '╰─'),
+            renderRow(workspace, model, '╭─', true),
+            renderRow(status, `${context}  ${cost}  ${compaction}`, '╰─'),
           ];
         },
       };
