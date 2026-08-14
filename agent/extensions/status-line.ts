@@ -1,4 +1,6 @@
+import {existsSync} from 'node:fs';
 import {homedir} from 'node:os';
+import {join} from 'node:path';
 import process from 'node:process';
 import type {
   ExtensionAPI,
@@ -7,9 +9,22 @@ import type {
 import {truncateToWidth, visibleWidth} from '@earendil-works/pi-tui';
 
 type GitStatus = {
+  ahead: number;
+  behind: number;
+  branch: string;
+  commit: string;
+  conflicted: number;
+  action: string;
+  pushAhead: number;
+  pushBehind: number;
+  remoteBranch: string;
   staged: number;
-  modified: number;
+  stashes: number;
+  summary: string;
+  tag: string;
+  unstaged: number;
   untracked: number;
+  upstream: string;
 };
 
 const compactNumber = new Intl.NumberFormat('en', {
@@ -18,21 +33,46 @@ const compactNumber = new Intl.NumberFormat('en', {
 });
 
 export function parseGitStatus(output: string): GitStatus {
-  const status = {staged: 0, modified: 0, untracked: 0};
+  const status: GitStatus = {
+    ahead: 0,
+    behind: 0,
+    branch: '',
+    commit: '',
+    conflicted: 0,
+    action: '',
+    pushAhead: 0,
+    pushBehind: 0,
+    remoteBranch: '',
+    staged: 0,
+    stashes: 0,
+    summary: '',
+    tag: '',
+    unstaged: 0,
+    untracked: 0,
+    upstream: '',
+  };
 
   for (const line of output.split('\n')) {
-    if (line.startsWith('??')) {
+    if (line.startsWith('# branch.oid ')) {
+      status.commit = line.slice(13);
+    } else if (line.startsWith('# branch.head ')) {
+      status.branch = line.slice(14) === '(detached)' ? '' : line.slice(14);
+    } else if (line.startsWith('# branch.upstream ')) {
+      status.upstream = line.slice(18);
+      status.remoteBranch = status.upstream.slice(status.upstream.indexOf('/') + 1);
+    } else if (line.startsWith('# branch.ab ')) {
+      const match = /^# branch\.ab \+(?<ahead>\d+) -(?<behind>\d+)$/v.exec(line);
+      status.ahead = Number(match?.groups?.ahead ?? 0);
+      status.behind = Number(match?.groups?.behind ?? 0);
+    } else if (line.startsWith('# stash ')) {
+      status.stashes = Number(line.slice(8));
+    } else if (line.startsWith('? ')) {
       status.untracked += 1;
-      continue;
-    }
-
-    const [indexStatus = ' ', worktreeStatus = ' '] = line;
-    if (indexStatus !== ' ') {
-      status.staged += 1;
-    }
-
-    if (worktreeStatus !== ' ') {
-      status.modified += 1;
+    } else if (line.startsWith('u ')) {
+      status.conflicted += 1;
+    } else if (line.startsWith('1 ') || line.startsWith('2 ')) {
+      status.staged += line[2] === '.' ? 0 : 1;
+      status.unstaged += line[3] === '.' ? 0 : 1;
     }
   }
 
@@ -63,12 +103,45 @@ export default function statusLine(pi: ExtensionAPI): void {
     }
 
     try {
-      const result = await pi.exec('git', ['status', '--porcelain=v1'], {
+      const result = await pi.exec('git', ['status', '--porcelain=v2', '--branch', '--show-stash'], {
         cwd: ctx.cwd,
         timeout: 2000,
       });
 
       gitStatus = result.code === 0 ? parseGitStatus(result.stdout) : undefined;
+      if (gitStatus !== undefined) {
+        const [summary, tag, gitDirectory, pushBranch] = await Promise.all([
+          pi.exec('git', ['log', '-1', '--format=%s'], {cwd: ctx.cwd, timeout: 2000}),
+          pi.exec('git', ['describe', '--tags', '--exact-match'], {cwd: ctx.cwd, timeout: 2000}),
+          pi.exec('git', ['rev-parse', '--absolute-git-dir'], {cwd: ctx.cwd, timeout: 2000}),
+          pi.exec('git', ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{push}'], {cwd: ctx.cwd, timeout: 2000}),
+        ]);
+        gitStatus.summary = summary.code === 0 ? summary.stdout.trim() : '';
+        gitStatus.tag = tag.code === 0 ? tag.stdout.trim() : '';
+
+        if (gitDirectory.code === 0) {
+          const directory = gitDirectory.stdout.trim();
+          const actions = [
+            ['rebase', ['rebase-merge', 'rebase-apply']],
+            ['merge', ['MERGE_HEAD']],
+            ['cherry-pick', ['CHERRY_PICK_HEAD']],
+            ['revert', ['REVERT_HEAD']],
+            ['bisect', ['BISECT_LOG']],
+          ] as const;
+          gitStatus.action = actions.find(([, paths]) => paths.some(path => existsSync(join(directory, path))))?.[0] ?? '';
+        }
+
+        const push = pushBranch.stdout.trim();
+        if (pushBranch.code === 0 && push !== gitStatus.upstream) {
+          const divergence = await pi.exec('git', ['rev-list', '--left-right', '--count', `HEAD...${push}`], {
+            cwd: ctx.cwd,
+            timeout: 2000,
+          });
+          const [ahead = 0, behind = 0] = divergence.stdout.trim().split(/\s+/v).map(Number);
+          gitStatus.pushAhead = divergence.code === 0 ? ahead : 0;
+          gitStatus.pushBehind = divergence.code === 0 ? behind : 0;
+        }
+      }
     } catch {
       gitStatus = undefined;
     }
@@ -88,7 +161,9 @@ export default function statusLine(pi: ExtensionAPI): void {
       };
 
       return {
-        dispose: footerData.onBranchChange(requestRender),
+        dispose: footerData.onBranchChange(() => {
+          void refreshStatus(ctx);
+        }),
         invalidate: () => undefined,
         render(width: number): string[] {
           const renderRow = (left: string, right: string, edge: string, hasFill = false): string => {
@@ -106,18 +181,36 @@ export default function statusLine(pi: ExtensionAPI): void {
           const sandboxStatus = extensionStatuses.get('sandbox') ?? theme.fg('warning', 'sandbox ?');
           const modeStatus = extensionStatuses.get('chat-mode') ?? theme.fg('dim', 'agent');
 
-          const branch = footerData.getGitBranch();
-          const gitParts = gitStatus === undefined
-            ? []
-            : [
-              gitStatus.staged > 0 ? `+${gitStatus.staged}` : '',
-              gitStatus.modified > 0 ? `~${gitStatus.modified}` : '',
-              gitStatus.untracked > 0 ? `?${gitStatus.untracked}` : '',
+          let git = '';
+          if (gitStatus !== undefined) {
+            let reference = gitStatus.branch;
+            if (reference.length > 32) {
+              reference = `${reference.slice(0, 12)}…${reference.slice(-12)}`;
+            }
+
+            if (reference.length === 0) {
+              reference = gitStatus.tag.length > 0 ? `#${gitStatus.tag}` : `@${gitStatus.commit.slice(0, 8)}`;
+            }
+
+            const remote = gitStatus.remoteBranch.length > 0 && gitStatus.remoteBranch !== gitStatus.branch
+              ? `${theme.fg('muted', ':')}${theme.fg('success', gitStatus.remoteBranch)}`
+              : '';
+            const divergence = `${gitStatus.behind > 0 ? `⇣${gitStatus.behind}` : ''}${gitStatus.ahead > 0 ? `⇡${gitStatus.ahead}` : ''}`;
+            const pushDivergence = `${gitStatus.pushBehind > 0 ? `⇠${gitStatus.pushBehind}` : ''}${gitStatus.pushAhead > 0 ? `⇢${gitStatus.pushAhead}` : ''}`;
+            const parts = [
+              `${theme.fg('success', `   ${reference}`)}${remote}`,
+              /(?:^|[^\da-z])wip(?:[^\da-z]|$)/iv.test(gitStatus.summary) ? theme.fg('warning', 'wip') : '',
+              divergence.length > 0 ? theme.fg('success', divergence) : '',
+              pushDivergence.length > 0 ? theme.fg('success', pushDivergence) : '',
+              gitStatus.stashes > 0 ? theme.fg('success', `*${gitStatus.stashes}`) : '',
+              gitStatus.action.length > 0 ? theme.fg('error', gitStatus.action) : '',
+              gitStatus.conflicted > 0 ? theme.fg('error', `~${gitStatus.conflicted}`) : '',
+              gitStatus.staged > 0 ? theme.fg('warning', `+${gitStatus.staged}`) : '',
+              gitStatus.unstaged > 0 ? theme.fg('warning', `!${gitStatus.unstaged}`) : '',
+              gitStatus.untracked > 0 ? theme.fg('syntaxFunction', `?${gitStatus.untracked}`) : '',
             ].filter(Boolean);
-          const gitState = gitParts.length === 0 ? '✓' : gitParts.join(' ');
-          const git = branch === null
-            ? ''
-            : `${theme.fg('muted', 'on')} ${theme.fg('success', '')} ${theme.fg('syntaxFunction', branch)} ${theme.fg(gitState === '✓' ? 'success' : 'warning', gitState)}`;
+            git = parts.join(' ');
+          }
 
           const osIcons: Partial<Record<NodeJS.Platform, string>> = {
             darwin: '',
