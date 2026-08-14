@@ -1,5 +1,6 @@
 import {describe, test, type TestContext} from 'node:test';
 import {initTheme, type ExtensionContext} from '@earendil-works/pi-coding-agent';
+import {visibleWidth} from '@earendil-works/pi-tui';
 import statusLine, {parseGitStatus} from '../agent/extensions/status-line.ts';
 
 void describe('status line', () => {
@@ -20,6 +21,12 @@ void describe('status line', () => {
       async exec() {
         return {code: 0, stdout: ' M modified.ts\n'};
       },
+      getActiveTools: () => ['read', 'bash'],
+      getAllTools: () => [{name: 'read'}, {name: 'bash'}, {name: 'edit'}],
+      getCommands: () => [
+        {source: 'skill'},
+        {source: 'prompt'},
+      ],
       on(event: string, handler: Handler) {
         if (event === 'session_start') {
           sessionStart = handler;
@@ -27,14 +34,24 @@ void describe('status line', () => {
       },
     } as unknown as Parameters<typeof statusLine>[0]);
 
-    const theme = {fg: (_token: string, text: string) => text};
+    const theme = {
+      bg: (_token: string, text: string) => text,
+      fg: (_token: string, text: string) => text,
+    };
     const ctx = {
       cwd: '/repo',
-      getContextUsage: () => undefined,
+      getContextUsage: () => ({contextWindow: 200_000, percent: 25, tokens: 50_000}),
+      hasPendingMessages: () => false,
+      isIdle: () => true,
+      isProjectTrusted: () => true,
       mode: 'tui',
+      scopedModels: [],
       sessionManager: {
+        getBranch: () => [],
         getCwd: () => '/repo',
         getEntries: () => [],
+        getSessionFile: () => '/sessions/test.jsonl',
+        getSessionId: () => '12345678-abcd',
         getSessionName: () => undefined,
       },
       ui: {
@@ -66,17 +83,27 @@ void describe('status line', () => {
           ['third-party', 'third-party status'],
           ['ponytail', 'ponytail status'],
         ]),
-        getGitBranch: () => null,
+        getGitBranch: () => 'main',
         onBranchChange: () => () => undefined,
       },
     );
-    const lines = footer.render(120);
+    const lines = footer.render(180);
 
-    t.assert.strictEqual(lines.at(-2), 'third-party status');
+    t.assert.strictEqual(lines.length, 3);
+    t.assert.match(lines[0] ?? '', /(?:macOS|Linux).*repo.*main.*~1.*sandbox status.*default.*12345678/v);
+    t.assert.match(lines[1] ?? '', /no model.*off.*25\.0%.*50K\/200K.*idle.*trusted/v);
+    t.assert.match(lines[2] ?? '', /\$0\.000.*0 turns.*2\/3 tools.*1 skills\/1 prompts.*third-party status/v);
     t.assert.doesNotMatch(lines.join('\n'), /ponytail status/v);
-    t.assert.match(
-      lines.at(-1) ?? '',
-      /(?:macOS|Linux) \| .*~1 \| sandbox status \| default$/v,
+    t.assert.deepStrictEqual(
+      lines.map(line => [line.includes(''), /[]/v.test(line)]),
+      [[true, false], [true, false], [true, false]],
+    );
+
+    const responsiveLines = [100, 60].map(width => footer.render(width));
+    t.assert.deepStrictEqual(responsiveLines.map(rendered => rendered.length), [2, 1]);
+    t.assert.deepStrictEqual(
+      responsiveLines.map((rendered, index) => rendered.every(line => visibleWidth(line) <= [100, 60][index]!)),
+      [true, true],
     );
   });
 });
