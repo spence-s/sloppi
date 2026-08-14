@@ -42,8 +42,18 @@ void describe('status line', () => {
   void test('renders a two-sided shell-style status line', async (t: TestContext) => {
     type Handler = (event: unknown, ctx: ExtensionContext) => Promise<void>;
     type FooterFactory = Exclude<Parameters<ExtensionContext['ui']['setFooter']>[0], undefined>;
+    type Renderable = {render(width: number): string[]};
+    type EditorRenderable = Renderable & {
+      getText(): string;
+      handleInput(data: string): void;
+      setText(text: string): void;
+    };
+    type WidgetFactory = (tui: unknown, theme: unknown) => Renderable;
+    type EditorFactory = (tui: unknown, theme: unknown, keybindings: unknown) => EditorRenderable;
     let sessionStart: Handler | undefined;
     let footerFactory: FooterFactory | undefined;
+    const statusWidgets = new Map<string, Renderable>();
+    let editorFactory: EditorFactory | undefined;
 
     statusLine({
       async exec(_command: string, arguments_: string[]) {
@@ -95,8 +105,14 @@ void describe('status line', () => {
       },
       ui: {
         theme,
+        setEditorComponent(factory: EditorFactory) {
+          editorFactory = factory;
+        },
         setFooter(factory: FooterFactory) {
           footerFactory = factory;
+        },
+        setWidget(id: string, factory: WidgetFactory, options?: {placement?: string}) {
+          statusWidgets.set(`${options?.placement}:${id}`, factory({}, theme));
         },
       },
     } as unknown as ExtensionContext;
@@ -126,17 +142,44 @@ void describe('status line', () => {
         onBranchChange: () => () => undefined,
       },
     );
-    const lines = footer.render(180);
+    t.assert.deepStrictEqual(footer.render(180), []);
+    const topStatus = statusWidgets.get('belowEditor:status-line-top');
+    const bottomStatus = statusWidgets.get('belowEditor:status-line-bottom');
+    if (topStatus === undefined || bottomStatus === undefined || editorFactory === undefined) {
+      throw new Error('Status widgets or prompt editor were not installed');
+    }
+
+    const lines = [...topStatus.render(180), ...bottomStatus.render(180)];
+    const editor = editorFactory({terminal: {rows: 40}}, {
+      borderColor: (text: string) => text,
+      selectList: {},
+    }, {matches: () => false});
+    const editorLines = editor.render(80);
 
     t.assert.strictEqual(lines.length, 2);
-    t.assert.deepStrictEqual(lines.map(line => line.slice(0, 2)), ['╭─', '╰─']);
+    t.assert.match(lines[0] ?? '', /^├─ /v);
+    t.assert.match(editorLines[0] ?? '', /^╭─❯ /v);
+    t.assert.match(lines[1] ?? '', /^╰─ /v);
+    t.assert.doesNotMatch(editorLines.join('\n'), /^─+$/mv);
+    editor.setText('This input is long enough to wrap onto several visual lines.');
+    const wrappedEditorLines = editor.render(20);
+    t.assert.ok(wrappedEditorLines.length > 1);
+    t.assert.ok(wrappedEditorLines.slice(1).every(line => /^│ {3}/v.test(line)));
+    editor.setText('first');
+    editor.handleInput('\u{1B}[13;2u');
+    editor.handleInput('\u{1B}[200~pasted\nlines\u{1B}[201~');
+    t.assert.strictEqual(editor.getText(), 'first\npasted\nlines');
+    t.assert.ok(lines.every(line => visibleWidth(line) === 180));
     t.assert.match(lines[0] ?? '', /repo.* {2} main !1/v);
     t.assert.match(lines[0] ?? '', /─/v);
     t.assert.match(lines[0] ?? '', /no model$/v);
     t.assert.match(lines[1] ?? '', /idle.*off.*sandbox status.*agent.*25\.0%.*50K\/200K.*\$0\.127.*󰆏 1$/v);
     t.assert.doesNotMatch(lines.join('\n'), /third-party status|ponytail status|trusted|untrusted|[]/v);
 
-    const responsiveLines = [100, 60].map(width => footer.render(width));
+    const responsiveLines = [100, 60].map(width => [
+      ...topStatus.render(width),
+      ...bottomStatus.render(width),
+    ]);
     t.assert.deepStrictEqual(responsiveLines.map(rendered => rendered.length), [2, 2]);
     t.assert.deepStrictEqual(
       responsiveLines.map((rendered, index) => rendered.every(line => visibleWidth(line) <= [100, 60][index]!)),

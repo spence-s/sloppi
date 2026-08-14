@@ -2,11 +2,19 @@ import {existsSync} from 'node:fs';
 import {homedir} from 'node:os';
 import {join} from 'node:path';
 import process from 'node:process';
-import type {
-  ExtensionAPI,
-  ExtensionContext,
+import {stripVTControlCharacters} from 'node:util';
+import {
+  CustomEditor,
+  type ExtensionAPI,
+  type ExtensionContext,
+  type KeybindingsManager,
 } from '@earendil-works/pi-coding-agent';
-import {truncateToWidth, visibleWidth} from '@earendil-works/pi-tui';
+import {
+  type EditorTheme,
+  truncateToWidth,
+  type TUI,
+  visibleWidth,
+} from '@earendil-works/pi-tui';
 
 type GitStatus = {
   ahead: number;
@@ -160,16 +168,12 @@ export default function statusLine(pi: ExtensionAPI): void {
         tui.requestRender();
       };
 
-      return {
-        dispose: footerData.onBranchChange(() => {
-          void refreshStatus(ctx);
-        }),
+      const statusRows = {
         invalidate: () => undefined,
         render(width: number): string[] {
-          const renderRow = (left: string, right: string, edge: string, hasFill = false): string => {
-            const start = `${theme.bold(theme.fg('muted', edge))} `;
+          const renderRow = (left: string, right: string, hasFill = false): string => {
             const rightWidth = visibleWidth(right);
-            const fittedLeft = truncateToWidth(`${start}${left}`, Math.max(0, width - rightWidth - 3));
+            const fittedLeft = truncateToWidth(left, Math.max(0, width - rightWidth - 3));
             const gap = Math.max(1, width - visibleWidth(fittedLeft) - rightWidth);
             const middle = hasFill && gap > 2
               ? ` ${theme.fg('borderMuted', '─'.repeat(gap - 2))} `
@@ -252,12 +256,88 @@ export default function statusLine(pi: ExtensionAPI): void {
           const compaction = theme.fg('muted', `󰆏 ${compactions}`);
 
           return [
-            renderRow(workspace, model, '╭─', true),
-            renderRow(status, `${context}  ${cost}  ${compaction}`, '╰─'),
+            renderRow(workspace, model, true),
+            renderRow(status, `${context}  ${cost}  ${compaction}`),
           ];
         },
       };
+      const topStatus = {
+        invalidate() {
+          statusRows.invalidate();
+        },
+        render(width: number): string[] {
+          const plainPrefix = truncateToWidth('├─ ', Math.max(0, width - 1), '');
+          const line = statusRows.render(Math.max(1, width - visibleWidth(plainPrefix)))[0] ?? '';
+          return [`${theme.fg('dim', plainPrefix)}${line}`];
+        },
+      };
+      const bottomStatus = {
+        invalidate() {
+          statusRows.invalidate();
+        },
+        render(width: number): string[] {
+          const plainPrefix = truncateToWidth('╰─ ', Math.max(0, width - 1), '');
+          const line = statusRows.render(Math.max(1, width - visibleWidth(plainPrefix)))[1] ?? '';
+          return [`${theme.fg('dim', plainPrefix)}${line}`];
+        },
+      };
+      const unsubscribe = footerData.onBranchChange(() => {
+        void refreshStatus(ctx);
+      });
+      ctx.ui.setWidget('status-line-top', () => topStatus, {placement: 'belowEditor'});
+      ctx.ui.setWidget('status-line-bottom', () => bottomStatus, {placement: 'belowEditor'});
+
+      return {
+        dispose() {
+          unsubscribe();
+          ctx.ui.setWidget('status-line-top', undefined);
+          ctx.ui.setWidget('status-line-bottom', undefined);
+        },
+        invalidate() {
+          topStatus.invalidate();
+          bottomStatus.invalidate();
+        },
+        render: () => [],
+      };
     });
+
+    class PromptEditor extends CustomEditor {
+      constructor(tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) {
+        super(tui, theme, keybindings, {paddingX: 0});
+      }
+
+      render(width: number): string[] {
+        const plainPrefix = truncateToWidth('╭─❯ ', Math.max(0, width - 1), '');
+        const prefixWidth = visibleWidth(plainPrefix);
+        const indent = ' '.repeat(prefixWidth);
+        const continuationPrefix = prefixWidth === 0 ? '' : `│${' '.repeat(prefixWidth - 1)}`;
+        const lines = super.render(Math.max(1, width - prefixWidth));
+        const isBorder = (line: string): boolean => /^(?:─+|─── [↑↓] \d+ more ─*)$/v.test(stripVTControlCharacters(line));
+        const bottomBorderIndex = lines.findIndex((line, index) => index > 0 && isBorder(line));
+        if (bottomBorderIndex === -1) {
+          return lines;
+        }
+
+        const topBorder = lines[0] ?? '';
+        const bottomBorder = lines[bottomBorderIndex] ?? '';
+        const prefixCharacters = [...plainPrefix];
+        const corner = prefixCharacters.slice(0, 2).join('');
+        const arrow = prefixCharacters.slice(2).join('');
+        const input = lines.slice(1, bottomBorderIndex).map((line, index) => index === 0
+          ? `${ctx.ui.theme.fg('dim', corner)}${this.borderColor(arrow)}${line}`
+          : `${ctx.ui.theme.fg('dim', continuationPrefix)}${line}`);
+        const autocomplete = lines.slice(bottomBorderIndex + 1).map(line => `${ctx.ui.theme.fg('dim', continuationPrefix)}${line}`);
+
+        return [
+          ...stripVTControlCharacters(topBorder).includes('↑') ? [`${indent}${topBorder}`] : [],
+          ...input,
+          ...stripVTControlCharacters(bottomBorder).includes('↓') ? [`${indent}${bottomBorder}`] : [],
+          ...autocomplete,
+        ];
+      }
+    }
+
+    ctx.ui.setEditorComponent((tui, theme, keybindings) => new PromptEditor(tui, theme, keybindings));
   });
 
   pi.on('turn_end', async (_event, ctx) => {
