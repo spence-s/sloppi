@@ -63,7 +63,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
     ctx.ui.setStatus(
       askModeStatusId,
-      isAskModeEnabled ? ctx.ui.theme.fg('dim', 'ask') : undefined,
+      ctx.ui.theme.fg(isAskModeEnabled ? 'accent' : 'dim', isAskModeEnabled ? 'ask' : 'default'),
     );
 
     if (!shouldNotify) {
@@ -112,7 +112,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
     ctx.ui.setStatus(
       askModeStatusId,
-      isAskModeEnabled ? ctx.ui.theme.fg('dim', 'ask') : undefined,
+      ctx.ui.theme.fg(isAskModeEnabled ? 'accent' : 'dim', isAskModeEnabled ? 'ask' : 'default'),
     );
   };
 

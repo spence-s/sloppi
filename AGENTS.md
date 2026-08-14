@@ -21,17 +21,6 @@ Recommended validation commands:
 - `npm run lint`
 - `npm test` (or targeted tests when appropriate)
 
-## Commands
-
-- `npm run build` - Clean `dist` and compile TypeScript with declarations
-- `npm run check` - Type-check without building
-- `npm test` - Run all tests once
-- `npm run test:coverage` - Run tests with coverage
-- `npm run test:watch` - Run tests in watch mode
-- `npm run lint` - Run XO lint/format checks
-- `npm run lint -- ---fix` - Auto-fix lint/format issues
-- `npm run dev` - Run in watch mode (auto-restart)
-
 Single-test patterns:
 
 ```bash
@@ -72,3 +61,5 @@ If this file ever conflicts with project config, treat these as authoritative:
 ## Sloppi sandbox
 
 Sloppi routes Pi filesystem tools through Anthropic Sandbox Runtime (SRT). Keep sandbox policy generated from trusted extension code, never from project-controlled files. Do not add host-executed agent tools without an explicit sandbox boundary.
+
+See docs for srt here: https://github.com/anthropic-experimental/sandbox-runtime

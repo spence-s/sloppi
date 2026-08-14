@@ -32,10 +32,12 @@ type AskModeHarness = {
   getActiveTools: () => string[];
   getCommand: (name: string) => RegisteredCommand;
   getBeforeAgentStart: () => () => Promise<BeforeAgentStartResult>;
+  getStatus: () => string | undefined;
 };
 
 function createHarness(initialTools: string[]): AskModeHarness {
   let activeTools = [...initialTools];
+  let status: string | undefined;
   const commands = new Map<string, RegisteredCommand>();
   const eventHandlers = new Map<string, (...args: unknown[]) => unknown>();
 
@@ -62,8 +64,8 @@ function createHarness(initialTools: string[]): AskModeHarness {
       theme: {
         fg: (_token: string, content: string) => content,
       },
-      setStatus() {
-        return undefined;
+      setStatus(_key: string, value: string | undefined) {
+        status = value;
       },
       notify() {
         return undefined;
@@ -93,6 +95,7 @@ function createHarness(initialTools: string[]): AskModeHarness {
 
       return handler as () => Promise<BeforeAgentStartResult>;
     },
+    getStatus: () => status,
   };
 }
 
@@ -157,6 +160,7 @@ void describe('ask-mode', () => {
       'fetch_content',
       'get_search_content',
     ]);
+    t.assert.strictEqual(harness.getStatus(), 'ask');
 
     const beforeAgentStartResult = await harness.getBeforeAgentStart()();
     t.assert.strictEqual(
@@ -177,6 +181,7 @@ void describe('ask-mode', () => {
       'edit',
       'write',
     ]);
+    t.assert.strictEqual(harness.getStatus(), 'default');
 
     const beforeAgentStartResult = await harness.getBeforeAgentStart()();
     t.assert.strictEqual(

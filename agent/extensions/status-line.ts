@@ -75,10 +75,14 @@ export default function statusLine(pi: ExtensionAPI): void {
           const modelStatus = usage === undefined
             ? model
             : `${usage.percent === null ? '?' : usage.percent.toFixed(1)}%/${String(usage.contextWindow)}  ${model}`;
-          const thirdPartyStatuses = [...footerData.getExtensionStatuses()]
+          const extensionStatuses = footerData.getExtensionStatuses();
+          const sandboxStatus = extensionStatuses.get('0:sandbox');
+          const modeStatus = extensionStatuses.get('0:ask-mode');
+          const thirdPartyStatuses = [...extensionStatuses]
+            .filter(([key]) => !['0:sandbox', '0:ask-mode', 'ponytail'].includes(key))
             .toSorted(([left], [right]) => left.localeCompare(right))
             .map(([, status]) => status)
-            .join(' ');
+            .join(theme.fg('dim', ' | '));
           const gitParts = gitStatus === undefined
             ? []
             : [
@@ -100,7 +104,9 @@ export default function statusLine(pi: ExtensionAPI): void {
           const ownStatus = [
             theme.fg('accent', osLabel),
             ...git,
-          ].join(theme.fg('dim', ' | '));
+            sandboxStatus,
+            modeStatus,
+          ].filter(status => status !== undefined).join(theme.fg('dim', ' | '));
           return [
             theme.fg('dim', truncateToWidth(location, width)),
             theme.fg('dim', truncateToWidth(modelStatus, width)),
