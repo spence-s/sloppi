@@ -83,7 +83,7 @@ void describe('status line', () => {
         getAvailableProviderCount: () => 1,
         getExtensionStatuses: () => new Map([
           ['sandbox', 'sandbox status'],
-          ['ask-mode', 'default'],
+          ['chat-mode', 'agent'],
           ['third-party', 'third-party status'],
           ['ponytail', 'ponytail status'],
         ]),
@@ -98,7 +98,7 @@ void describe('status line', () => {
     t.assert.match(lines[0] ?? '', /repo.*on.*main.*~1/v);
     t.assert.match(lines[0] ?? '', /─/v);
     t.assert.match(lines[0] ?? '', /no model$/v);
-    t.assert.match(lines[1] ?? '', /idle.*off.*sandbox status.*default.*25\.0%.*50K\/200K.*\$0\.127.*󰆏 1$/v);
+    t.assert.match(lines[1] ?? '', /idle.*off.*sandbox status.*agent.*25\.0%.*50K\/200K.*\$0\.127.*󰆏 1$/v);
     t.assert.doesNotMatch(lines.join('\n'), /third-party status|ponytail status|trusted|untrusted|[]/v);
 
     const responsiveLines = [100, 60].map(width => footer.render(width));

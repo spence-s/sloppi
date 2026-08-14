@@ -104,7 +104,7 @@ export default function statusLine(pi: ExtensionAPI): void {
 
           const extensionStatuses = footerData.getExtensionStatuses();
           const sandboxStatus = extensionStatuses.get('sandbox') ?? theme.fg('warning', 'sandbox ?');
-          const modeStatus = extensionStatuses.get('ask-mode') ?? theme.fg('dim', 'default');
+          const modeStatus = extensionStatuses.get('chat-mode') ?? theme.fg('dim', 'agent');
 
           const branch = footerData.getGitBranch();
           const gitParts = gitStatus === undefined

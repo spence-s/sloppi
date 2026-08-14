@@ -9,7 +9,7 @@
   ╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝     ╚═╝        ████████████
 ```
 
-A shareable [Pi](https://pi.dev) package that sandboxes filesystem tools, adds a read-only ask mode, and customizes the terminal header and footer.
+A shareable [Pi](https://pi.dev) package that sandboxes filesystem tools, adds a read-only chat mode, and customizes the terminal header and footer.
 
 ## Install
 
@@ -43,7 +43,7 @@ Sloppi does not change Pi's project trust behavior.
 
 Sandbox currently supports macOS and Linux. Its status line uses Nerd Font icons but remains usable without them.
 
-For web research in ask mode, install [`pi-web-access`](https://github.com/nicobailon/pi-web-access) separately:
+For web research in chat mode, install [`pi-web-access`](https://github.com/nicobailon/pi-web-access) separately:
 
 ```bash
 pi install npm:pi-web-access
@@ -51,7 +51,7 @@ pi install npm:pi-web-access
 
 ## Extensions
 
-- `ask-mode.ts` — `/ask on|off|toggle|status` limits Pi to read-only and available web research tools.
+- `chat-mode.ts` — `/chat on|off|toggle|status` switches between read-only chat mode and full-access agent mode.
 - `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access.
 - `startup-banner.ts` — replaces Pi's TUI header.
 - `status-line.ts` — adds OS and Git status below Pi's footer.

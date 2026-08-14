@@ -19,7 +19,7 @@ void describe('startup-banner', () => {
   void test('uses the SLOPPI name in compact banners', (t: TestContext) => {
     t.assert.deepStrictEqual(getBannerLines(48, theme), [
       '✦ SLOPPI  🍜 personal coding command center',
-      '/ask [on|off]  ·  /sandbox  ·  /hotkeys',
+      '/chat [on|off]  ·  /sandbox  ·  /hotkeys',
       '',
     ]);
     t.assert.deepStrictEqual(getBannerLines(47, theme), [
