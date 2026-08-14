@@ -48,7 +48,10 @@ void describe('status line', () => {
       mode: 'tui',
       scopedModels: [],
       sessionManager: {
-        getBranch: () => [],
+        getBranch: () => [
+          {type: 'message', message: {role: 'assistant', usage: {cost: {total: 0.123}}}},
+          {type: 'compaction', usage: {cost: {total: 0.004}}},
+        ],
         getCwd: () => '/repo',
         getEntries: () => [],
         getSessionFile: () => '/sessions/test.jsonl',
@@ -94,8 +97,8 @@ void describe('status line', () => {
     t.assert.deepStrictEqual(lines.map(line => line.slice(0, 2)), ['╭─', '╰─']);
     t.assert.match(lines[0] ?? '', /repo.*on.*main.*~1/v);
     t.assert.match(lines[0] ?? '', /─/v);
-    t.assert.match(lines[0] ?? '', /no model$/v);
-    t.assert.match(lines[1] ?? '', /idle.*off.*sandbox status.*default.*25\.0%.*50K\/200K/v);
+    t.assert.match(lines[0] ?? '', /no model {2}\$0\.127$/v);
+    t.assert.match(lines[1] ?? '', /idle.*off.*sandbox status.*default.*25\.0%.*50K\/200K.*󰆏 1$/v);
     t.assert.doesNotMatch(lines.join('\n'), /third-party status|ponytail status|trusted|untrusted|[]/v);
 
     const responsiveLines = [100, 60].map(width => footer.render(width));

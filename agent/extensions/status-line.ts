@@ -41,9 +41,27 @@ export function parseGitStatus(output: string): GitStatus {
 
 export default function statusLine(pi: ExtensionAPI): void {
   let gitStatus: GitStatus | undefined;
+  let sessionCost = 0;
+  let compactions = 0;
   let requestRender = (): void => undefined;
 
   const refreshStatus = async (ctx: ExtensionContext): Promise<void> => {
+    sessionCost = 0;
+    compactions = 0;
+
+    for (const entry of ctx.sessionManager.getBranch()) {
+      if (entry.type === 'message' && entry.message.role === 'assistant') {
+        sessionCost += entry.message.usage.cost.total;
+      } else if (entry.type === 'message' && entry.message.role === 'toolResult') {
+        sessionCost += entry.message.usage?.cost.total ?? 0;
+      } else if (entry.type === 'compaction') {
+        compactions += 1;
+        sessionCost += entry.usage?.cost.total ?? 0;
+      } else if (entry.type === 'branch_summary') {
+        sessionCost += entry.usage?.cost.total ?? 0;
+      }
+    }
+
     try {
       const result = await pi.exec('git', ['status', '--porcelain=v1'], {
         cwd: ctx.cwd,
@@ -130,21 +148,19 @@ export default function statusLine(pi: ExtensionAPI): void {
           const model = theme.fg('syntaxType', ctx.model === undefined
             ? '󰧑 no model'
             : `󰧑 ${ctx.model.provider}/${ctx.model.id}`);
+          const cost = theme.fg('muted', `$${sessionCost < 1 ? sessionCost.toFixed(3) : sessionCost.toFixed(2)}`);
           const thinking = theme.fg('syntaxKeyword', `󰔏 ${ctx.thinkingLevel ?? 'off'}`);
           const runtime = ctx.isIdle()
             ? theme.fg('success', '󰒲 idle')
             : theme.fg('warning', '󰚩 busy');
           const pending = ctx.hasPendingMessages() ? theme.fg('warning', '󰅖 queued') : '';
-          const workspace = [
-            osIcon,
-            `${theme.fg('mdHeading', '')} ${cwd}`,
-            git,
-          ].filter(Boolean).join('  ');
+          const workspace = `${osIcon} ${theme.fg('mdHeading', '')}  ${cwd} ${git}`;
           const status = [runtime, thinking, sandboxStatus, modeStatus, pending].filter(Boolean).join('  ');
+          const compaction = theme.fg('muted', `󰆏 ${compactions}`);
 
           return [
-            renderRow(workspace, model, '╭─', true),
-            renderRow(status, context, '╰─'),
+            renderRow(workspace, `${model}  ${cost}`, '╭─', true),
+            renderRow(status, `${context}  ${compaction}`, '╰─'),
           ];
         },
       };

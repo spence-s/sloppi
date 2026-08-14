@@ -54,7 +54,7 @@
     "mdHr": "selection",
     "mdListBullet": "cyan",
     "toolDiffAdded": "green",
-    "toolDiffRemoved": "red",
+    "toolDiffRemoved": "pink",
     "toolDiffContext": "comment",
     "syntaxComment": "comment",
     "syntaxKeyword": "pink",
