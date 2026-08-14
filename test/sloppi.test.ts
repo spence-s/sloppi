@@ -14,9 +14,9 @@ import process from 'node:process';
 import {test, type TestContext} from 'node:test';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {execa} from 'execa';
-import {ConfigStore} from '../agent/extensions/sloppi/config.ts';
-import slopbox, {Slopbox} from '../agent/extensions/sloppi/index.ts';
-import {Sandbox} from '../agent/extensions/sloppi/sandbox.ts';
+import {ConfigStore} from '../agent/extensions/sandbox/config.ts';
+import slopbox, {Slopbox} from '../agent/extensions/sandbox/index.ts';
+import {Sandbox} from '../agent/extensions/sandbox/sandbox.ts';
 
 void test('uses no persisted sandbox access by default', (t: TestContext) => {
   const configStore = new ConfigStore('/Users/spencer/Projects/app');
