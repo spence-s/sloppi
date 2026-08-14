@@ -4,16 +4,19 @@ import {homedir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
 import {
+  type SandboxRuntimeConfig,
   FilesystemConfigSchema,
   NetworkConfigSchema,
-  type FilesystemConfig,
-  type NetworkConfig,
 } from '@anthropic-ai/sandbox-runtime';
 import {merge} from 'object-deep-merge';
 
-export type Config = {
-  filesystem?: Partial<FilesystemConfig> | undefined;
-  network?: Partial<NetworkConfig> | undefined;
+type PartialWithUndefined<T> = T extends ReadonlyArray<infer Item>
+  ? Array<PartialWithUndefined<Item>>
+  : T extends Record<string, unknown>
+    ? {[Key in keyof T]?: PartialWithUndefined<T[Key]> | undefined}
+    : T;
+
+export type Config = PartialWithUndefined<SandboxRuntimeConfig> & {
   projects?: Record<string, Config> | undefined;
   slopbox?: {promptOnNetworkDeny?: boolean | undefined} | undefined;
   [key: string]: unknown;
@@ -89,7 +92,7 @@ export class ConfigStore {
   }
 
   /** Merges global SRT settings with the current project's overrides. */
-  getEffectiveConfig(): Config {
+  getEffectiveConfig(): SandboxRuntimeConfig {
     const {projects: _projects, slopbox: _slopbox, ...globalConfig} = this.config;
     const {slopbox: _projectSlopbox, ...projectConfig} = this.getScopedConfig('project');
     return merge(globalConfig, projectConfig);
