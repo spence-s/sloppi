@@ -1,4 +1,3 @@
-import {realpathSync, statSync} from 'node:fs';
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
@@ -7,6 +6,7 @@ import {
   type SandboxRuntimeConfig,
   FilesystemConfigSchema,
   NetworkConfigSchema,
+  SandboxRuntimeConfigSchema,
 } from '@anthropic-ai/sandbox-runtime';
 import {merge} from 'object-deep-merge';
 
@@ -22,6 +22,9 @@ export type Config = PartialWithUndefined<SandboxRuntimeConfig> & {
   [key: string]: unknown;
 };
 export type ConfigScope = 'global' | 'project';
+export type FilesystemPermission = 'allowRead' | 'allowWrite' | 'denyRead' | 'denyWrite';
+export type ListAction = 'add' | 'remove';
+export type NetworkPermission = 'allow' | 'deny';
 
 export class ConfigStore {
   config: Config = {};
@@ -98,55 +101,153 @@ export class ConfigStore {
     return merge(globalConfig, projectConfig);
   }
 
-  /** Adds a directory to the selected scope's read and write allowlists. */
-  async addDirectory(scope: ConfigScope, directory: string): Promise<void> {
+  /** Adds or removes one filesystem rule in the selected scope. */
+  async updateFilesystem(
+    scope: ConfigScope,
+    permission: FilesystemPermission | readonly FilesystemPermission[],
+    action: ListAction,
+    path: string,
+  ): Promise<void> {
     await this.reload();
     const scopedConfig = this.getScopedConfig(scope);
-    const filesystemValidation = FilesystemConfigSchema.safeParse({
+    const validation = FilesystemConfigSchema.safeParse({
       ...scopedConfig.filesystem,
       allowRead: scopedConfig.filesystem?.allowRead ?? [],
       allowWrite: scopedConfig.filesystem?.allowWrite ?? [],
       denyRead: scopedConfig.filesystem?.denyRead ?? [],
       denyWrite: scopedConfig.filesystem?.denyWrite ?? [],
     });
-    if (!filesystemValidation.success) {
-      throw new Error(`Invalid SRT filesystem configuration: ${filesystemValidation.error.message}`);
+    if (!validation.success) {
+      throw new Error(`Invalid SRT filesystem configuration: ${validation.error.message}`);
     }
 
-    const filesystemConfig = filesystemValidation.data;
-    const allowedReadDirectories = filesystemConfig.allowRead ?? [];
-    const {allowWrite: allowedWriteDirectories} = filesystemConfig;
-    filesystemConfig.allowRead = [...new Set([...allowedReadDirectories, directory])];
-    filesystemConfig.allowWrite = [...new Set([...allowedWriteDirectories, directory])];
-    scopedConfig.filesystem = filesystemConfig;
-    const {[this.cwd]: _legacy, ...updatedConfig} = this.config;
-    this.config = updatedConfig;
-    await mkdir(dirname(this.path), {recursive: true});
-    await writeFile(this.path, `${JSON.stringify(this.config, undefined, 2)}\n`);
+    const filesystem = validation.data;
+    const permissions = typeof permission === 'string' ? [permission] : permission;
+    for (const key of permissions) {
+      const entries = filesystem[key] ?? [];
+      filesystem[key] = action === 'add'
+        ? [...new Set([...entries, path])]
+        : entries.filter(entry => entry !== path);
+    }
+
+    scopedConfig.filesystem = filesystem;
+    await this.save();
   }
 
-  /** Validates and persists a network domain allowlist entry for the selected scope. */
-  async addDomain(scope: ConfigScope, domain: string): Promise<void> {
-    const domainValidation = NetworkConfigSchema.safeParse({allowedDomains: [domain], deniedDomains: []});
+  /** Adds or removes one network rule in the selected scope. */
+  async updateDomain(
+    scope: ConfigScope,
+    permission: NetworkPermission,
+    action: ListAction,
+    domain: string,
+    reason?: string,
+  ): Promise<void> {
+    const key = permission === 'allow' ? 'allowedDomains' : 'deniedDomains';
+    const domainValidation = NetworkConfigSchema.safeParse({
+      allowedDomains: permission === 'allow' ? [domain] : [],
+      deniedDomains: permission === 'deny' ? [domain] : [],
+    });
     if (!domainValidation.success) {
       throw new Error(`Invalid SRT domain pattern: ${domain}`);
     }
 
     await this.reload();
     const scopedConfig = this.getScopedConfig(scope);
-    const networkConfigValidation = NetworkConfigSchema.safeParse({
+    const validation = NetworkConfigSchema.safeParse({
       ...scopedConfig.network,
       allowedDomains: scopedConfig.network?.allowedDomains ?? [],
       deniedDomains: scopedConfig.network?.deniedDomains ?? [],
     });
-    if (!networkConfigValidation.success) {
-      throw new Error(`Invalid SRT network configuration: ${networkConfigValidation.error.message}`);
+    if (!validation.success) {
+      throw new Error(`Invalid SRT network configuration: ${validation.error.message}`);
     }
 
-    const networkConfig = networkConfigValidation.data;
-    const {allowedDomains} = networkConfig;
-    networkConfig.allowedDomains = [...new Set([...allowedDomains, domain])];
-    scopedConfig.network = networkConfig;
+    const network = validation.data;
+    network[key] = action === 'add'
+      ? [...new Set([...network[key], domain])]
+      : network[key].filter(entry => entry !== domain);
+    if (permission === 'deny') {
+      const reasons = network.deniedDomainReasons ?? {};
+      if (action === 'add' && reason !== undefined) {
+        reasons[domain] = reason;
+      } else if (action === 'remove') {
+        const {[domain]: _removed, ...remainingReasons} = reasons;
+        network.deniedDomainReasons = remainingReasons;
+      }
+
+      network.deniedDomainReasons ??= reasons;
+    }
+
+    scopedConfig.network = network;
+    await this.save();
+  }
+
+  /** Preserves the existing network-deny prompt API used by automatic prompts. */
+  async addDomain(scope: ConfigScope, domain: string): Promise<void> {
+    await this.updateDomain(scope, 'allow', 'add', domain);
+  }
+
+  /** Returns only settings explicitly stored in a scope, excluding Sloppi metadata. */
+  getScopedSrtConfig(scope: ConfigScope): Config {
+    const scopedConfig = this.getScopedConfig(scope);
+    const {projects: _projects, sandbox: _sandbox, ...srtConfig} = scopedConfig;
+    return srtConfig;
+  }
+
+  /** Replaces a scope's SRT settings after validating the resulting effective policy. */
+  async replaceSrtConfig(scope: ConfigScope, replacement: Config): Promise<void> {
+    await this.reload();
+    const previous = this.getScopedConfig(scope);
+    const sandboxConfig = previous.sandbox;
+    const next = sandboxConfig === undefined ? replacement : {...replacement, sandbox: sandboxConfig};
+
+    if (scope === 'global') {
+      next.projects = this.config.projects;
+      this.config = next;
+    } else {
+      this.config.projects ??= {};
+      this.config.projects[this.cwd] = next;
+    }
+
+    const validation = SandboxRuntimeConfigSchema.safeParse(merge({
+      network: {allowedDomains: [], deniedDomains: []},
+      filesystem: {
+        allowRead: [],
+        allowWrite: [],
+        denyRead: [],
+        denyWrite: [],
+      },
+    }, this.getEffectiveConfig()));
+    if (!validation.success) {
+      if (scope === 'global') {
+        this.config = previous;
+      } else if (this.config.projects !== undefined) {
+        this.config.projects[this.cwd] = previous;
+      }
+
+      throw new Error(`Invalid SRT configuration: ${validation.error.message}`);
+    }
+
+    await this.save();
+  }
+
+  /** Removes all settings stored in one scope. */
+  async resetScope(scope: ConfigScope): Promise<void> {
+    await this.reload();
+    if (scope === 'global') {
+      this.config = this.config.projects === undefined
+        ? {}
+        : {projects: this.config.projects};
+    } else if (this.config.projects !== undefined) {
+      const {[this.cwd]: _project, ...remainingProjects} = this.config.projects;
+      this.config.projects = remainingProjects;
+    }
+
+    await this.save();
+  }
+
+  /** Persists the current configuration without legacy project entries. */
+  async save(): Promise<void> {
     const {[this.cwd]: _legacy, ...updatedConfig} = this.config;
     this.config = updatedConfig;
     await mkdir(dirname(this.path), {recursive: true});
@@ -160,10 +261,7 @@ export class ConfigStore {
     const sandboxConfig = scopedConfig.sandbox ?? {};
     sandboxConfig.promptOnNetworkDeny = isEnabled;
     scopedConfig.sandbox = sandboxConfig;
-    const {[this.cwd]: _legacy, ...updatedConfig} = this.config;
-    this.config = updatedConfig;
-    await mkdir(dirname(this.path), {recursive: true});
-    await writeFile(this.path, `${JSON.stringify(this.config, undefined, 2)}\n`);
+    await this.save();
   }
 
   /** Returns the current project's prompt setting, falling back to global and then true. */
@@ -202,15 +300,5 @@ export class ConfigStore {
       return (patternPort === undefined || patternPort === port)
         && (patternHost === host || (patternHost.startsWith('*.') && host.endsWith(`.${patternHost.slice(2)}`)));
     });
-  }
-
-  /** Resolves a project-relative directory and confirms it exists. */
-  resolveAllowedDirectory(path: string): string {
-    const directory = realpathSync(resolve(this.cwd, path));
-    if (!statSync(directory).isDirectory()) {
-      throw new Error(`Not a directory: ${path}`);
-    }
-
-    return directory;
   }
 }

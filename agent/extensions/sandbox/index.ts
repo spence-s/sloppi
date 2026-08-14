@@ -1,7 +1,7 @@
 import {realpathSync} from 'node:fs';
 import process from 'node:process';
 import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
-import {ConfigStore, type ConfigScope} from './config.ts';
+import {ConfigStore} from './config.ts';
 import {SandboxCommand} from './command.ts';
 import {SandboxSessionManager} from './session-manager.ts';
 import {SandboxTools} from './tools.ts';
@@ -100,11 +100,9 @@ export class Sandbox {
       this.isPromptInProgress = true;
       try {
         const projectChoice = `Allow ${suggestedDomain} for this project`;
-        const globalChoice = `Allow ${suggestedDomain} for all projects`;
         const customChoice = 'Customize the SRT domain pattern…';
         const choice = await ctx.ui.select('Sandbox blocked a network request', [
           projectChoice,
-          globalChoice,
           customChoice,
           'Deny',
         ]);
@@ -112,7 +110,6 @@ export class Sandbox {
           return;
         }
 
-        const scope: ConfigScope = choice === globalChoice ? 'global' : 'project';
         const domain = choice === customChoice
           ? await ctx.ui.input('SRT domain pattern', suggestedDomain)
           : suggestedDomain;
@@ -120,9 +117,9 @@ export class Sandbox {
           return;
         }
 
-        await config.addDomain(scope, domain.trim());
+        await config.addDomain('project', domain.trim());
         await sandbox.restartSession();
-        ctx.ui.notify(`Added ${domain.trim()} to ${scope} network.allowedDomains. Retry the command.`, 'info');
+        ctx.ui.notify(`Added ${domain.trim()} to project network.allowedDomains. Retry the command.`, 'info');
       } catch (error) {
         ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
       } finally {

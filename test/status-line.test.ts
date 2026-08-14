@@ -130,7 +130,7 @@ void describe('status line', () => {
 
     t.assert.strictEqual(lines.length, 2);
     t.assert.deepStrictEqual(lines.map(line => line.slice(0, 2)), ['╭─', '╰─']);
-    t.assert.match(lines[0] ?? '', /repo.* main.*!1/v);
+    t.assert.match(lines[0] ?? '', /repo.* {2} main !1/v);
     t.assert.match(lines[0] ?? '', /─/v);
     t.assert.match(lines[0] ?? '', /no model$/v);
     t.assert.match(lines[1] ?? '', /idle.*off.*sandbox status.*agent.*25\.0%.*50K\/200K.*\$0\.127.*󰆏 1$/v);

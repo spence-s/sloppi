@@ -80,9 +80,9 @@ Global SRT options live at the root. Project overrides live under `projects["/ab
 }
 ```
 
-Use `/sandbox` to view access, allow a folder or website, and configure network-deny prompts. It asks whether each change applies to the current project or all projects.
+Use `/sandbox` to manage the current project's access interactively. Use `/sandbox global` to open the same controls for global access. Access views and rule lists show the effective configuration, while changes apply only to the selected project or global layer. The advanced editor validates the complete serializable SRT configuration before saving and warns before enabling weaker isolation options.
 
-By default, filesystem tools can write only the current project and private session scratch space. Global Pi skills and Git/npm package directories are readable. Network access is denied until allowed. A blocked network request can prompt to add a project or global domain rule; use `/sandbox` to disable those prompts.
+By default, filesystem tools can write only the current project and private session scratch space. Global Pi skills and Git/npm package directories are readable. Network access is denied until allowed. A blocked network request can prompt to add a project domain rule; use `/sandbox` to disable those prompts.
 
 Sandbox is an additional experimental boundary, not a guarantee. Broad filesystem paths, domains, Unix sockets, Apple Events, or weaker SRT isolation options reduce its protection. See [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime) for platform limitations.
 
