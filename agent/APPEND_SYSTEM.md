@@ -16,7 +16,7 @@ Keep changes focused. When touching nearby code, simplify needless nesting, help
 
 Write code like a book: the reader should be able to follow its behavior top to bottom and left to right.
 
-## Inline-First Rule
+### Inline-First Rule
 
 Inline implementation details at their point of use, even when that duplicates a few simple lines.
 
@@ -26,3 +26,7 @@ Inline implementation details at their point of use, even when that duplicates a
 - Prefer duplicated one-line expressions over indirection.
 - Extract only a substantial domain operation reused in several places.
 - Validate changes through existing checks and integration behavior.
+
+### JSDoc Comments
+
+You always write brief, multiline, JSDoc comments above the functions you write. These comments generally focus on the _why_ of the function and very briefly explains its use.

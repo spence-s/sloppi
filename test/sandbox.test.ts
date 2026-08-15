@@ -191,6 +191,18 @@ void test('applies network configuration and project prompt overrides', (t: Test
   t.assert.strictEqual(configStore.shouldPrompt(), true);
 });
 
+void test('combines and validates configured host environment variable names', (t: TestContext) => {
+  const configStore = new ConfigStore('/project');
+  configStore.config = {
+    sandbox: {exposeEnv: ['SAFE_GLOBAL', 'SHARED']},
+    projects: {'/project': {sandbox: {exposeEnv: ['SAFE_PROJECT', 'SHARED']}}},
+  };
+  t.assert.deepStrictEqual(configStore.getExposedEnv(), ['SAFE_GLOBAL', 'SHARED', 'SAFE_PROJECT']);
+
+  configStore.config = {sandbox: {exposeEnv: ['NOT-VALID']}};
+  t.assert.throws(() => configStore.getExposedEnv(), /Invalid sandbox\.exposeEnv/v);
+});
+
 void test('SRT denies writes outside the project and session scratch directory', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-sandbox-test-'));
   const projectPath = realpathSync(process.cwd());

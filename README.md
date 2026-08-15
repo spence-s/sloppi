@@ -71,16 +71,24 @@ Global SRT options live at the root. Project overrides live under `projects["/ab
   "network": {
     "allowedDomains": ["registry.npmjs.org:443"]
   },
+  "sandbox": {
+    "exposeEnv": ["SAFE_GLOBAL_VAR"]
+  },
   "projects": {
     "/absolute/project/path": {
       "filesystem": {
         "allowRead": ["/shared/read-only"],
         "allowWrite": ["/shared/writable"]
+      },
+      "sandbox": {
+        "exposeEnv": ["SAFE_PROJECT_VAR"]
       }
     }
   }
 }
 ```
+
+`exposeEnv` contains host environment variable names, not values. Global and project lists combine; missing variables are ignored. Sloppi's fixed `HOME`, `PATH`, `LANG`, `TMPDIR`, and `USER` values cannot be overridden.
 
 Use `/sandbox` to manage the current project's access interactively. Use `/sandbox global` to open the same controls for global access. Access views and rule lists show the effective configuration, while changes apply only to the selected project or global layer. The advanced editor validates the complete serializable SRT configuration before saving and warns before enabling weaker isolation options.
 

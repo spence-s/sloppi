@@ -18,7 +18,10 @@ type PartialWithUndefined<T> = T extends ReadonlyArray<infer Item>
 
 export type Config = PartialWithUndefined<SandboxRuntimeConfig> & {
   projects?: Record<string, Config> | undefined;
-  sandbox?: {promptOnNetworkDeny?: boolean | undefined} | undefined;
+  sandbox?: {
+    exposeEnv?: string[] | undefined;
+    promptOnNetworkDeny?: boolean | undefined;
+  } | undefined;
   [key: string]: unknown;
 };
 export type ConfigScope = 'global' | 'project';
@@ -262,6 +265,21 @@ export class ConfigStore {
     sandboxConfig.promptOnNetworkDeny = isEnabled;
     scopedConfig.sandbox = sandboxConfig;
     await this.save();
+  }
+
+  /** Returns host environment variable names explicitly exposed by global or project configuration. */
+  getExposedEnv(): string[] {
+    const projectConfig = this.getScopedConfig('project');
+    const names = [...new Set([
+      ...(this.config.sandbox?.exposeEnv ?? []),
+      ...(projectConfig.sandbox?.exposeEnv ?? []),
+    ])];
+    const invalidName = names.find(name => !/^[A-Z_a-z]\w*$/v.test(name));
+    if (invalidName !== undefined) {
+      throw new Error(`Invalid sandbox.exposeEnv variable name: ${invalidName}`);
+    }
+
+    return names;
   }
 
   /** Returns the current project's prompt setting, falling back to global and then true. */

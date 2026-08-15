@@ -92,18 +92,26 @@ export class SandboxSessionManager {
 
       const wrapped = await SandboxManager.wrapWithSandbox(command);
 
+      const env: Record<string, string> = {
+        HOME: currentSession.scratchPath,
+        PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+        LANG: process.env.LANG ?? 'C.UTF-8',
+        TMPDIR: currentSession.scratchPath,
+        USER: 'sandbox',
+      };
+      for (const name of this.config.getExposedEnv()) {
+        const value = process.env[name];
+        if (value !== undefined && env[name] === undefined) {
+          env[name] = value;
+        }
+      }
+
       const execaOptions = {
         shell: true,
         reject: false,
         cwd,
         extendEnv: false,
-        env: {
-          HOME: currentSession.scratchPath,
-          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
-          LANG: process.env.LANG ?? 'C.UTF-8',
-          TMPDIR: currentSession.scratchPath,
-          USER: 'sandbox',
-        },
+        env,
       };
 
       return execa(wrapped, execaOptions);
