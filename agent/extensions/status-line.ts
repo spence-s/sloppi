@@ -205,7 +205,7 @@ export default function statusLine(pi: ExtensionAPI): void {
             const divergence = `${gitStatus.behind > 0 ? `⇣${gitStatus.behind}` : ''}${gitStatus.ahead > 0 ? `⇡${gitStatus.ahead}` : ''}`;
             const pushDivergence = `${gitStatus.pushBehind > 0 ? `⇠${gitStatus.pushBehind}` : ''}${gitStatus.pushAhead > 0 ? `⇢${gitStatus.pushAhead}` : ''}`;
             const parts = [
-              `${theme.fg('success', `   ${reference}`)}${remote}`,
+              `${theme.fg('syntaxKeyword', '')}  ${theme.fg('success', ` ${reference}`)}${remote}`,
               /(?:^|[^\da-z])wip(?:[^\da-z]|$)/iv.test(gitStatus.summary) ? theme.fg('warning', 'wip') : '',
               divergence.length > 0 ? theme.fg('success', divergence) : '',
               pushDivergence.length > 0 ? theme.fg('success', pushDivergence) : '',
@@ -224,7 +224,7 @@ export default function statusLine(pi: ExtensionAPI): void {
             linux: '',
             win32: '',
           };
-          const osIcon = theme.fg('toolTitle', osIcons[process.platform] ?? process.platform);
+          const osIcon = theme.fg('text', osIcons[process.platform] ?? process.platform);
           const homeDirectory = homedir();
           const cwd = ctx.cwd === homeDirectory || ctx.cwd.startsWith(`${homeDirectory}/`)
             ? `~${ctx.cwd.slice(homeDirectory.length)}`
@@ -251,7 +251,7 @@ export default function statusLine(pi: ExtensionAPI): void {
           const cost = theme.fg('muted', `$${sessionCost < 1 ? sessionCost.toFixed(3) : sessionCost.toFixed(2)}`);
           const thinking = theme.fg('syntaxKeyword', `󰔏 ${ctx.thinkingLevel ?? 'off'}`);
           const pending = ctx.hasPendingMessages() ? theme.fg('warning', '󰅖 queued') : '';
-          const workspace = `${osIcon} ${theme.fg('mdHeading', '')}  ${cwd} ${git}`;
+          const workspace = `${osIcon} ${theme.fg('mdHeading', `  ${cwd}`)} ${git}`;
           const status = [sandboxStatus, modeStatus, ...additionalStatuses, pending].filter(Boolean).join('  ');
           const compaction = theme.fg('muted', `󰆏 ${compactions}`);
 
