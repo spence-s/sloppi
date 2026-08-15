@@ -50,18 +50,17 @@ export class SandboxSessionManager {
 
     const agentPath = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent');
 
-    const skillPaths = ['skills', 'git', 'npm'].map(directory => {
-      const path = resolve(agentPath, directory);
-      try {
-        return realpathSync(path);
-      } catch {
-        return path;
-      }
-    });
+    const globalSkillPaths = [
+      // inside ~/.pi/agent
+      ...['skills', 'git', 'npm'].map(directory => resolve(agentPath, directory)),
+      // inside ~/.agents/skills
+      join(homedir(), '.agents', 'skills'),
+    ];
+
     const runtimeConfig = merge({
       network: {allowedDomains: [], deniedDomains: []},
       filesystem: {
-        allowRead: [this.cwd, ...skillPaths],
+        allowRead: [this.cwd, ...globalSkillPaths],
         allowWrite: [this.cwd, scratchPath],
         denyRead: [dirname(homedir())],
         denyWrite: [],
