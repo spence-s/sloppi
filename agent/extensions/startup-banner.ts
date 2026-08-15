@@ -1,4 +1,5 @@
 import type {ExtensionAPI, Theme} from '@earendil-works/pi-coding-agent';
+import {truncateToWidth} from '@earendil-works/pi-tui';
 
 type BannerTheme = Pick<Theme, 'fg'>;
 
@@ -12,7 +13,7 @@ const wideLogo = [
 ];
 
 export function getBannerLines(width: number, theme: BannerTheme): string[] {
-  if (width >= 72) {
+  if (width >= 79) {
     return [
       ...wideLogo.map(line => theme.fg('accent', line)),
       theme.fg('muted', '  personal coding command center'),
@@ -23,16 +24,15 @@ export function getBannerLines(width: number, theme: BannerTheme): string[] {
 
   if (width >= 48) {
     return [
-      theme.fg('accent', '✦ SLOPPI  🍜 '.slice(0, Math.max(0, width)))
-      + theme.fg('muted', 'personal coding command center'.slice(0, Math.max(0, width))),
-      theme.fg('dim', '/chat [on|off]  ·  /sandbox  ·  /hotkeys'.slice(0, Math.max(0, width))),
+      theme.fg('accent', '✦ SLOPPI  🍜 ') + theme.fg('muted', 'personal coding command center'),
+      theme.fg('dim', '/chat [on|off]  ·  /sandbox  ·  /hotkeys'),
       '',
     ];
   }
 
   return [
-    theme.fg('accent', '✦ SLOPPI 🍜'.slice(0, Math.max(0, width))),
-    theme.fg('dim', '/hotkeys for commands'.slice(0, Math.max(0, width))),
+    theme.fg('accent', truncateToWidth('✦ SLOPPI 🍜', width, '')),
+    theme.fg('dim', truncateToWidth('/hotkeys for commands', width, '')),
     '',
   ];
 }

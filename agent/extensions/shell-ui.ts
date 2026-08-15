@@ -1,6 +1,6 @@
 import {existsSync} from 'node:fs';
 import {homedir} from 'node:os';
-import {join} from 'node:path';
+import {basename, join} from 'node:path';
 import process from 'node:process';
 import {stripVTControlCharacters} from 'node:util';
 import {
@@ -172,13 +172,14 @@ export default function shellUi(pi: ExtensionAPI): void {
         invalidate: () => undefined,
         render(width: number): string[] {
           const renderRow = (left: string, right: string, hasFill = false): string => {
-            const rightWidth = visibleWidth(right);
-            const fittedLeft = truncateToWidth(left, Math.max(0, width - rightWidth - 3));
-            const gap = Math.max(1, width - visibleWidth(fittedLeft) - rightWidth);
+            const fittedRight = truncateToWidth(right, Math.max(0, width - 1), '');
+            const rightWidth = visibleWidth(fittedRight);
+            const fittedLeft = truncateToWidth(left, Math.max(0, width - rightWidth - (rightWidth > 0 ? 1 : 0)), '');
+            const gap = Math.max(0, width - visibleWidth(fittedLeft) - rightWidth);
             const middle = hasFill && gap > 2
               ? ` ${theme.fg('borderMuted', '─'.repeat(gap - 2))} `
               : ' '.repeat(gap);
-            return `${fittedLeft}${middle}${right}`;
+            return `${fittedLeft}${middle}${fittedRight}`;
           };
 
           const extensionStatuses = footerData.getExtensionStatuses();
@@ -251,9 +252,33 @@ export default function shellUi(pi: ExtensionAPI): void {
           const cost = theme.fg('muted', `$${sessionCost < 1 ? sessionCost.toFixed(3) : sessionCost.toFixed(2)}`);
           const thinking = theme.fg('syntaxKeyword', `󰔏 ${ctx.thinkingLevel ?? 'off'}`);
           const pending = ctx.hasPendingMessages() ? theme.fg('warning', '󰅖 queued') : '';
-          const workspace = `${osIcon} ${theme.fg('mdHeading', `  ${cwd}`)} ${git}`;
+          const workspacePath = `${osIcon} ${theme.fg('mdHeading', `  ${cwd}`)}`;
+          const workspace = `${workspacePath} on ${git}`;
+          const essentialStatus = [sandboxStatus, modeStatus, pending].filter(Boolean).join('  ');
           const status = [sandboxStatus, modeStatus, ...additionalStatuses, pending].filter(Boolean).join('  ');
           const compaction = theme.fg('muted', `󰆏 ${compactions}`);
+          const compactContext = usage === undefined
+            ? `${theme.fg('toolTitle', '󰍛')} ${theme.bold(theme.fg('warning', '?'))}`
+            : `${theme.fg('toolTitle', '󰍛')} ${theme.bold(theme.fg(contextColor, usage.percent === null ? '?' : `${usage.percent.toFixed(0)}%`))}`;
+
+          if (width < 60) {
+            const directoryName = basename(ctx.cwd);
+            const directory = ctx.cwd === homeDirectory
+              ? '~'
+              : (directoryName.length > 0 ? directoryName : ctx.cwd);
+            const compactWorkspace = `${osIcon} ${theme.fg('mdHeading', ` ${directory}`)}`;
+            return [
+              renderRow(compactWorkspace, truncateToWidth(git, Math.floor(width / 2), '')),
+              renderRow(essentialStatus, compactContext),
+            ];
+          }
+
+          if (width < 80) {
+            return [
+              renderRow(workspacePath, git),
+              renderRow(essentialStatus, `${compactContext}  ${cost}`),
+            ];
+          }
 
           return [
             renderRow(workspace, `${model}  ${thinking}`, true),

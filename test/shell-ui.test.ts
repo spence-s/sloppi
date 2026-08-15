@@ -193,14 +193,27 @@ void describe('shell UI', () => {
     t.assert.match(lines[1] ?? '', /sandbox status.*agent.*third-party status.*ponytail status.*25\.0%.*50K\/200K.*\$0\.127.*󰆏 1$/v);
     t.assert.doesNotMatch(lines.join('\n'), /idle|busy|trusted|untrusted|[]/v);
 
-    const responsiveLines = [100, 60].map(width => [
+    const responsiveWidths = [20, 32, 40, 48, 60, 80, 100, 180];
+    const responsiveLines = responsiveWidths.map(width => [
       ...topStatus.render(width),
       ...bottomStatus.render(width),
     ]);
-    t.assert.deepStrictEqual(responsiveLines.map(rendered => rendered.length), [2, 2]);
-    t.assert.deepStrictEqual(
-      responsiveLines.map((rendered, index) => rendered.every(line => visibleWidth(line) <= [100, 60][index]!)),
-      [true, true],
-    );
+    t.assert.ok(responsiveLines.every(rendered => rendered.length === 2));
+    t.assert.ok(responsiveLines.every((rendered, index) =>
+      rendered.every(line => visibleWidth(line) <= responsiveWidths[index]!)));
+
+    const mobileLines = responsiveLines[2]?.join('\n') ?? '';
+    t.assert.match(mobileLines, /repo.*/v);
+    t.assert.match(mobileLines, /sandbox status.*agent.*25%/v);
+    t.assert.doesNotMatch(mobileLines, /third-party|ponytail|no model|off|50K\/200K|󰆏/v);
+
+    const compactLines = responsiveLines[5]?.join('\n') ?? '';
+    t.assert.ok(['repo', '', 'main', 'sandbox status', 'agent', '25%', '$0.127']
+      .every(part => compactLines.includes(part)));
+    t.assert.ok(compactLines.endsWith('$0.127'));
+    t.assert.doesNotMatch(compactLines, /third-party|ponytail|no model|off|50K\/200K|󰆏/v);
+
+    t.assert.ok(responsiveWidths.every(width =>
+      editor.render(width).every(line => visibleWidth(line) <= width)));
   });
 });
