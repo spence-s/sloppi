@@ -118,13 +118,10 @@ export default function chatMode(pi: ExtensionAPI): void {
 
   pi.registerCommand('chat', {
     description:
-      'Toggle between chat mode and agent mode. Usage: /chat [on|off|toggle|status]',
+      'Toggle chat mode or enable it and submit a prompt. Usage: /chat [on|off|toggle|status|prompt]',
     async handler(args, ctx) {
-      const normalized = args?.trim().toLowerCase();
-      const command =
-        normalized === undefined || normalized.length === 0
-          ? 'toggle'
-          : normalized;
+      const input = args?.trim() ?? '';
+      const command = input.length === 0 ? 'toggle' : input.toLowerCase();
 
       switch (command) {
         case 'on': {
@@ -142,13 +139,23 @@ export default function chatMode(pi: ExtensionAPI): void {
           return;
         }
 
-        default: {
+        case 'status': {
           ctx.ui.notify(
             isChatModeEnabled
               ? 'Chat mode is currently active.'
               : 'Agent mode is currently active.',
             'info',
           );
+          return;
+        }
+
+        default: {
+          setChatMode(true, ctx, false);
+          if (ctx.isIdle()) {
+            pi.sendUserMessage(input);
+          } else {
+            pi.sendUserMessage(input, {deliverAs: 'followUp'});
+          }
         }
       }
     },

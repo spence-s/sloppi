@@ -51,7 +51,7 @@ pi install npm:pi-web-access
 
 ## Extensions
 
-- `chat-mode.ts` — `/chat on|off|toggle|status` switches between read-only chat mode and full-access agent mode.
+- `chat-mode.ts` — `/chat on|off|toggle|status` switches modes; `/chat <prompt>` enables read-only chat mode and submits the prompt.
 - `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input.
 - `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access.
 - `startup-banner.ts` — replaces Pi's TUI header.

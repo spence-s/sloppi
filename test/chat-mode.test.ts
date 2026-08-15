@@ -32,12 +32,14 @@ type ChatModeHarness = {
   getActiveTools: () => string[];
   getCommand: (name: string) => RegisteredCommand;
   getBeforeAgentStart: () => () => Promise<BeforeAgentStartResult>;
+  getSentMessages: () => Array<{activeTools: string[]; text: string}>;
   getStatus: () => string | undefined;
 };
 
 function createHarness(initialTools: string[]): ChatModeHarness {
   let activeTools = [...initialTools];
   let status: string | undefined;
+  const sentMessages: Array<{activeTools: string[]; text: string}> = [];
   const commands = new Map<string, RegisteredCommand>();
   const eventHandlers = new Map<string, (...args: unknown[]) => unknown>();
 
@@ -57,6 +59,9 @@ function createHarness(initialTools: string[]): ChatModeHarness {
     appendEntry() {
       return undefined;
     },
+    sendUserMessage(text: string) {
+      sentMessages.push({activeTools: [...activeTools], text});
+    },
   } as unknown as Parameters<typeof chatMode>[0]);
 
   const ctx = {
@@ -74,6 +79,7 @@ function createHarness(initialTools: string[]): ChatModeHarness {
     sessionManager: {
       getBranch: () => [],
     },
+    isIdle: () => true,
   } as unknown as ExtensionContext;
 
   return {
@@ -95,6 +101,7 @@ function createHarness(initialTools: string[]): ChatModeHarness {
 
       return handler as () => Promise<BeforeAgentStartResult>;
     },
+    getSentMessages: () => [...sentMessages],
     getStatus: () => status,
   };
 }
@@ -212,5 +219,26 @@ void describe('chat-mode', () => {
       'edit',
       'write',
     ]);
+  });
+
+  void test('chat with a prompt enables chat mode before submitting it', async (t: TestContext) => {
+    const harness = createHarness(['read', 'bash', 'edit', 'write']);
+
+    await harness.getCommand('chat').handler('Explain this code', harness.ctx);
+
+    t.assert.deepStrictEqual(harness.getSentMessages(), [{
+      activeTools: [
+        'read',
+        'grep',
+        'find',
+        'ls',
+        'web_search',
+        'source_check',
+        'fetch_content',
+        'get_search_content',
+      ],
+      text: 'Explain this code',
+    }]);
+    t.assert.strictEqual(harness.getStatus(), '[dim]󰒓 [text]chat');
   });
 });
