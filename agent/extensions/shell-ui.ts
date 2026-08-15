@@ -268,8 +268,8 @@ export default function shellUi(pi: ExtensionAPI): void {
               : (directoryName.length > 0 ? directoryName : ctx.cwd);
             const compactWorkspace = `${osIcon} ${theme.fg('mdHeading', ` ${directory}`)}`;
             return [
-              renderRow(compactWorkspace, truncateToWidth(git, Math.floor(width / 2), '')),
-              renderRow(essentialStatus, compactContext),
+              renderRow([compactWorkspace, git].filter(Boolean).join('  '), ''),
+              renderRow([essentialStatus, compactContext].filter(Boolean).join('  '), ''),
             ];
           }
 

@@ -203,8 +203,8 @@ void describe('shell UI', () => {
       rendered.every(line => visibleWidth(line) <= responsiveWidths[index]!)));
 
     const mobileLines = responsiveLines[2]?.join('\n') ?? '';
-    t.assert.match(mobileLines, /repo.*/v);
-    t.assert.match(mobileLines, /sandbox status.*agent.*25%/v);
+    t.assert.match(mobileLines, /repo {2}/v);
+    t.assert.match(mobileLines, /sandbox status {2}agent {2}󰍛 25%/v);
     t.assert.doesNotMatch(mobileLines, /third-party|ponytail|no model|off|50K\/200K|󰆏/v);
 
     const compactLines = responsiveLines[5]?.join('\n') ?? '';
