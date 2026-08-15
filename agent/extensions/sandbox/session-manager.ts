@@ -22,6 +22,8 @@ type CommandResult = {
 };
 
 type SandboxSession = {
+  previousClaudeCodeTmpdir: string | undefined;
+  previousTmpdir: string | undefined;
   scratchPath: string;
 };
 
@@ -58,7 +60,11 @@ export class SandboxSessionManager {
     ];
 
     const runtimeConfig = merge({
-      network: {allowedDomains: [], deniedDomains: []},
+      network: {
+        allowedDomains: [],
+        deniedDomains: [],
+        allowUnixSockets: [scratchPath],
+      },
       filesystem: {
         allowRead: [this.cwd, ...globalSkillPaths],
         allowWrite: [this.cwd, scratchPath],
@@ -66,10 +72,39 @@ export class SandboxSessionManager {
         denyWrite: [],
       },
     }, this.config.getEffectiveConfig());
+    const parsedRuntimeConfig = SandboxRuntimeConfigSchema.parse(runtimeConfig);
 
-    await SandboxManager.initialize(SandboxRuntimeConfigSchema.parse(runtimeConfig));
+    /*
+     * With filesystem isolation enabled, SRT ignores TMPDIR when wrapping a
+     * command. It reads CLAUDE_CODE_TMPDIR from this parent process and otherwise
+     * falls back to the shared /tmp/claude path. SRT's own proxy separately uses
+     * os.tmpdir(), so TMPDIR must match too. Keep both overrides for the session
+     * so normal tools and nested SRT tests use our private writable directory,
+     * where Unix sockets are narrowly allowed instead of exposing host sockets.
+     */
+    const previousClaudeCodeTmpdir = process.env.CLAUDE_CODE_TMPDIR;
+    const previousTmpdir = process.env.TMPDIR;
+    process.env.CLAUDE_CODE_TMPDIR = scratchPath;
+    process.env.TMPDIR = scratchPath;
+    try {
+      await SandboxManager.initialize(parsedRuntimeConfig);
+      this.session = {previousClaudeCodeTmpdir, previousTmpdir, scratchPath};
+    } catch (error) {
+      if (previousClaudeCodeTmpdir === undefined) {
+        delete process.env.CLAUDE_CODE_TMPDIR;
+      } else {
+        process.env.CLAUDE_CODE_TMPDIR = previousClaudeCodeTmpdir;
+      }
 
-    this.session = {scratchPath};
+      if (previousTmpdir === undefined) {
+        delete process.env.TMPDIR;
+      } else {
+        process.env.TMPDIR = previousTmpdir;
+      }
+
+      await rm(scratchPath, {force: true, recursive: true});
+      throw error;
+    }
   }
 
   /** Runs a shell command in the active session. */
@@ -92,6 +127,7 @@ export class SandboxSessionManager {
       const wrapped = await SandboxManager.wrapWithSandbox(command);
 
       const env: Record<string, string> = {
+        CLAUDE_CODE_TMPDIR: currentSession.scratchPath,
         HOME: currentSession.scratchPath,
         PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
         LANG: process.env.LANG ?? 'C.UTF-8',
@@ -134,9 +170,23 @@ export class SandboxSessionManager {
     }
 
     const {session} = this;
-    await SandboxManager.reset();
-    await rm(session.scratchPath, {force: true, recursive: true});
+    try {
+      await SandboxManager.reset();
+    } finally {
+      if (session.previousClaudeCodeTmpdir === undefined) {
+        delete process.env.CLAUDE_CODE_TMPDIR;
+      } else {
+        process.env.CLAUDE_CODE_TMPDIR = session.previousClaudeCodeTmpdir;
+      }
 
-    this.session = undefined;
+      if (session.previousTmpdir === undefined) {
+        delete process.env.TMPDIR;
+      } else {
+        process.env.TMPDIR = session.previousTmpdir;
+      }
+
+      this.session = undefined;
+      await rm(session.scratchPath, {force: true, recursive: true});
+    }
   }
 }

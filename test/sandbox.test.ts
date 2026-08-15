@@ -34,15 +34,31 @@ void test('requires an explicit session before running commands', async (t: Test
   await t.assert.rejects(sandbox.run`true`, /has not started/v);
 });
 
-void test('denies reads outside the user home directory', async (t: TestContext) => {
+void test('isolates reads and temporary Unix sockets', async (t: TestContext) => {
   const sandbox = new SandboxSessionManager('/Users/spencer/Projects/app', new ConfigStore('/Users/spencer/Projects/app'));
   const homeDirectory = dirname(homedir());
+  const previousClaudeCodeTmpdir = process.env.CLAUDE_CODE_TMPDIR;
+  const previousTmpdir = process.env.TMPDIR;
   try {
     await sandbox.startSession();
+    const scratchPath = sandbox.session?.scratchPath;
+    if (scratchPath === undefined) {
+      throw new Error('Sandbox scratch directory was not created.');
+    }
+
     t.assert.ok(SandboxManager.getConfig()?.filesystem?.denyRead?.includes(homeDirectory));
+    t.assert.ok(SandboxManager.getConfig()?.network?.allowUnixSockets?.includes(scratchPath));
+    t.assert.strictEqual(process.env.CLAUDE_CODE_TMPDIR, scratchPath);
+    t.assert.strictEqual(process.env.TMPDIR, scratchPath);
+
+    const wrapped = await SandboxManager.wrapWithSandbox('true');
+    t.assert.match(wrapped, new RegExp(`TMPDIR=${scratchPath}`, 'v'));
   } finally {
     await sandbox.stopSession();
   }
+
+  t.assert.strictEqual(process.env.CLAUDE_CODE_TMPDIR, previousClaudeCodeTmpdir);
+  t.assert.strictEqual(process.env.TMPDIR, previousTmpdir);
 });
 
 void test('loads the former project directory configuration', (t: TestContext) => {
