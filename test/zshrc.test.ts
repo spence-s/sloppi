@@ -16,6 +16,7 @@ void test('loads zsh aliases before parsing host user commands', async (t: TestC
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-user-shell-test-'));
   const shellPath = join(directory, 'zsh');
   let handler: Handler | undefined;
+  let isCommandFinished = false;
 
   try {
     await writeFile(shellPath, '#!/bin/sh\nprintf %s "$2"\n');
@@ -23,6 +24,11 @@ void test('loads zsh aliases before parsing host user commands', async (t: TestC
     t.mock.property(process, 'env', {...process.env, SHELL: shellPath});
 
     zshrc({
+      events: {
+        emit(channel: string) {
+          isCommandFinished = channel === 'sloppi:user-bash-end';
+        },
+      },
       on(name: string, candidate: Handler) {
         if (name === 'user_bash') {
           handler = candidate;
@@ -45,6 +51,7 @@ void test('loads zsh aliases before parsing host user commands', async (t: TestC
     t.assert.match(output, /^source ~\/\.zshrc\neval -- /v);
     t.assert.match(output, /glol '"'"'quoted'"'"'/v);
     t.assert.doesNotMatch(output, /ignored prefix/v);
+    t.assert.ok(isCommandFinished);
   } finally {
     await rm(directory, {force: true, recursive: true});
   }

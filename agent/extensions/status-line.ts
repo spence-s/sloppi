@@ -284,12 +284,16 @@ export default function statusLine(pi: ExtensionAPI): void {
       const unsubscribe = footerData.onBranchChange(() => {
         void refreshStatus(ctx);
       });
+      const unsubscribeUserBash = pi.events.on('sloppi:user-bash-end', () => {
+        void refreshStatus(ctx);
+      });
       ctx.ui.setWidget('status-line-top', () => topStatus, {placement: 'belowEditor'});
       ctx.ui.setWidget('status-line-bottom', () => bottomStatus, {placement: 'belowEditor'});
 
       return {
         dispose() {
           unsubscribe();
+          unsubscribeUserBash();
           ctx.ui.setWidget('status-line-top', undefined);
           ctx.ui.setWidget('status-line-bottom', undefined);
         },

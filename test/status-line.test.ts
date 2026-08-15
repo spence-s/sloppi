@@ -54,10 +54,22 @@ void describe('status line', () => {
     let footerFactory: FooterFactory | undefined;
     const statusWidgets = new Map<string, Renderable>();
     let editorFactory: EditorFactory | undefined;
+    let userBashFinished: (() => void) | undefined;
+    let gitStatusCalls = 0;
 
     statusLine({
+      events: {
+        on(channel: string, handler: () => void) {
+          if (channel === 'sloppi:user-bash-end') {
+            userBashFinished = handler;
+          }
+
+          return () => undefined;
+        },
+      },
       async exec(_command: string, arguments_: string[]) {
         if (arguments_[0] === 'status') {
+          gitStatusCalls += 1;
           return {
             code: 0,
             stdout: '# branch.oid abcdef1234567890\n# branch.head main\n1 .M N... 100644 100644 100644 abc abc modified.ts\n',
@@ -143,6 +155,11 @@ void describe('status line', () => {
       },
     );
     t.assert.deepStrictEqual(footer.render(180), []);
+    userBashFinished?.();
+    await new Promise<void>(resolve => {
+      setImmediate(resolve);
+    });
+    t.assert.strictEqual(gitStatusCalls, 2);
     const topStatus = statusWidgets.get('belowEditor:status-line-top');
     const bottomStatus = statusWidgets.get('belowEditor:status-line-bottom');
     if (topStatus === undefined || bottomStatus === undefined || editorFactory === undefined) {

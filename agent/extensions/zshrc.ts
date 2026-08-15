@@ -17,7 +17,9 @@ export default function zshrc(pi: ExtensionAPI): void {
     return {
       operations: {
         async exec(_prefixedCommand, commandCwd, options) {
-          return local.exec(command, commandCwd, options);
+          const result = await local.exec(command, commandCwd, options);
+          pi.events.emit('sloppi:user-bash-end', undefined);
+          return result;
         },
       },
     };
