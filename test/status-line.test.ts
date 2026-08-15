@@ -158,13 +158,13 @@ void describe('status line', () => {
 
     t.assert.strictEqual(lines.length, 2);
     t.assert.match(lines[0] ?? '', /^├─ /v);
-    t.assert.match(editorLines[0] ?? '', /^╭─❯ /v);
+    t.assert.match(editorLines[0] ?? '', /^─+$/v);
+    t.assert.match(editorLines[1] ?? '', /^╭─❯ /v);
     t.assert.match(lines[1] ?? '', /^╰─ /v);
-    t.assert.doesNotMatch(editorLines.join('\n'), /^─+$/mv);
     editor.setText('This input is long enough to wrap onto several visual lines.');
     const wrappedEditorLines = editor.render(20);
-    t.assert.ok(wrappedEditorLines.length > 1);
-    t.assert.ok(wrappedEditorLines.slice(1).every(line => /^│ {3}/v.test(line)));
+    t.assert.ok(wrappedEditorLines.length > 2);
+    t.assert.ok(wrappedEditorLines.slice(2).every(line => /^│ {3}/v.test(line)));
     editor.setText('first');
     editor.handleInput('\u{1B}[13;2u');
     editor.handleInput('\u{1B}[200~pasted\nlines\u{1B}[201~');
@@ -172,9 +172,9 @@ void describe('status line', () => {
     t.assert.ok(lines.every(line => visibleWidth(line) === 180));
     t.assert.match(lines[0] ?? '', /repo.* {2} main !1/v);
     t.assert.match(lines[0] ?? '', /─/v);
-    t.assert.match(lines[0] ?? '', /no model$/v);
-    t.assert.match(lines[1] ?? '', /idle.*off.*sandbox status.*agent.*25\.0%.*50K\/200K.*\$0\.127.*󰆏 1$/v);
-    t.assert.doesNotMatch(lines.join('\n'), /third-party status|ponytail status|trusted|untrusted|[]/v);
+    t.assert.match(lines[0] ?? '', /no model.*off$/v);
+    t.assert.match(lines[1] ?? '', /sandbox status.*agent.*third-party status.*ponytail status.*25\.0%.*50K\/200K.*\$0\.127.*󰆏 1$/v);
+    t.assert.doesNotMatch(lines.join('\n'), /idle|busy|trusted|untrusted|[]/v);
 
     const responsiveLines = [100, 60].map(width => [
       ...topStatus.render(width),

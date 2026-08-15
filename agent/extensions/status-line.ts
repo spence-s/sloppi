@@ -184,6 +184,9 @@ export default function statusLine(pi: ExtensionAPI): void {
           const extensionStatuses = footerData.getExtensionStatuses();
           const sandboxStatus = extensionStatuses.get('sandbox') ?? theme.fg('warning', 'sandbox ?');
           const modeStatus = extensionStatuses.get('chat-mode') ?? theme.fg('dim', 'agent');
+          const additionalStatuses = [...extensionStatuses]
+            .filter(([id]) => id !== 'sandbox' && id !== 'chat-mode')
+            .map(([, status]) => status);
 
           let git = '';
           if (gitStatus !== undefined) {
@@ -247,16 +250,13 @@ export default function statusLine(pi: ExtensionAPI): void {
             : `󰧑 ${ctx.model.provider}/${ctx.model.id}`);
           const cost = theme.fg('muted', `$${sessionCost < 1 ? sessionCost.toFixed(3) : sessionCost.toFixed(2)}`);
           const thinking = theme.fg('syntaxKeyword', `󰔏 ${ctx.thinkingLevel ?? 'off'}`);
-          const runtime = ctx.isIdle()
-            ? theme.fg('success', '󰒲 idle')
-            : theme.fg('warning', '󰚩 busy');
           const pending = ctx.hasPendingMessages() ? theme.fg('warning', '󰅖 queued') : '';
           const workspace = `${osIcon} ${theme.fg('mdHeading', '')}  ${cwd} ${git}`;
-          const status = [runtime, thinking, sandboxStatus, modeStatus, pending].filter(Boolean).join('  ');
+          const status = [sandboxStatus, modeStatus, ...additionalStatuses, pending].filter(Boolean).join('  ');
           const compaction = theme.fg('muted', `󰆏 ${compactions}`);
 
           return [
-            renderRow(workspace, model, true),
+            renderRow(workspace, `${model}  ${thinking}`, true),
             renderRow(status, `${context}  ${cost}  ${compaction}`),
           ];
         },
@@ -329,7 +329,7 @@ export default function statusLine(pi: ExtensionAPI): void {
         const autocomplete = lines.slice(bottomBorderIndex + 1).map(line => `${ctx.ui.theme.fg('dim', continuationPrefix)}${line}`);
 
         return [
-          ...stripVTControlCharacters(topBorder).includes('↑') ? [`${indent}${topBorder}`] : [],
+          `${this.borderColor('─'.repeat(prefixWidth))}${topBorder}`,
           ...input,
           ...stripVTControlCharacters(bottomBorder).includes('↓') ? [`${indent}${bottomBorder}`] : [],
           ...autocomplete,
