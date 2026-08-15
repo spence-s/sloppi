@@ -87,7 +87,7 @@ export function parseGitStatus(output: string): GitStatus {
   return status;
 }
 
-export default function statusLine(pi: ExtensionAPI): void {
+export default function shellUi(pi: ExtensionAPI): void {
   let gitStatus: GitStatus | undefined;
   let sessionCost = 0;
   let compactions = 0;
@@ -287,15 +287,15 @@ export default function statusLine(pi: ExtensionAPI): void {
       const unsubscribeUserBash = pi.events.on('sloppi:user-bash-end', () => {
         void refreshStatus(ctx);
       });
-      ctx.ui.setWidget('status-line-top', () => topStatus, {placement: 'belowEditor'});
-      ctx.ui.setWidget('status-line-bottom', () => bottomStatus, {placement: 'belowEditor'});
+      ctx.ui.setWidget('shell-ui-top', () => topStatus, {placement: 'belowEditor'});
+      ctx.ui.setWidget('shell-ui-bottom', () => bottomStatus, {placement: 'belowEditor'});
 
       return {
         dispose() {
           unsubscribe();
           unsubscribeUserBash();
-          ctx.ui.setWidget('status-line-top', undefined);
-          ctx.ui.setWidget('status-line-bottom', undefined);
+          ctx.ui.setWidget('shell-ui-top', undefined);
+          ctx.ui.setWidget('shell-ui-bottom', undefined);
         },
         invalidate() {
           topStatus.invalidate();

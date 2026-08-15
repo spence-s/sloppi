@@ -41,7 +41,7 @@ Sloppi does not change Pi's project trust behavior.
 - macOS: `brew install ripgrep`
 - Linux: install `bubblewrap`, `socat`, `ripgrep`, and `fd`
 
-Sandbox currently supports macOS and Linux. Its status line uses Nerd Font icons but remains usable without them.
+Sandbox currently supports macOS and Linux. Its shell UI uses Nerd Font icons but remains usable without them.
 
 For web research in chat mode, install [`pi-web-access`](https://github.com/nicobailon/pi-web-access) separately:
 
@@ -52,9 +52,10 @@ pi install npm:pi-web-access
 ## Extensions
 
 - `chat-mode.ts` — `/chat on|off|toggle|status` switches between read-only chat mode and full-access agent mode.
+- `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input.
 - `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access.
 - `startup-banner.ts` — replaces Pi's TUI header.
-- `status-line.ts` — adds OS and Git status below Pi's footer.
+- `shell-ui.ts` — adds a Powerlevel10k-inspired prompt and status area to Pi's terminal UI.
 - `zshrc.ts` — loads zsh aliases for host-side `!` commands.
 
 Sandbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. It blocks unapproved extension tools from host execution; Pi web-access tools remain host-side so provider credentials are not exposed to sandboxed commands.

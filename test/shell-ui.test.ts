@@ -1,9 +1,9 @@
 import {describe, test, type TestContext} from 'node:test';
 import {initTheme, type ExtensionContext} from '@earendil-works/pi-coding-agent';
 import {visibleWidth} from '@earendil-works/pi-tui';
-import statusLine, {parseGitStatus} from '../agent/extensions/status-line.ts';
+import shellUi, {parseGitStatus} from '../agent/extensions/shell-ui.ts';
 
-void describe('status line', () => {
+void describe('shell UI', () => {
   void test('parses Powerlevel10k Git status fields', (t: TestContext) => {
     t.assert.deepStrictEqual(
       parseGitStatus([
@@ -39,7 +39,7 @@ void describe('status line', () => {
     );
   });
 
-  void test('renders a two-sided shell-style status line', async (t: TestContext) => {
+  void test('renders the two-sided shell UI', async (t: TestContext) => {
     type Handler = (event: unknown, ctx: ExtensionContext) => Promise<void>;
     type FooterFactory = Exclude<Parameters<ExtensionContext['ui']['setFooter']>[0], undefined>;
     type Renderable = {render(width: number): string[]};
@@ -57,7 +57,7 @@ void describe('status line', () => {
     let userBashFinished: (() => void) | undefined;
     let gitStatusCalls = 0;
 
-    statusLine({
+    shellUi({
       events: {
         on(channel: string, handler: () => void) {
           if (channel === 'sloppi:user-bash-end') {
@@ -89,7 +89,7 @@ void describe('status line', () => {
           sessionStart = handler;
         }
       },
-    } as unknown as Parameters<typeof statusLine>[0]);
+    } as unknown as Parameters<typeof shellUi>[0]);
 
     const theme = {
       bg: (_token: string, text: string) => text,
@@ -131,7 +131,7 @@ void describe('status line', () => {
 
     await sessionStart?.({}, ctx);
     if (footerFactory === undefined) {
-      throw new Error('Status line did not install its footer');
+      throw new Error('Shell UI did not install its footer');
     }
 
     initTheme('dark', false);
@@ -160,8 +160,8 @@ void describe('status line', () => {
       setImmediate(resolve);
     });
     t.assert.strictEqual(gitStatusCalls, 2);
-    const topStatus = statusWidgets.get('belowEditor:status-line-top');
-    const bottomStatus = statusWidgets.get('belowEditor:status-line-bottom');
+    const topStatus = statusWidgets.get('belowEditor:shell-ui-top');
+    const bottomStatus = statusWidgets.get('belowEditor:shell-ui-bottom');
     if (topStatus === undefined || bottomStatus === undefined || editorFactory === undefined) {
       throw new Error('Status widgets or prompt editor were not installed');
     }
