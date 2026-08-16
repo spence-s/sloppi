@@ -1,5 +1,4 @@
-import {realpathSync} from 'node:fs';
-import {mkdtemp, rm} from 'node:fs/promises';
+import {mkdtemp, rm, realpath} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
@@ -10,6 +9,17 @@ import {
 } from '@anthropic-ai/sandbox-runtime';
 import {merge} from 'object-deep-merge';
 import type {ConfigStore} from './config.ts';
+
+/**
+ Evaluates a path to its real path, or returns the original path if it does not exist.
+ */
+const safeRealPath = async (path: string): Promise<string> => {
+  try {
+    return await realpath(path);
+  } catch {
+    return path;
+  }
+};
 
 type CommandValue = string | number | ReadonlyArray<string | number>;
 
@@ -50,13 +60,27 @@ export class SandboxSessionManager {
 
     const scratchPath = await mkdtemp(join(tmpdir(), 'sloppi-'));
 
-    const agentPath = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent');
+    /**
+     We need to allow all agents from anywhere the ability to read global skills.
+     We need also account for the potential of the skills being symlinked,
+     so we allow the real paths of those as well.
+     */
+    const piAgentPath = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent');
+    const agentsDirectory = join(homedir(), '.agents');
+    const realAgentsDirectory = await safeRealPath(agentsDirectory);
+    const globalPiSkillPaths = ['skills', 'git', 'npm'].map(directory => resolve(piAgentPath, directory));
+    const realGlobalPiSkillPaths = await Promise.all(globalPiSkillPaths.map(async path => safeRealPath(path)));
 
     const globalSkillPaths = [
+      ...new Set([
       // inside ~/.pi/agent
-      ...['skills', 'git', 'npm'].map(directory => resolve(agentPath, directory)),
-      // inside ~/.agents/skills
-      join(homedir(), '.agents', 'skills'),
+        ...globalPiSkillPaths,
+        // if the skills are symlinked, allow their real paths too
+        ...realGlobalPiSkillPaths,
+        // inside ~/.agents/skills
+        join(homedir(), '.agents', 'skills'),
+        realAgentsDirectory,
+      ]),
     ];
 
     const runtimeConfig = merge({

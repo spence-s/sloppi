@@ -275,6 +275,67 @@ void test('adds current sandbox access to the system prompt', async (t: TestCont
   }
 });
 
+void test('reports approved network access to both the UI and the model', async (t: TestContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-approval-test-'));
+  const configPath = join(directory, 'sandbox.json');
+  const handlers = new Map<string, (...arguments_: unknown[]) => unknown>();
+  const notifications: string[] = [];
+  const selections = ['Deny', 'Allow blocked.example:443 for this project'];
+  let restarts = 0;
+  const pi = {
+    on(name: string, handler: (...arguments_: unknown[]) => unknown) {
+      handlers.set(name, handler);
+    },
+    registerCommand() {
+      return undefined;
+    },
+    registerTool() {
+      return undefined;
+    },
+  } as unknown as ExtensionAPI;
+  const extension = new SandboxExtension(pi);
+  extension.config = new ConfigStore(extension.cwd, configPath);
+  extension.sandbox = {
+    async restartSession() {
+      restarts += 1;
+    },
+  } as unknown as SandboxSessionManager;
+  extension.register();
+
+  const handler = handlers.get('tool_result');
+  const event = {
+    toolName: 'bash',
+    input: {command: 'curl https://blocked.example/resource'},
+    content: [{type: 'text', text: 'connection blocked by network allowlist'}],
+  };
+  const ctx = {
+    hasUI: true,
+    ui: {
+      input: async () => undefined,
+      notify(message: string) {
+        notifications.push(message);
+      },
+      select: async () => selections.shift(),
+    },
+  };
+
+  try {
+    if (handler === undefined) {
+      throw new Error('tool_result handler was not registered');
+    }
+
+    t.assert.strictEqual(await handler(event, ctx), undefined);
+    const result = await handler(event, ctx) as {content: Array<{type: string; text: string}>};
+    const approvalMessage = 'Sandbox access to blocked.example:443 was approved and is now active. Retry the failed tool call.';
+
+    t.assert.strictEqual(restarts, 1);
+    t.assert.strictEqual(notifications.at(-1), approvalMessage);
+    t.assert.deepStrictEqual(result.content, [...event.content, {type: 'text', text: approvalMessage}]);
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
+});
+
 void test('/sandbox mutates projects by default and global configuration only when requested', async (t: TestContext) => {
   type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-command-test-'));

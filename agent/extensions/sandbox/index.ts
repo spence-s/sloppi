@@ -117,9 +117,12 @@ export class Sandbox {
           return;
         }
 
-        await config.addDomain('project', domain.trim());
+        const approvedDomain = domain.trim();
+        await config.addDomain('project', approvedDomain);
         await sandbox.restartSession();
-        ctx.ui.notify(`Added ${domain.trim()} to project network.allowedDomains. Retry the command.`, 'info');
+        const approvalMessage = `Sandbox access to ${approvedDomain} was approved and is now active. Retry the failed tool call.`;
+        ctx.ui.notify(approvalMessage, 'info');
+        return {content: [...event.content, {type: 'text', text: approvalMessage}]};
       } catch (error) {
         ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
       } finally {
