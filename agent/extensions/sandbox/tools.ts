@@ -84,7 +84,7 @@ export class SandboxTools {
 
     const bash: BashOperations = {
       async exec(command, commandCwd, {onData}) {
-        const result = await sandbox.run({cwd: commandCwd})`sh -lc ${command}`;
+        const result = await sandbox.run({cwd: commandCwd})`sh -c ${command}`;
         onData(Buffer.from(result.stdout));
         onData(Buffer.from(result.stderr));
         return {exitCode: result.exitCode ?? null};
