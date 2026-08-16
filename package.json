@@ -31,7 +31,7 @@
     "check": "tsc -p tsconfig.json",
     "lint": "xo",
     "release": "np",
-    "test": "PI_DEV=false node --test test/**/*",
+    "test": "node --test test/**/*",
     "test:coverage": "node --test --experimental-test-coverage test/**/*",
     "test:watch": "node --test --watch test/**/*",
     "update": "ncu -i"

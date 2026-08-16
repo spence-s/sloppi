@@ -233,11 +233,13 @@ export default function shellUi(pi: ExtensionAPI): void {
 
           const usage = ctx.getContextUsage();
           const contextPercent = usage?.percent;
-          let contextColor: 'error' | 'warning' | 'syntaxNumber' = 'syntaxNumber';
+          let contextColor: 'accent' | 'error' | 'warning' | 'syntaxNumber' = 'accent';
 
-          if (typeof contextPercent === 'number' && contextPercent >= 80) {
+          if (typeof contextPercent === 'number' && contextPercent >= 60) {
             contextColor = 'error';
-          } else if (typeof contextPercent === 'number' && contextPercent >= 60) {
+          } else if (typeof contextPercent === 'number' && contextPercent >= 40) {
+            contextColor = 'syntaxNumber';
+          } else if (typeof contextPercent === 'number' && contextPercent >= 15) {
             contextColor = 'warning';
           }
 

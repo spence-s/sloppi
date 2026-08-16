@@ -56,6 +56,8 @@ void describe('shell UI', () => {
     let editorFactory: EditorFactory | undefined;
     let userBashFinished: (() => void) | undefined;
     let gitStatusCalls = 0;
+    let contextPercent = 25;
+    const foregrounds: Array<[string, string]> = [];
 
     shellUi({
       events: {
@@ -94,11 +96,14 @@ void describe('shell UI', () => {
     const theme = {
       bg: (_token: string, text: string) => text,
       bold: (text: string) => text,
-      fg: (_token: string, text: string) => text,
+      fg(token: string, text: string) {
+        foregrounds.push([token, text]);
+        return text;
+      },
     };
     const ctx = {
       cwd: '/repo',
-      getContextUsage: () => ({contextWindow: 200_000, percent: 25, tokens: 50_000}),
+      getContextUsage: () => ({contextWindow: 200_000, percent: contextPercent, tokens: 50_000}),
       hasPendingMessages: () => false,
       isIdle: () => true,
       isProjectTrusted: () => true,
@@ -193,6 +198,15 @@ void describe('shell UI', () => {
     t.assert.match(lines[1] ?? '', /sandbox status.*agent.*third-party status.*ponytail status.*25\.0%.*50K\/200K.*\$0\.127.*󰆏 1$/v);
     t.assert.doesNotMatch(lines.join('\n'), /idle|busy|trusted|untrusted|[]/v);
 
+    const contextColors = [10, 25, 45, 60].map(percent => {
+      contextPercent = percent;
+      foregrounds.length = 0;
+      bottomStatus.render(180);
+      return foregrounds.find(([, text]) => text === `${percent.toFixed(1)}%`)?.[0];
+    });
+    t.assert.deepStrictEqual(contextColors, ['accent', 'warning', 'syntaxNumber', 'error']);
+
+    contextPercent = 25;
     const responsiveWidths = [20, 32, 40, 48, 60, 80, 100, 180];
     const responsiveLines = responsiveWidths.map(width => [
       ...topStatus.render(width),

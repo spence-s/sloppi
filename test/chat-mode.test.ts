@@ -167,7 +167,7 @@ void describe('chat-mode', () => {
       'fetch_content',
       'get_search_content',
     ]);
-    t.assert.strictEqual(harness.getStatus(), '[dim]󰒓 [text]chat');
+    t.assert.strictEqual(harness.getStatus(), '[accent]󰒓 [dim]chat');
 
     const beforeAgentStartResult = await harness.getBeforeAgentStart()();
     t.assert.strictEqual(
@@ -188,7 +188,7 @@ void describe('chat-mode', () => {
       'edit',
       'write',
     ]);
-    t.assert.strictEqual(harness.getStatus(), '[dim]󰒓 [text]agent');
+    t.assert.strictEqual(harness.getStatus(), '[success]󰒓 [dim]agent');
 
     const beforeAgentStartResult = await harness.getBeforeAgentStart()();
     t.assert.strictEqual(
@@ -221,24 +221,28 @@ void describe('chat-mode', () => {
     ]);
   });
 
-  void test('chat with a prompt enables chat mode before submitting it', async (t: TestContext) => {
+  void test('chat with a prompt toggles modes before submitting it', async (t: TestContext) => {
     const harness = createHarness(['read', 'bash', 'edit', 'write']);
 
     await harness.getCommand('chat').handler('Explain this code', harness.ctx);
+    t.assert.deepStrictEqual(harness.getActiveTools(), [
+      'read',
+      'grep',
+      'find',
+      'ls',
+      'web_search',
+      'source_check',
+      'fetch_content',
+      'get_search_content',
+    ]);
+    t.assert.strictEqual(harness.getStatus(), '[accent]󰒓 [dim]chat');
 
-    t.assert.deepStrictEqual(harness.getSentMessages(), [{
-      activeTools: [
-        'read',
-        'grep',
-        'find',
-        'ls',
-        'web_search',
-        'source_check',
-        'fetch_content',
-        'get_search_content',
-      ],
-      text: 'Explain this code',
-    }]);
-    t.assert.strictEqual(harness.getStatus(), '[dim]󰒓 [text]chat');
+    await harness.getCommand('chat').handler('Now edit it', harness.ctx);
+    t.assert.deepStrictEqual(harness.getActiveTools(), ['read', 'bash', 'edit', 'write']);
+    t.assert.strictEqual(harness.getStatus(), '[success]󰒓 [dim]agent');
+    t.assert.deepStrictEqual(harness.getSentMessages().map(message => message.text), [
+      'Explain this code',
+      'Now edit it',
+    ]);
   });
 });

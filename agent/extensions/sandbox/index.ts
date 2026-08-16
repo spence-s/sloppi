@@ -136,7 +136,7 @@ export class Sandbox {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : 'Sandbox command failed');
         }
 
-        ctx.ui.setStatus('sandbox', `${ctx.ui.theme.bold(ctx.ui.theme.fg('success', '󰕥'))} ${ctx.ui.theme.fg('muted', 'sandboxed')}`);
+        ctx.ui.setStatus('sandbox', `${ctx.ui.theme.bold(ctx.ui.theme.fg('success', '󰕥'))} ${ctx.ui.theme.fg('muted', 'sandbox')}`);
         ctx.ui.notify(`Sandboxed tools can access only ${cwd}.`, 'info');
       } catch (error) {
         ctx.ui.setStatus('sandbox', `${ctx.ui.theme.bold(ctx.ui.theme.fg('error', '󰻌'))} ${ctx.ui.theme.fg('muted', 'sandbox failed')}`);

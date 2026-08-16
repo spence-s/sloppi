@@ -63,7 +63,7 @@ export default function chatMode(pi: ExtensionAPI): void {
 
     ctx.ui.setStatus(
       chatModeStatusId,
-      `${ctx.ui.theme.fg('dim', '󰒓')} ${ctx.ui.theme.fg('text', isChatModeEnabled ? 'chat' : 'agent')}`,
+      `${ctx.ui.theme.fg(isChatModeEnabled ? 'accent' : 'success', '󰒓')} ${ctx.ui.theme.fg('dim', isChatModeEnabled ? 'chat' : 'agent')}`,
     );
 
     if (!shouldNotify) {
@@ -112,13 +112,13 @@ export default function chatMode(pi: ExtensionAPI): void {
 
     ctx.ui.setStatus(
       chatModeStatusId,
-      `${ctx.ui.theme.fg('dim', '󰒓')} ${ctx.ui.theme.fg('text', isChatModeEnabled ? 'chat' : 'agent')}`,
+      `${ctx.ui.theme.fg(isChatModeEnabled ? 'accent' : 'success', '󰒓')} ${ctx.ui.theme.fg('dim', isChatModeEnabled ? 'chat' : 'agent')}`,
     );
   };
 
   pi.registerCommand('chat', {
     description:
-      'Toggle chat mode or enable it and submit a prompt. Usage: /chat [on|off|toggle|status|prompt]',
+      'Toggle modes, optionally submitting a prompt afterward. Usage: /chat [on|off|toggle|status|prompt]',
     async handler(args, ctx) {
       const input = args?.trim() ?? '';
       const command = input.length === 0 ? 'toggle' : input.toLowerCase();
@@ -150,7 +150,7 @@ export default function chatMode(pi: ExtensionAPI): void {
         }
 
         default: {
-          setChatMode(true, ctx, false);
+          setChatMode(!isChatModeEnabled, ctx, false);
           if (ctx.isIdle()) {
             pi.sendUserMessage(input);
           } else {
