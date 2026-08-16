@@ -65,21 +65,18 @@ export class SandboxSessionManager {
      We need also account for the potential of the skills being symlinked,
      so we allow the real paths of those as well.
      */
-    const piAgentPath = process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent');
-    const agentsDirectory = join(homedir(), '.agents');
-    const realAgentsDirectory = await safeRealPath(agentsDirectory);
+    const homeDirectory = process.env.HOME ?? homedir();
+    const piAgentPath = process.env.PI_CODING_AGENT_DIR ?? join(homeDirectory, '.pi', 'agent');
+    const agentsSkillPath = join(homeDirectory, '.agents', 'skills');
     const globalPiSkillPaths = ['skills', 'git', 'npm'].map(directory => resolve(piAgentPath, directory));
     const realGlobalPiSkillPaths = await Promise.all(globalPiSkillPaths.map(async path => safeRealPath(path)));
 
     const globalSkillPaths = [
       ...new Set([
-      // inside ~/.pi/agent
         ...globalPiSkillPaths,
-        // if the skills are symlinked, allow their real paths too
         ...realGlobalPiSkillPaths,
-        // inside ~/.agents/skills
-        join(homedir(), '.agents', 'skills'),
-        realAgentsDirectory,
+        agentsSkillPath,
+        await safeRealPath(agentsSkillPath),
       ]),
     ];
 
@@ -92,7 +89,7 @@ export class SandboxSessionManager {
       filesystem: {
         allowRead: [this.cwd, ...globalSkillPaths],
         allowWrite: [this.cwd, scratchPath],
-        denyRead: [dirname(homedir())],
+        denyRead: [homeDirectory],
         denyWrite: [],
       },
     }, this.config.getEffectiveConfig());

@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  symlink,
   writeFile,
 } from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
@@ -60,6 +61,46 @@ void test('isolates reads and temporary Unix sockets', async (t: TestContext) =>
 
   t.assert.strictEqual(process.env.CLAUDE_CODE_TMPDIR, previousClaudeCodeTmpdir);
   t.assert.strictEqual(process.env.TMPDIR, previousTmpdir);
+});
+
+void test('allows only logical and canonical global skill directories', async (t: TestContext) => {
+  const directory = await mkdtemp(join(process.cwd(), '.sloppi-skills-test-'));
+  const home = join(directory, 'home');
+  const logicalPiAgentPath = join(home, '.pi-agent');
+  const actualPiAgentPath = join(directory, 'actual-pi-agent');
+  const logicalAgentsSkillPath = join(home, '.agents', 'skills');
+  const actualAgentsSkillPath = join(directory, 'actual-agents-skills');
+  const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory, join(directory, 'sandbox.json')));
+
+  try {
+    await Promise.all([
+      ...['skills', 'git', 'npm'].map(async path => mkdir(join(actualPiAgentPath, path), {recursive: true})),
+      mkdir(join(home, '.agents'), {recursive: true}),
+      mkdir(actualAgentsSkillPath, {recursive: true}),
+    ]);
+    await symlink(actualPiAgentPath, logicalPiAgentPath);
+    await symlink(actualAgentsSkillPath, logicalAgentsSkillPath);
+    t.mock.property(process, 'env', {
+      ...process.env,
+      HOME: home,
+      PI_CODING_AGENT_DIR: logicalPiAgentPath,
+    });
+
+    await sandbox.startSession();
+    const skillDirectories = ['skills', 'git', 'npm'];
+    const allowRead = SandboxManager.getConfig()?.filesystem?.allowRead ?? [];
+    const expectedAllowRead = [
+      directory,
+      ...skillDirectories.map(path => join(logicalPiAgentPath, path)),
+      ...skillDirectories.map(path => join(realpathSync(actualPiAgentPath), path)),
+      logicalAgentsSkillPath,
+      realpathSync(actualAgentsSkillPath),
+    ];
+    t.assert.deepStrictEqual(allowRead, expectedAllowRead);
+  } finally {
+    await sandbox.stopSession();
+    await rm(directory, {force: true, recursive: true});
+  }
 });
 
 void test('loads the former project directory configuration', (t: TestContext) => {
