@@ -76,6 +76,7 @@
     "extensions": [
       "./agent/extensions/chat-mode.ts",
       "./agent/extensions/commit.ts",
+      "./agent/extensions/permissions/index.ts",
       "./agent/extensions/sandbox/index.ts",
       "./agent/extensions/startup-banner.ts",
       "./agent/extensions/shell-ui.ts",
