@@ -30,3 +30,13 @@ Inline implementation details at their point of use, even when that duplicates a
 ### JSDoc Comments
 
 You always write brief, multiline, JSDoc comments above the functions you write. These comments generally focus on the _why_ of the function and very briefly explains its use.
+
+example:
+```ts
+/**
+ * This is a multi-line json comment
+ */
+someFunction() {
+  // ...
+}
+```
