@@ -16,22 +16,24 @@ A shareable [Pi](https://pi.dev) package that sandboxes filesystem tools, adds a
 Review the source before installing: Pi packages execute with your user permissions.
 
 ```bash
-pi install git:github.com/spence-s/sloppi
+pi install npm:sloppi
 ```
 
 To try it for one session without changing Pi settings:
 
 ```bash
-pi -e git:github.com/spence-s/sloppi
+pi -e npm:sloppi
 ```
 
 Manage the installation with:
 
 ```bash
-pi update git:github.com/spence-s/sloppi
-pi remove git:github.com/spence-s/sloppi
+pi update npm:sloppi
+pi remove npm:sloppi
 pi config # enable or disable individual Sloppi extensions
 ```
+
+Install the latest development version directly from GitHub with `pi install git:github.com/spence-s/sloppi`.
 
 Sloppi does not change Pi's project trust behavior.
 

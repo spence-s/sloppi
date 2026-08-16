@@ -75,7 +75,7 @@
     "extensions": [
       "./agent/extensions/chat-mode.ts",
       "./agent/extensions/commit.ts",
-      "./agent/extensions/sloppi/index.ts",
+      "./agent/extensions/sandbox/index.ts",
       "./agent/extensions/startup-banner.ts",
       "./agent/extensions/shell-ui.ts",
       "./agent/extensions/zshrc.ts"
