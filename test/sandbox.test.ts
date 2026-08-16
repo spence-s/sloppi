@@ -37,7 +37,10 @@ void test('requires an explicit session before running commands', async (t: Test
 });
 
 void test('isolates reads and temporary Unix sockets', async (t: TestContext) => {
-  const sandbox = new SandboxSessionManager('/Users/spencer/Projects/app', new ConfigStore('/Users/spencer/Projects/app'));
+  const directory = realpathSync(process.cwd());
+  const configStore = new ConfigStore(directory);
+  configStore.hasLoaded = true;
+  const sandbox = new SandboxSessionManager(directory, configStore);
   const homeDirectory = dirname(homedir());
   const previousClaudeCodeTmpdir = process.env.CLAUDE_CODE_TMPDIR;
   const previousTmpdir = process.env.TMPDIR;
@@ -58,8 +61,8 @@ void test('isolates reads and temporary Unix sockets', async (t: TestContext) =>
     t.assert.match(wrapped, new RegExp(`TMPDIR=${scratchPath}`, 'v'));
     let nodeProxy = '1';
     if (process.env.USER !== 'sandbox') {
-      const result = await sandbox.run`node -p process.env.NODE_USE_ENV_PROXY`;
-      nodeProxy = result.stdout.trim();
+      const result = await sandbox.run`printf %s "$NODE_USE_ENV_PROXY"`;
+      nodeProxy = result.stdout;
     }
 
     t.assert.strictEqual(nodeProxy, '1');
