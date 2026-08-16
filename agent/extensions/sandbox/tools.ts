@@ -59,13 +59,13 @@ export class SandboxTools {
 
     const write: WriteOperations = {
       async mkdir(path) {
-        const result = await sandbox.run`mkdir -p -- ${realpathSync(path)}`;
+        const result = await sandbox.run`mkdir -p -- ${path}`;
         if (result.exitCode !== 0) {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot create ${path}`);
         }
       },
       async writeFile(path, content) {
-        const result = await sandbox.run`printf %s ${content} > ${realpathSync(path)}`;
+        const result = await sandbox.run`printf %s ${content} > ${path}`;
         if (result.exitCode !== 0) {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot write ${path}`);
         }

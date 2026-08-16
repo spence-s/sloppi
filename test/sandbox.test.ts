@@ -21,6 +21,7 @@ import {SandboxCommand} from '../agent/extensions/sandbox/command.ts';
 import {ConfigStore} from '../agent/extensions/sandbox/config.ts';
 import sandboxExtension, {Sandbox as SandboxExtension} from '../agent/extensions/sandbox/index.ts';
 import {SandboxSessionManager} from '../agent/extensions/sandbox/session-manager.ts';
+import {SandboxTools} from '../agent/extensions/sandbox/tools.ts';
 
 void test('uses no persisted sandbox access by default', (t: TestContext) => {
   const configStore = new ConfigStore('/Users/spencer/Projects/app');
@@ -232,6 +233,42 @@ void test('SRT denies writes outside the project and session scratch directory',
     t.assert.notStrictEqual(result.exitCode, 0);
     await t.assert.rejects(access(outputPath), {code: 'ENOENT'});
   } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
+});
+
+void test('writes a new file through the sandbox tool and creates missing parents', async (t: TestContext) => {
+  if (process.env.USER === 'sandbox') {
+    t.skip('Sandbox Runtime cannot apply a second macOS sandbox profile.');
+    return;
+  }
+
+  type WriteTool = {execute: (...arguments_: unknown[]) => Promise<unknown>};
+
+  const directory = await mkdtemp(join(process.cwd(), '.sloppi-write-test-'));
+  const config = new ConfigStore(directory, join(directory, 'sandbox.json'));
+  const sandbox = new SandboxSessionManager(directory, config);
+  let writeTool: WriteTool | undefined;
+  const pi = {
+    registerTool(tool: unknown) {
+      if ((tool as {name?: string}).name === 'write') {
+        writeTool = tool as WriteTool;
+      }
+    },
+  } as unknown as ExtensionAPI;
+
+  try {
+    await sandbox.startSession();
+    new SandboxTools(pi, directory, sandbox).register();
+    if (writeTool === undefined) {
+      throw new Error('write tool was not registered');
+    }
+
+    const outputPath = join(directory, 'missing', 'probe.txt');
+    await writeTool.execute('write-test', {path: outputPath, content: 'sandbox write probe\n'}, undefined, undefined, undefined);
+    t.assert.strictEqual(await readFile(outputPath, 'utf8'), 'sandbox write probe\n');
+  } finally {
+    await sandbox.stopSession();
     await rm(directory, {force: true, recursive: true});
   }
 });
