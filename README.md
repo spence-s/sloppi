@@ -92,7 +92,29 @@ Global SRT options live at the root. Project overrides live under `projects["/ab
 
 `exposeEnv` contains host environment variable names, not values. Global and project lists combine; missing variables are ignored. Sloppi's fixed `HOME`, `PATH`, `LANG`, `TMPDIR`, and `USER` values cannot be overridden.
 
-Use `/sandbox` to manage the current project's access interactively. Use `/sandbox global` to open the same controls for global access. Access views and rule lists show the effective configuration, while changes apply only to the selected project or global layer. The advanced editor validates the complete serializable SRT configuration before saving and warns before enabling weaker isolation options.
+Request policies add method, path, and exact header-value restrictions to an allowed destination:
+
+```json
+{
+  "network": {
+    "allowedDomains": ["api.example.com:443"]
+  },
+  "sandbox": {
+    "requestPolicies": [{
+      "destination": "api.example.com:443",
+      "allow": [{
+        "methods": ["POST"],
+        "pathPrefixes": ["/v1/jobs"],
+        "headers": {"x-environment": ["preview"]}
+      }]
+    }]
+  }
+}
+```
+
+Global and project request policies combine. A listed destination denies requests unless one `allow` rule matches; predicates within a rule all apply. `paths` matches exactly, while `pathPrefixes` matches a path segment and its children. Destinations require an exact `host:port` and must also be present in `network.allowedDomains`. Sloppi enables SRT TLS termination when policies are configured, so protected HTTPS destinations cannot be listed in `tlsTerminate.excludeDomains`. Do not store secret header values in this file. Run `/reload` after editing the file.
+
+Use `/sandbox` to manage the current project's access interactively. Use `/sandbox global` to open the same controls for global access. Access views and rule lists show the effective configuration, while changes apply only to the selected project or global layer. Request policies are configured manually; the advanced editor validates the complete serializable SRT configuration before saving and warns before enabling weaker isolation options.
 
 By default, filesystem tools can write only the current project and private session scratch space. Global Pi skills and Git/npm package directories are readable. Network access is denied until allowed. A blocked network request can prompt to add a project domain rule; use `/sandbox` to disable those prompts.
 

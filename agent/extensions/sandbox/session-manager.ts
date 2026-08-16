@@ -37,6 +37,40 @@ type SandboxSession = {
   scratchPath: string;
 };
 
+/**
+ Checks whether an exact policy destination is covered by an SRT domain pattern.
+ */
+const isDomainPatternMatch = (destination: string, pattern: string): boolean => {
+  /**
+   Separates the optional port without breaking bracketed IPv6 hosts.
+   */
+  const split = (value: string): {host: string; port: string | undefined} => {
+    if (value.startsWith('[')) {
+      const bracket = value.indexOf(']');
+      return {
+        host: value.slice(0, bracket + 1).toLowerCase(),
+        port: value[bracket + 1] === ':' ? value.slice(bracket + 2) : undefined,
+      };
+    }
+
+    const separator = value.lastIndexOf(':');
+    const hasPort = separator > 0 && /^\d+$/v.test(value.slice(separator + 1));
+    return {
+      host: (hasPort ? value.slice(0, separator) : value).toLowerCase(),
+      port: hasPort ? value.slice(separator + 1) : undefined,
+    };
+  };
+
+  const exact = split(destination);
+  const candidate = split(pattern);
+  return (candidate.port === undefined || candidate.port === exact.port)
+    && (
+      candidate.host === '*'
+      || candidate.host === exact.host
+      || (candidate.host.startsWith('*.') && exact.host.endsWith(candidate.host.slice(1)))
+    );
+};
+
 export class SandboxSessionManager {
   session: SandboxSession | undefined;
   cwd: string;
@@ -57,6 +91,7 @@ export class SandboxSessionManager {
     }
 
     await this.config.load();
+    const requestPolicies = this.config.getRequestPolicies();
 
     const scratchPath = await mkdtemp(join(tmpdir(), 'sloppi-'));
 
@@ -94,6 +129,60 @@ export class SandboxSessionManager {
       },
     }, this.config.getEffectiveConfig());
     const parsedRuntimeConfig = SandboxRuntimeConfigSchema.parse(runtimeConfig);
+    if (requestPolicies.length > 0) {
+      const excludedDomains = parsedRuntimeConfig.network.tlsTerminate?.excludeDomains ?? [];
+      const excludedDestination = requestPolicies.find(policy =>
+        excludedDomains.some(pattern => isDomainPatternMatch(policy.destination, pattern)));
+      if (excludedDestination !== undefined) {
+        await rm(scratchPath, {force: true, recursive: true});
+        throw new Error(`Request policy destination ${excludedDestination.destination} cannot be excluded from TLS termination.`);
+      }
+
+      const rulesByDestination = new Map<string, typeof requestPolicies[number]['allow']>();
+      for (const policy of requestPolicies) {
+        rulesByDestination.set(policy.destination, [
+          ...(rulesByDestination.get(policy.destination) ?? []),
+          ...policy.allow,
+        ]);
+      }
+
+      parsedRuntimeConfig.network.tlsTerminate ??= {};
+      /**
+       Allows unprotected destinations and fails closed when protected requests do not match.
+       */
+      parsedRuntimeConfig.network.filterRequest = async request => {
+        const url = new URL(request.url);
+        const port = url.port.length > 0 ? url.port : (url.protocol === 'https:' ? '443' : '80');
+        const destination = `${url.hostname.toLowerCase().replace(/\.$/v, '')}:${port}`;
+        const rules = rulesByDestination.get(destination);
+        if (rules === undefined) {
+          return {action: 'allow'};
+        }
+
+        const isAllowed = rules.some(rule => {
+          if (rule.methods !== undefined && !rule.methods.includes(request.method.toUpperCase())) {
+            return false;
+          }
+
+          const hasPathRule = rule.paths !== undefined || rule.pathPrefixes !== undefined;
+          const isPathMatch = rule.paths?.includes(url.pathname) === true
+            || rule.pathPrefixes?.some(prefix => url.pathname === prefix
+              || url.pathname.startsWith(prefix.endsWith('/') ? prefix : `${prefix}/`)) === true;
+          if (hasPathRule && !isPathMatch) {
+            return false;
+          }
+
+          return Object.entries(rule.headers ?? {}).every(([name, values]) => {
+            const value = request.headers.get(name);
+            return value !== null && values.includes(value);
+          });
+        });
+
+        return isAllowed
+          ? {action: 'allow'}
+          : {action: 'deny', reason: `Request does not match the configured policy for ${destination}.`};
+      };
+    }
 
     /*
      * With filesystem isolation enabled, SRT ignores TMPDIR when wrapping a
@@ -152,6 +241,7 @@ export class SandboxSessionManager {
         HOME: currentSession.scratchPath,
         PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
         LANG: process.env.LANG ?? 'C.UTF-8',
+        NODE_USE_ENV_PROXY: '1',
         TMPDIR: currentSession.scratchPath,
         USER: 'sandbox',
       };

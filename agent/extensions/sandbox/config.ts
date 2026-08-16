@@ -9,6 +9,7 @@ import {
   SandboxRuntimeConfigSchema,
 } from '@anthropic-ai/sandbox-runtime';
 import {merge} from 'object-deep-merge';
+import {z} from 'zod';
 
 type PartialWithUndefined<T> = T extends ReadonlyArray<infer Item>
   ? Array<PartialWithUndefined<Item>>
@@ -16,11 +17,69 @@ type PartialWithUndefined<T> = T extends ReadonlyArray<infer Item>
     ? {[Key in keyof T]?: PartialWithUndefined<T[Key]> | undefined}
     : T;
 
+const nonEmptyStringSchema = z.string().min(1);
+const pathSchema = nonEmptyStringSchema.refine(path => path.startsWith('/'), 'paths must start with /');
+const headerValuesSchema = z.array(z.string()).min(1);
+const headersSchema = z.record(nonEmptyStringSchema, headerValuesSchema).transform(headers => {
+  const normalized: Record<string, string[]> = {};
+  for (const [name, values] of Object.entries(headers)) {
+    normalized[name.toLowerCase()] = values;
+  }
+
+  return normalized;
+});
+const requestAllowRuleSchema = z.strictObject({
+  headers: headersSchema.optional(),
+  methods: z.array(nonEmptyStringSchema).min(1).transform(methods => methods.map(method => method.toUpperCase())).optional(),
+  pathPrefixes: z.array(pathSchema).min(1).optional(),
+  paths: z.array(pathSchema).min(1).optional(),
+}).refine(rule => Object.values(rule).some(value => value !== undefined), 'at least one predicate is required');
+const requestDestinationSchema = z.string().transform((destination, context) => {
+  let url: URL;
+  try {
+    url = new URL(`http://${destination}`);
+  } catch {
+    context.addIssue({code: 'custom', message: 'use an exact host:port'});
+    return z.NEVER;
+  }
+
+  const portSeparator = destination.startsWith('[')
+    ? destination.indexOf(']:') + 1
+    : destination.lastIndexOf(':');
+  const port = Number(destination.slice(portSeparator + 1));
+  if (
+    portSeparator <= 0
+    || url.username.length > 0
+    || url.password.length > 0
+    || url.pathname !== '/'
+    || url.search.length > 0
+    || url.hash.length > 0
+    || url.hostname.includes('*')
+    || !Number.isSafeInteger(port)
+    || port < 1
+    || port > 65_535
+  ) {
+    context.addIssue({code: 'custom', message: 'use an exact host:port'});
+    return z.NEVER;
+  }
+
+  return `${url.hostname.toLowerCase().replace(/\.$/v, '')}:${port}`;
+});
+const requestPolicySchema = z.strictObject({
+  allow: z.array(requestAllowRuleSchema).min(1),
+  destination: requestDestinationSchema,
+}).strict();
+const requestPoliciesSchema = z.array(requestPolicySchema);
+
+export type RequestAllowRule = z.infer<typeof requestAllowRuleSchema>;
+export type RequestPolicy = z.infer<typeof requestPolicySchema>;
+
 export type Config = PartialWithUndefined<SandboxRuntimeConfig> & {
   projects?: Record<string, Config> | undefined;
   sandbox?: {
     exposeEnv?: string[] | undefined;
     promptOnNetworkDeny?: boolean | undefined;
+    requestPolicies?: RequestPolicy[] | undefined;
   } | undefined;
   [key: string]: unknown;
 };
@@ -265,6 +324,17 @@ export class ConfigStore {
     sandboxConfig.promptOnNetworkDeny = isEnabled;
     scopedConfig.sandbox = sandboxConfig;
     await this.save();
+  }
+
+  /**
+   Validates and combines declarative request policies from both configuration scopes.
+   */
+  getRequestPolicies(): RequestPolicy[] {
+    const projectConfig = this.getScopedConfig('project');
+    return [
+      ...requestPoliciesSchema.parse(this.config.sandbox?.requestPolicies ?? []),
+      ...requestPoliciesSchema.parse(projectConfig.sandbox?.requestPolicies ?? []),
+    ];
   }
 
   /** Returns host environment variable names explicitly exposed by global or project configuration. */

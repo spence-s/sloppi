@@ -46,6 +46,7 @@ export class Sandbox {
       const effectiveConfig = config.getEffectiveConfig();
       const writePaths = [...new Set([cwd, ...(effectiveConfig.filesystem?.allowWrite ?? [])])];
       const allowedDomains = effectiveConfig.network?.allowedDomains ?? [];
+      const requestPolicyDestinations = [...new Set(config.getRequestPolicies().map(policy => policy.destination))];
       const accessSummary = [
         'Writable paths:',
         ...writePaths.map(path => `- ${JSON.stringify(path)}`),
@@ -53,6 +54,7 @@ export class Sandbox {
         allowedDomains.length > 0
           ? `Allowed sandboxed network destinations: ${allowedDomains.map(domain => JSON.stringify(domain)).join(', ')}`
           : 'No sandboxed network destinations are allowed.',
+        ...requestPolicyDestinations.map(destination => `Request-filtered destination: ${JSON.stringify(destination)}`),
       ].join('\n');
 
       return {systemPrompt: `${event.systemPrompt}\n\n${sandboxSystemPrompt}\n\n${accessSummary}`};

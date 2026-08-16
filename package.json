@@ -45,7 +45,8 @@
     "@anthropic-ai/sandbox-runtime": "^0.0.73",
     "execa": "^10.0.1",
     "object-deep-merge": "^2.0.1",
-    "type-fest": "^5.8.0"
+    "type-fest": "^5.8.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.2",
@@ -69,7 +70,7 @@
     "@earendil-works/pi-tui": "*"
   },
   "engines": {
-    "node": ">=22"
+    "node": "^22.21.0 || >=24.5.0"
   },
   "pi": {
     "extensions": [

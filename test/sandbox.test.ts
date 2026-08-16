@@ -56,6 +56,13 @@ void test('isolates reads and temporary Unix sockets', async (t: TestContext) =>
 
     const wrapped = await SandboxManager.wrapWithSandbox('true');
     t.assert.match(wrapped, new RegExp(`TMPDIR=${scratchPath}`, 'v'));
+    let nodeProxy = '1';
+    if (process.env.USER !== 'sandbox') {
+      const result = await sandbox.run`node -p process.env.NODE_USE_ENV_PROXY`;
+      nodeProxy = result.stdout.trim();
+    }
+
+    t.assert.strictEqual(nodeProxy, '1');
   } finally {
     await sandbox.stopSession();
   }
@@ -253,6 +260,85 @@ void test('combines and validates configured host environment variable names', (
 
   configStore.config = {sandbox: {exposeEnv: ['NOT-VALID']}};
   t.assert.throws(() => configStore.getExposedEnv(), /Invalid sandbox\.exposeEnv/v);
+});
+
+void test('filters configured destinations by method, path, and header', async (t: TestContext) => {
+  const directory = realpathSync(process.cwd());
+  const configStore = new ConfigStore(directory);
+  configStore.config = {
+    sandbox: {
+      requestPolicies: [{
+        destination: 'api.example.com:443',
+        allow: [{
+          methods: ['post'],
+          pathPrefixes: ['/v1/jobs'],
+          headers: {'X-Environment': ['preview']},
+        }],
+      }],
+    },
+  };
+  configStore.hasLoaded = true;
+  const sandbox = new SandboxSessionManager(directory, configStore);
+
+  try {
+    await sandbox.startSession();
+    const filterRequest = SandboxManager.getConfig()?.network.filterRequest;
+    if (filterRequest === undefined) {
+      throw new Error('Request filter was not configured.');
+    }
+
+    const headers = {'x-environment': 'preview'};
+    t.assert.deepStrictEqual(
+      await filterRequest(new Request('https://api.example.com/v1/jobs/123', {method: 'POST', headers})),
+      {action: 'allow'},
+    );
+    t.assert.deepStrictEqual(
+      await filterRequest(new Request('https://api.example.com./v1/jobs', {method: 'POST', headers})),
+      {action: 'allow'},
+    );
+    const wrongPath = await filterRequest(new Request('https://api.example.com/v1/jobshop', {method: 'POST', headers}));
+    t.assert.strictEqual(wrongPath.action, 'deny');
+    const wrongMethod = await filterRequest(new Request('https://api.example.com/v1/jobs', {headers}));
+    t.assert.strictEqual(wrongMethod.action, 'deny');
+    const missingHeader = await filterRequest(new Request('https://api.example.com/v1/jobs', {method: 'POST'}));
+    t.assert.strictEqual(missingHeader.action, 'deny');
+    const wrongHeader = await filterRequest(new Request('https://api.example.com/v1/jobs', {
+      method: 'POST',
+      headers: {'x-environment': 'production'},
+    }));
+    t.assert.strictEqual(wrongHeader.action, 'deny');
+    t.assert.deepStrictEqual(
+      await filterRequest(new Request('https://other.example.com/anything')),
+      {action: 'allow'},
+    );
+  } finally {
+    await sandbox.stopSession();
+  }
+
+  configStore.config = {
+    network: {
+      allowedDomains: ['api.example.com:443'],
+      tlsTerminate: {excludeDomains: ['*.example.com']},
+    },
+    sandbox: {
+      requestPolicies: [{destination: 'api.example.com:443', allow: [{paths: ['/v1/jobs']}]}],
+    },
+  };
+  await t.assert.rejects(sandbox.startSession(), /cannot be excluded from TLS termination/v);
+
+  configStore.config = {
+    sandbox: {
+      requestPolicies: [{destination: 'api.example.com:443', allow: [{paths: ['relative']}]}],
+    },
+  };
+  t.assert.throws(() => configStore.getRequestPolicies(), /paths must start with \//v);
+
+  configStore.config = {
+    sandbox: {
+      requestPolicies: [{destination: '*.example.com:443', allow: [{paths: ['/v1/jobs']}]}],
+    },
+  };
+  t.assert.throws(() => configStore.getRequestPolicies(), /exact host:port/v);
 });
 
 void test('SRT denies writes outside the project and session scratch directory', async (t: TestContext) => {
