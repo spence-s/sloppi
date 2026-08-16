@@ -27,6 +27,11 @@ export class PermissionCommand {
     }
 
     await this.config.replaceCommands(scope, JSON.parse(edited) as unknown);
+    const hasRules = Object.keys(this.config.getEffectiveCommands()).length > 0;
+    ctx.ui.setStatus(
+      'permissions',
+      `${ctx.ui.theme.fg('warning', hasRules ? '󰌾' : '󰌿')} ${ctx.ui.theme.fg('muted', 'permissions')}`,
+    );
     ctx.ui.notify(`Updated ${scope} command permissions.`, 'info');
   }
 

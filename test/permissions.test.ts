@@ -21,15 +21,24 @@ function createContext(choice: string | undefined, hasUI = true): ExtensionConte
   } as unknown as ExtensionContext;
 }
 
-void test('asks for sensitive commands and remembers exact session approvals', async (t: TestContext) => {
+void test('matches complete commands and remembers exact session approvals', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-permissions-test-'));
   const config = new PermissionConfig('/project', join(directory, 'permissions.json'));
   const permissions = new Permissions({} as never, config);
 
   try {
+    await config.replaceCommands('global', {
+      '\\bgh\\s+repo\\s+delete\\b': 'deny',
+      '\\b(?:gh|helm)\\b': 'ask',
+    });
+
     t.assert.strictEqual(await permissions.check('npm test', createContext('Deny')), undefined);
     t.assert.deepStrictEqual(
-      await permissions.check('/usr/local/bin/kubectl get pods && echo done', createContext('Deny')),
+      await permissions.check('gh repo delete owner/repo', createContext('Allow once')),
+      {block: true, reason: String.raw`\bgh\s+repo\s+delete\b is denied by command permission policy.`},
+    );
+    t.assert.deepStrictEqual(
+      await permissions.check('node -e \'execSync("gh repo view")\'', createContext('Deny')),
       {block: true, reason: 'Command blocked by user.'},
     );
 
@@ -42,7 +51,7 @@ void test('asks for sensitive commands and remembers exact session approvals', a
       await permissions.check('helm status app', createContext(undefined, false)),
       {
         block: true,
-        reason: 'Command permission required for helm, but no confirmation UI is available.',
+        reason: String.raw`Command permission required for \b(?:gh|helm)\b, but no confirmation UI is available.`,
       },
     );
   } finally {
@@ -50,29 +59,30 @@ void test('asks for sensitive commands and remembers exact session approvals', a
   }
 });
 
-void test('persists scoped policy and keeps global denials final', async (t: TestContext) => {
+void test('persists regex policy and keeps global denials final', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-permissions-test-'));
   const path = join(directory, 'permissions.json');
   const config = new PermissionConfig('/project', path);
 
   try {
-    await config.replaceCommands('global', {kubectl: 'deny', helm: 'ask'});
-    await config.replaceCommands('project', {kubectl: 'allow', helm: 'allow'});
+    await config.replaceCommands('global', {'\\bgh\\b': 'deny', '\\bkubectl\\b': 'ask'});
+    await config.replaceCommands('project', {'\\bgh\\b': 'ask', '\\bhelm\\b': 'ask'});
     await config.reload();
 
     t.assert.deepStrictEqual(config.getEffectiveCommands(), {
-      helm: 'allow',
-      kubectl: 'deny',
-      terraform: 'ask',
+      '\\bgh\\b': 'deny',
+      '\\bhelm\\b': 'ask',
+      '\\bkubectl\\b': 'ask',
     });
     t.assert.deepStrictEqual(
       JSON.parse(await readFile(path, 'utf8')) as unknown,
       {
-        commands: {kubectl: 'deny', helm: 'ask'},
-        projects: {'/project': {commands: {kubectl: 'allow', helm: 'allow'}}},
+        commands: {'\\bgh\\b': 'deny', '\\bkubectl\\b': 'ask'},
+        projects: {'/project': {commands: {'\\bgh\\b': 'ask', '\\bhelm\\b': 'ask'}}},
       },
     );
-    await t.assert.rejects(config.replaceCommands('project', {kubectl: 'sometimes'}), /Invalid permission rule/v);
+    await t.assert.rejects(config.replaceCommands('project', {'[': 'ask'}), /Invalid permission regex/v);
+    await t.assert.rejects(config.replaceCommands('project', {gh: 'allow'}), /Invalid permission decision/v);
   } finally {
     await rm(directory, {force: true, recursive: true});
   }

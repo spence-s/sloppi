@@ -20,26 +20,19 @@ export class Permissions {
     this.config = config;
   }
 
-  /** Applies configured command decisions and asks once for the complete shell expression. */
+  /** Applies configured regex decisions and asks once for the complete shell expression. */
   async check(command: string, ctx: ExtensionContext): Promise<ToolCallEventResult | void> {
     await this.config.reload();
-    // ponytail: textual shell matching is a consent gate; add a shell parser only if bypass-resistant policy is required.
-    const tokens = Array.from(command, character => ';&|()'.includes(character) ? ' ' : character)
-      .join('')
-      .split(/\s+/v);
-    const matches = Object.entries(this.config.getEffectiveCommands()).filter(([executable]) => tokens.some(token => {
-      const isQuoted = (token.startsWith('"') && token.endsWith('"'))
-        || (token.startsWith('\'') && token.endsWith('\''));
-      const normalized = isQuoted ? token.slice(1, -1) : token;
-      return normalized === executable || normalized.endsWith(`/${executable}`);
-    }));
+    // ponytail: Regex matching is a consent gate; use a runtime broker if bypass-resistant policy becomes necessary.
+    const matches = Object.entries(this.config.getEffectiveCommands())
+      .filter(([pattern]) => new RegExp(pattern, 'v').test(command));
 
     const denied = matches.find(([, decision]) => decision === 'deny');
     if (denied !== undefined) {
       return {block: true, reason: `${denied[0]} is denied by command permission policy.`};
     }
 
-    const prompted = matches.filter(([, decision]) => decision === 'ask').map(([executable]) => executable);
+    const prompted = matches.filter(([, decision]) => decision === 'ask').map(([pattern]) => pattern);
     if (prompted.length === 0 || this.sessionApprovals.has(command)) {
       return;
     }
@@ -81,9 +74,11 @@ export class Permissions {
 
     this.pi.on('session_start', async (_event, ctx) => {
       this.sessionApprovals.clear();
+      await this.config.reload();
+      const hasRules = Object.keys(this.config.getEffectiveCommands()).length > 0;
       ctx.ui.setStatus(
         'permissions',
-        `${ctx.ui.theme.fg('warning', '󰌾')} ${ctx.ui.theme.fg('muted', 'permissions')}`,
+        `${ctx.ui.theme.fg(hasRules ? 'warning' : 'dim', hasRules ? '󰌾' : '󰌿')} ${ctx.ui.theme.fg('muted', 'permissions')}`,
       );
     });
   }

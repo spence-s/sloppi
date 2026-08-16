@@ -3,7 +3,7 @@ import {homedir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
 
-export type PermissionDecision = 'allow' | 'ask' | 'deny';
+export type PermissionDecision = 'ask' | 'deny';
 export type PermissionScope = 'global' | 'project';
 
 type ScopedConfig = {
@@ -14,7 +14,7 @@ type Config = ScopedConfig & {
   projects?: Record<string, ScopedConfig> | undefined;
 };
 
-/** Validates one command-decision map at the configuration boundary. */
+/** Validates regex decisions before they become active policy. */
 function parseCommands(value: unknown): Record<string, PermissionDecision> {
   if (value === undefined) {
     return {};
@@ -26,24 +26,26 @@ function parseCommands(value: unknown): Record<string, PermissionDecision> {
 
   const commands: Record<string, PermissionDecision> = {};
   const entries: Array<[string, unknown]> = Object.entries(value);
-  for (const [command, decision] of entries) {
-    const isValidCommand = command.length > 0
-      && [...command].every(character => /\w/v.test(character) || '.+-'.includes(character));
-    if (!isValidCommand || (decision !== 'allow' && decision !== 'ask' && decision !== 'deny')) {
-      throw new Error(`Invalid permission rule: ${command}`);
+  for (const [pattern, decision] of entries) {
+    try {
+      if (pattern.length === 0) {
+        throw new Error('Permission regex cannot be empty.');
+      }
+
+      new RegExp(pattern, 'v').test('');
+    } catch {
+      throw new Error(`Invalid permission regex: ${pattern}`);
     }
 
-    commands[command] = decision;
+    if (decision !== 'ask' && decision !== 'deny') {
+      throw new Error(`Invalid permission decision for ${pattern}`);
+    }
+
+    commands[pattern] = decision;
   }
 
   return commands;
 }
-
-const defaultCommands: Record<string, PermissionDecision> = {
-  helm: 'ask',
-  kubectl: 'ask',
-  terraform: 'ask',
-};
 
 export class PermissionConfig {
   config: Config = {};
@@ -103,9 +105,9 @@ export class PermissionConfig {
     return {...(scope === 'global' ? this.config.commands : this.config.projects?.[this.cwd]?.commands)};
   }
 
-  /** Resolves defaults and scoped policy while keeping global denials final. */
+  /** Resolves scoped policy while keeping global denials final. */
   getEffectiveCommands(): Record<string, PermissionDecision> {
-    const globalCommands = {...defaultCommands, ...this.config.commands};
+    const globalCommands = {...this.config.commands};
     const projectCommands = this.config.projects?.[this.cwd]?.commands ?? {};
 
     for (const [command, decision] of Object.entries(projectCommands)) {
