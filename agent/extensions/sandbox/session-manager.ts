@@ -65,7 +65,7 @@ export class SandboxSessionManager {
      We need also account for the potential of the skills being symlinked,
      so we allow the real paths of those as well.
      */
-    const homeDirectory = process.env.HOME ?? homedir();
+    const homeDirectory = homedir();
     const piAgentPath = process.env.PI_CODING_AGENT_DIR ?? join(homeDirectory, '.pi', 'agent');
     const agentsSkillPath = join(homeDirectory, '.agents', 'skills');
     const globalPiSkillPaths = ['skills', 'git', 'npm'].map(directory => resolve(piAgentPath, directory));

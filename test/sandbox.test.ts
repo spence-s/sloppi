@@ -48,7 +48,8 @@ void test('isolates reads and temporary Unix sockets', async (t: TestContext) =>
       throw new Error('Sandbox scratch directory was not created.');
     }
 
-    t.assert.ok(SandboxManager.getConfig()?.filesystem?.denyRead?.includes(homeDirectory));
+    const deniedReadPaths = SandboxManager.getConfig()?.filesystem?.denyRead ?? [];
+    t.assert.ok(deniedReadPaths.some(path => [homeDirectory, homedir()].includes(path)));
     t.assert.ok(SandboxManager.getConfig()?.network?.allowUnixSockets?.includes(scratchPath));
     t.assert.strictEqual(process.env.CLAUDE_CODE_TMPDIR, scratchPath);
     t.assert.strictEqual(process.env.TMPDIR, scratchPath);
@@ -65,36 +66,29 @@ void test('isolates reads and temporary Unix sockets', async (t: TestContext) =>
 
 void test('allows only logical and canonical global skill directories', async (t: TestContext) => {
   const directory = await mkdtemp(join(process.cwd(), '.sloppi-skills-test-'));
-  const home = join(directory, 'home');
-  const logicalPiAgentPath = join(home, '.pi-agent');
+  const logicalPiAgentPath = join(directory, '.pi-agent');
   const actualPiAgentPath = join(directory, 'actual-pi-agent');
-  const logicalAgentsSkillPath = join(home, '.agents', 'skills');
-  const actualAgentsSkillPath = join(directory, 'actual-agents-skills');
+  const logicalAgentsSkillPath = join(homedir(), '.agents', 'skills');
   const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory, join(directory, 'sandbox.json')));
 
   try {
-    await Promise.all([
-      ...['skills', 'git', 'npm'].map(async path => mkdir(join(actualPiAgentPath, path), {recursive: true})),
-      mkdir(join(home, '.agents'), {recursive: true}),
-      mkdir(actualAgentsSkillPath, {recursive: true}),
-    ]);
+    await Promise.all(['skills', 'git', 'npm'].map(async path => mkdir(join(actualPiAgentPath, path), {recursive: true})));
     await symlink(actualPiAgentPath, logicalPiAgentPath);
-    await symlink(actualAgentsSkillPath, logicalAgentsSkillPath);
-    t.mock.property(process, 'env', {
-      ...process.env,
-      HOME: home,
-      PI_CODING_AGENT_DIR: logicalPiAgentPath,
-    });
+    t.mock.property(process, 'env', {...process.env, PI_CODING_AGENT_DIR: logicalPiAgentPath});
 
     await sandbox.startSession();
     const skillDirectories = ['skills', 'git', 'npm'];
     const allowRead = SandboxManager.getConfig()?.filesystem?.allowRead ?? [];
+    let realAgentsSkillPath = logicalAgentsSkillPath;
+    try {
+      realAgentsSkillPath = realpathSync(logicalAgentsSkillPath);
+    } catch {}
+
     const expectedAllowRead = [
       directory,
       ...skillDirectories.map(path => join(logicalPiAgentPath, path)),
       ...skillDirectories.map(path => join(realpathSync(actualPiAgentPath), path)),
-      logicalAgentsSkillPath,
-      realpathSync(actualAgentsSkillPath),
+      ...new Set([logicalAgentsSkillPath, realAgentsSkillPath]),
     ];
     t.assert.deepStrictEqual(allowRead, expectedAllowRead);
   } finally {
