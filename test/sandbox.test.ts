@@ -74,6 +74,31 @@ void test('isolates reads and temporary Unix sockets', async (t: TestContext) =>
   t.assert.strictEqual(process.env.TMPDIR, previousTmpdir);
 });
 
+/**
+ Verifies that opting into host configuration changes lookup behavior without changing filesystem policy.
+ */
+void test('uses the host home when HOME is explicitly exposed', async (t: TestContext) => {
+  if (process.env.USER === 'sandbox') {
+    t.skip('Sandbox Runtime cannot apply a second macOS sandbox profile.');
+    return;
+  }
+
+  const directory = realpathSync(process.cwd());
+  const configStore = new ConfigStore(directory);
+  configStore.config = {sandbox: {exposeEnv: ['HOME']}};
+  configStore.hasLoaded = true;
+  const sandbox = new SandboxSessionManager(directory, configStore);
+  t.mock.property(process, 'env', {...process.env, HOME: directory});
+
+  try {
+    await sandbox.startSession();
+    const result = await sandbox.run`printf %s "$HOME"`;
+    t.assert.strictEqual(result.stdout, directory);
+  } finally {
+    await sandbox.stopSession();
+  }
+});
+
 void test('allows only logical and canonical global skill directories', async (t: TestContext) => {
   const directory = await mkdtemp(join(process.cwd(), '.sloppi-skills-test-'));
   const logicalPiAgentPath = join(directory, '.pi-agent');

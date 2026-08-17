@@ -247,7 +247,7 @@ export class SandboxSessionManager {
       };
       for (const name of this.config.getExposedEnv()) {
         const value = process.env[name];
-        if (value !== undefined && env[name] === undefined) {
+        if (value !== undefined && (name === 'HOME' || env[name] === undefined)) {
           env[name] = value;
         }
       }

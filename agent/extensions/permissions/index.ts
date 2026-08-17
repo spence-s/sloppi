@@ -46,7 +46,7 @@ export class Permissions {
 
     const choice = await ctx.ui.select(
       `Command permission required (${prompted.join(', ')})\n\n${command}`,
-      ['Allow once', 'Allow for this session', 'Deny'],
+      ['Allow once', 'Allow for this session', 'Deny and steer…', 'Deny'],
     );
     if (choice === 'Allow for this session') {
       this.sessionApprovals.add(command);
@@ -55,6 +55,14 @@ export class Permissions {
 
     if (choice === 'Allow once') {
       return;
+    }
+
+    if (choice === 'Deny and steer…') {
+      const input = await ctx.ui.input('Steer the agent');
+      const steering = input?.trim();
+      if (steering !== undefined && steering.length > 0) {
+        this.pi.sendUserMessage(steering, {deliverAs: 'steer'});
+      }
     }
 
     return {block: true, reason: 'Command blocked by user.'};

@@ -12,10 +12,11 @@ import {PermissionConfig} from '../agent/extensions/permissions/config.ts';
 import {Permissions} from '../agent/extensions/permissions/index.ts';
 
 /** Creates the minimum interactive context needed by the permission gate. */
-function createContext(choice: string | undefined, hasUI = true): ExtensionContext {
+function createContext(choice: string | undefined, hasUI = true, steering?: string): ExtensionContext {
   return {
     hasUI,
     ui: {
+      input: async () => steering,
       select: async () => choice,
     },
   } as unknown as ExtensionContext;
@@ -24,7 +25,13 @@ function createContext(choice: string | undefined, hasUI = true): ExtensionConte
 void test('matches complete commands and remembers exact session approvals', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-permissions-test-'));
   const config = new PermissionConfig('/project', join(directory, 'permissions.json'));
-  const permissions = new Permissions({} as never, config);
+  const steeringMessages: Array<{message: string; deliverAs: string | undefined}> = [];
+  const permissions = new Permissions({
+    /** Records steering without starting an agent turn during the test. */
+    sendUserMessage(message: string, options?: {deliverAs?: string}) {
+      steeringMessages.push({message, deliverAs: options?.deliverAs});
+    },
+  } as never, config);
 
   try {
     await config.replaceCommands('global', {
@@ -41,6 +48,14 @@ void test('matches complete commands and remembers exact session approvals', asy
       await permissions.check('node -e \'execSync("gh repo view")\'', createContext('Deny')),
       {block: true, reason: 'Command blocked by user.'},
     );
+
+    t.assert.deepStrictEqual(
+      await permissions.check('helm uninstall app', createContext('Deny and steer…', true, '  inspect the release first  ')),
+      {block: true, reason: 'Command blocked by user.'},
+    );
+    t.assert.deepStrictEqual(steeringMessages, [
+      {message: 'inspect the release first', deliverAs: 'steer'},
+    ]);
 
     t.assert.strictEqual(
       await permissions.check('helm list', createContext('Allow for this session')),

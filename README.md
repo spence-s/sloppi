@@ -15,14 +15,23 @@ A shareable [Pi](https://pi.dev) package that sandboxes filesystem tools, adds a
 
 Review the source before installing: Pi packages execute with your user permissions.
 
+Install from npm:
+
 ```bash
 pi install npm:sloppi
 ```
 
-To try it for one session without changing Pi settings:
+Or install the latest development version directly from GitHub:
+
+```bash
+pi install git:github.com/spence-s/sloppi
+```
+
+To try either source for one session without changing Pi settings:
 
 ```bash
 pi -e npm:sloppi
+pi -e git:github.com/spence-s/sloppi
 ```
 
 Manage the installation with:
@@ -32,8 +41,6 @@ pi update npm:sloppi
 pi remove npm:sloppi
 pi config # enable or disable individual Sloppi extensions
 ```
-
-Install the latest development version directly from GitHub with `pi install git:github.com/spence-s/sloppi`.
 
 Sloppi does not change Pi's project trust behavior.
 
@@ -91,7 +98,7 @@ Global SRT options live at the root. Project overrides live under `projects["/ab
 }
 ```
 
-`exposeEnv` contains host environment variable names, not values. Global and project lists combine; missing variables are ignored. Sloppi's fixed `HOME`, `PATH`, `LANG`, `TMPDIR`, and `USER` values cannot be overridden.
+`exposeEnv` contains host environment variable names, not values. Global and project lists combine; missing variables are ignored. Exposing `HOME` opts into the host home directory for tool configuration lookup, but filesystem rules still control access to it. Sloppi's fixed `PATH`, `LANG`, `TMPDIR`, and `USER` values cannot be overridden.
 
 Request policies add method, path, and exact header-value restrictions to an allowed destination:
 
