@@ -151,7 +151,7 @@ void describe('shell UI', () => {
         getAvailableProviderCount: () => 1,
         getExtensionStatuses: () => new Map([
           ['sandbox', 'sandbox status'],
-          ['chat-mode', 'agent'],
+          ['ask-mode', 'agent'],
           ['third-party', 'third-party status'],
           ['ponytail', 'ponytail status'],
         ]),

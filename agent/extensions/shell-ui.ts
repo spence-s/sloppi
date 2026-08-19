@@ -184,9 +184,9 @@ export default function shellUi(pi: ExtensionAPI): void {
 
           const extensionStatuses = footerData.getExtensionStatuses();
           const sandboxStatus = extensionStatuses.get('sandbox') ?? theme.fg('warning', 'sandbox ?');
-          const modeStatus = extensionStatuses.get('chat-mode') ?? theme.fg('dim', 'agent');
+          const modeStatus = extensionStatuses.get('ask-mode') ?? theme.fg('dim', 'agent');
           const additionalStatuses = [...extensionStatuses]
-            .filter(([id]) => id !== 'sandbox' && id !== 'chat-mode')
+            .filter(([id]) => id !== 'sandbox' && id !== 'ask-mode')
             .map(([, status]) => status);
 
           let git = '';

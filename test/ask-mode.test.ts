@@ -3,7 +3,7 @@ import type {
   ExtensionContext,
   ToolCallEvent,
 } from '@earendil-works/pi-coding-agent';
-import chatMode, {onToolCall} from '../agent/extensions/chat-mode.ts';
+import askMode, {onToolCall} from '../agent/extensions/ask-mode.ts';
 
 function createToolCall(toolName: string): ToolCallEvent {
   return {
@@ -27,7 +27,7 @@ type BeforeAgentStartResult = {
   };
 };
 
-type ChatModeHarness = {
+type AskModeHarness = {
   ctx: ExtensionContext;
   getActiveTools: () => string[];
   getCommand: (name: string) => RegisteredCommand;
@@ -36,14 +36,14 @@ type ChatModeHarness = {
   getStatus: () => string | undefined;
 };
 
-function createHarness(initialTools: string[]): ChatModeHarness {
+function createHarness(initialTools: string[]): AskModeHarness {
   let activeTools = [...initialTools];
   let status: string | undefined;
   const sentMessages: Array<{activeTools: string[]; text: string}> = [];
   const commands = new Map<string, RegisteredCommand>();
   const eventHandlers = new Map<string, (...args: unknown[]) => unknown>();
 
-  chatMode({
+  askMode({
     registerCommand(name: string, command: RegisteredCommand) {
       commands.set(name, command);
     },
@@ -62,7 +62,7 @@ function createHarness(initialTools: string[]): ChatModeHarness {
     sendUserMessage(text: string) {
       sentMessages.push({activeTools: [...activeTools], text});
     },
-  } as unknown as Parameters<typeof chatMode>[0]);
+  } as unknown as Parameters<typeof askMode>[0]);
 
   const ctx = {
     ui: {
@@ -106,21 +106,21 @@ function createHarness(initialTools: string[]): ChatModeHarness {
   };
 }
 
-void describe('chat-mode', () => {
-  void test('registers /chat command and tool/session handlers', (t: TestContext) => {
+void describe('ask-mode', () => {
+  void test('registers /ask command and tool/session handlers', (t: TestContext) => {
     const commands: string[] = [];
     const events: string[] = [];
 
-    chatMode({
+    askMode({
       registerCommand(name: string) {
         commands.push(name);
       },
       on(event: string) {
         events.push(event);
       },
-    } as unknown as Parameters<typeof chatMode>[0]);
+    } as unknown as Parameters<typeof askMode>[0]);
 
-    t.assert.deepStrictEqual(commands, ['chat']);
+    t.assert.deepStrictEqual(commands, ['ask']);
     t.assert.deepStrictEqual(events, [
       'before_agent_start',
       'tool_call',
@@ -129,12 +129,12 @@ void describe('chat-mode', () => {
     ]);
   });
 
-  void test('onToolCall allows tools when chat mode is disabled', (t: TestContext) => {
+  void test('onToolCall allows tools when ask mode is disabled', (t: TestContext) => {
     const result = onToolCall(createToolCall('read'), false);
     t.assert.strictEqual(result, undefined);
   });
 
-  void test('onToolCall allows file and web research when chat mode is enabled', (t: TestContext) => {
+  void test('onToolCall allows file and web research when ask mode is enabled', (t: TestContext) => {
     t.assert.deepStrictEqual(
       ['read', 'grep', 'web_search', 'source_check', 'fetch_content', 'get_search_content']
         .map(tool => onToolCall(createToolCall(tool), true)),
@@ -142,20 +142,20 @@ void describe('chat-mode', () => {
     );
   });
 
-  void test('onToolCall blocks non-read tools when chat mode is enabled', (t: TestContext) => {
+  void test('onToolCall blocks non-read tools when ask mode is enabled', (t: TestContext) => {
     const result = onToolCall(createToolCall('bash'), true);
 
     t.assert.deepStrictEqual(result, {
       block: true,
       reason:
-        'Chat mode is enabled: only read-only tools and web research are allowed. Use /chat off to re-enable full tool access.',
+        'Ask mode is enabled: only read-only tools and web research are allowed. Use /ask off to re-enable full tool access.',
     });
   });
 
-  void test('chat on restricts active tools to reads and searches and sets enabled LLM context', async (t: TestContext) => {
+  void test('ask on restricts active tools to reads and searches and sets enabled LLM context', async (t: TestContext) => {
     const harness = createHarness(['read', 'bash', 'edit', 'write']);
 
-    await harness.getCommand('chat').handler('on', harness.ctx);
+    await harness.getCommand('ask').handler('on', harness.ctx);
 
     t.assert.deepStrictEqual(harness.getActiveTools(), [
       'read',
@@ -167,20 +167,20 @@ void describe('chat-mode', () => {
       'fetch_content',
       'get_search_content',
     ]);
-    t.assert.strictEqual(harness.getStatus(), '[accent]󰒓 [dim]chat');
+    t.assert.strictEqual(harness.getStatus(), '[accent]󰒓 [dim]ask');
 
     const beforeAgentStartResult = await harness.getBeforeAgentStart()();
     t.assert.strictEqual(
       beforeAgentStartResult.message.content,
-      'Chat mode is active. You may use read-only tools and web research. Do not call bash, edit, or write.',
+      'Ask mode is active. You may use read-only tools and web research. Do not call bash, edit, or write.',
     );
   });
 
-  void test('chat off restores tools and sets agent-mode LLM context', async (t: TestContext) => {
+  void test('ask off restores tools and sets agent-mode LLM context', async (t: TestContext) => {
     const harness = createHarness(['read', 'bash', 'edit', 'write']);
 
-    await harness.getCommand('chat').handler('on', harness.ctx);
-    await harness.getCommand('chat').handler('off', harness.ctx);
+    await harness.getCommand('ask').handler('on', harness.ctx);
+    await harness.getCommand('ask').handler('off', harness.ctx);
 
     t.assert.deepStrictEqual(harness.getActiveTools(), [
       'read',
@@ -197,10 +197,10 @@ void describe('chat-mode', () => {
     );
   });
 
-  void test('chat toggle flips between chat and agent tool policies', async (t: TestContext) => {
+  void test('ask toggle flips between ask and agent tool policies', async (t: TestContext) => {
     const harness = createHarness(['read', 'bash', 'edit', 'write']);
 
-    await harness.getCommand('chat').handler('toggle', harness.ctx);
+    await harness.getCommand('ask').handler('toggle', harness.ctx);
     t.assert.deepStrictEqual(harness.getActiveTools(), [
       'read',
       'grep',
@@ -212,7 +212,7 @@ void describe('chat-mode', () => {
       'get_search_content',
     ]);
 
-    await harness.getCommand('chat').handler('toggle', harness.ctx);
+    await harness.getCommand('ask').handler('toggle', harness.ctx);
     t.assert.deepStrictEqual(harness.getActiveTools(), [
       'read',
       'bash',
@@ -221,10 +221,10 @@ void describe('chat-mode', () => {
     ]);
   });
 
-  void test('chat with a prompt toggles modes before submitting it', async (t: TestContext) => {
+  void test('ask with a prompt toggles modes before submitting it', async (t: TestContext) => {
     const harness = createHarness(['read', 'bash', 'edit', 'write']);
 
-    await harness.getCommand('chat').handler('Explain this code', harness.ctx);
+    await harness.getCommand('ask').handler('Explain this code', harness.ctx);
     t.assert.deepStrictEqual(harness.getActiveTools(), [
       'read',
       'grep',
@@ -235,9 +235,9 @@ void describe('chat-mode', () => {
       'fetch_content',
       'get_search_content',
     ]);
-    t.assert.strictEqual(harness.getStatus(), '[accent]󰒓 [dim]chat');
+    t.assert.strictEqual(harness.getStatus(), '[accent]󰒓 [dim]ask');
 
-    await harness.getCommand('chat').handler('Now edit it', harness.ctx);
+    await harness.getCommand('ask').handler('Now edit it', harness.ctx);
     t.assert.deepStrictEqual(harness.getActiveTools(), ['read', 'bash', 'edit', 'write']);
     t.assert.strictEqual(harness.getStatus(), '[success]󰒓 [dim]agent');
     t.assert.deepStrictEqual(harness.getSentMessages().map(message => message.text), [

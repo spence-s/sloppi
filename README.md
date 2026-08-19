@@ -9,7 +9,7 @@
   ╚══════╝╚══════╝ ╚═════╝ ╚═╝     ╚═╝     ╚═╝        ████████████
 ```
 
-A shareable [Pi](https://pi.dev) package that sandboxes filesystem tools, adds a read-only chat mode, and customizes the terminal header and footer.
+A shareable [Pi](https://pi.dev) package that sandboxes filesystem tools, adds a read-only ask mode, and customizes the terminal header and footer.
 
 ## Install
 
@@ -52,7 +52,7 @@ Sloppi does not change Pi's project trust behavior.
 
 Sandbox currently supports macOS and Linux. Its shell UI uses Nerd Font icons but remains usable without them.
 
-For web research in chat mode, install [`pi-web-access`](https://github.com/nicobailon/pi-web-access) separately:
+For web research in ask mode, install [`pi-web-access`](https://github.com/nicobailon/pi-web-access) separately:
 
 ```bash
 pi install npm:pi-web-access
@@ -60,7 +60,7 @@ pi install npm:pi-web-access
 
 ## Extensions
 
-- `chat-mode.ts` — `/chat on|off|toggle|status` controls modes; `/chat <prompt>` toggles modes before submitting the prompt.
+- `ask-mode.ts` — `/ask on|off|toggle|status` controls modes; `/ask <prompt>` toggles modes before submitting the prompt.
 - `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input.
 - `permissions/` — applies regex-based ask or deny rules to shell commands; `/permissions` edits project rules.
 - `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access. Its `research_scout` tool runs an isolated scout with only sandboxed read, grep, find, and list access. Select its fixed model with `/sandbox global` → `Research Scout model`.

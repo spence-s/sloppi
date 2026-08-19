@@ -1,7 +1,7 @@
 {
   "name": "sloppi",
   "version": "0.1.0",
-  "description": "A sandboxed Pi setup with chat mode and terminal UI customizations.",
+  "description": "A sandboxed Pi setup with ask mode and terminal UI customizations.",
   "keywords": [
     "pi-package",
     "pi",
@@ -75,7 +75,7 @@
   },
   "pi": {
     "extensions": [
-      "./agent/extensions/chat-mode.ts",
+      "./agent/extensions/ask-mode.ts",
       "./agent/extensions/commit.ts",
       "./agent/extensions/permissions/index.ts",
       "./agent/extensions/sandbox/index.ts",
