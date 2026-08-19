@@ -22,6 +22,7 @@ import {SandboxCommand} from '../agent/extensions/sandbox/command.ts';
 import {ConfigStore} from '../agent/extensions/sandbox/config.ts';
 import sandboxExtension, {Sandbox as SandboxExtension} from '../agent/extensions/sandbox/index.ts';
 import {SandboxSessionManager} from '../agent/extensions/sandbox/session-manager.ts';
+import {SandboxSubagent} from '../agent/extensions/sandbox/subagent.ts';
 import {SandboxTools} from '../agent/extensions/sandbox/tools.ts';
 
 void test('uses no persisted sandbox access by default', (t: TestContext) => {
@@ -29,6 +30,20 @@ void test('uses no persisted sandbox access by default', (t: TestContext) => {
   configStore.hasLoaded = true;
 
   t.assert.deepStrictEqual(configStore.getEffectiveConfig(), {});
+});
+
+void test('persists the globally selected Research Scout model', async (t: TestContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-scout-model-test-'));
+  const path = join(directory, 'sandbox.json');
+  const config = new ConfigStore('/project', path);
+
+  try {
+    await config.setResearchScoutModel({provider: 'test', id: 'small'});
+    await config.reload();
+    t.assert.deepStrictEqual(config.getResearchScoutModel(), {provider: 'test', id: 'small'});
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
 });
 
 void test('requires an explicit session before running commands', async (t: TestContext) => {
@@ -618,6 +633,22 @@ void test('/sandbox does not remove inherited global rules from project scope', 
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
+});
+
+/**
+ Verifies that delegation exposes only the narrow read-only scout entrypoint.
+ */
+void test('registers the read-only research scout', (t: TestContext) => {
+  const tools: Array<{name: string; label: string}> = [];
+  const subagent = new SandboxSubagent({
+    registerTool(tool: {name: string; label: string}) {
+      tools.push({name: tool.name, label: tool.label});
+    },
+  } as unknown as ExtensionAPI, '/project', {} as SandboxSessionManager, new ConfigStore('/project'));
+
+  subagent.register();
+
+  t.assert.deepStrictEqual(tools, [{name: 'research_scout', label: 'Research Scout'}]);
 });
 
 void test('registers /sandbox to manage access during a session', (t: TestContext) => {

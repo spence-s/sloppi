@@ -40,6 +40,35 @@ export class SandboxCommand {
     ctx.ui.notify(JSON.stringify(SandboxManager.getConfig(), undefined, 2), 'info');
   }
 
+  /** Lets the user fix Research Scout to one authenticated model. */
+  async manageResearchScoutModel(ctx: ExtensionCommandContext): Promise<void> {
+    await this.config.load();
+    const current = this.config.getResearchScoutModel();
+    const models = ctx.modelRegistry.getAvailable();
+    const choices = models.map(model => `${model.provider}/${model.id}`);
+    const selection = await ctx.ui.select(
+      `Research Scout model${current === undefined ? '' : ` (${current.provider}/${current.id})`}`,
+      [...choices, 'Clear model'],
+    );
+    if (selection === undefined) {
+      return;
+    }
+
+    if (selection === 'Clear model') {
+      await this.config.setResearchScoutModel(undefined);
+      ctx.ui.notify('Research Scout model cleared; scouts are disabled until you select one.', 'info');
+      return;
+    }
+
+    const model = models[choices.indexOf(selection)];
+    if (model === undefined) {
+      throw new Error('Selected Research Scout model is unavailable.');
+    }
+
+    await this.config.setResearchScoutModel({provider: model.provider, id: model.id});
+    ctx.ui.notify(`Research Scout will use ${model.provider}/${model.id}.`, 'info');
+  }
+
   async edit(ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
     await this.config.reload();
     const edited = await ctx.ui.editor(
@@ -273,6 +302,7 @@ export class SandboxCommand {
             'Network',
             'Advanced SRT options',
             'Network-deny prompts',
+            ...(scope === 'global' ? ['Research Scout model'] : []),
             'Reset configuration',
           ]);
           switch (action) {
@@ -303,6 +333,11 @@ export class SandboxCommand {
                 await this.finish(ctx, `Sandbox network-deny prompts are ${prompting.toLowerCase()} in ${scope} scope.`);
               }
 
+              break;
+            }
+
+            case 'Research Scout model': {
+              await this.manageResearchScoutModel(ctx);
               break;
             }
 

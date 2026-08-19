@@ -18,6 +18,10 @@ type PartialWithUndefined<T> = T extends ReadonlyArray<infer Item>
     : T;
 
 const nonEmptyStringSchema = z.string().min(1);
+const researchScoutModelSchema = z.strictObject({
+  provider: nonEmptyStringSchema,
+  id: nonEmptyStringSchema,
+});
 const pathSchema = nonEmptyStringSchema.refine(path => path.startsWith('/'), 'paths must start with /');
 const headerValuesSchema = z.array(z.string()).min(1);
 const headersSchema = z.record(nonEmptyStringSchema, headerValuesSchema).transform(headers => {
@@ -80,6 +84,7 @@ export type Config = PartialWithUndefined<SandboxRuntimeConfig> & {
     exposeEnv?: string[] | undefined;
     promptOnNetworkDeny?: boolean | undefined;
     requestPolicies?: RequestPolicy[] | undefined;
+    researchScoutModel?: z.infer<typeof researchScoutModelSchema> | undefined;
   } | undefined;
   [key: string]: unknown;
 };
@@ -314,6 +319,25 @@ export class ConfigStore {
     this.config = updatedConfig;
     await mkdir(dirname(this.path), {recursive: true});
     await writeFile(this.path, `${JSON.stringify(this.config, undefined, 2)}\n`);
+  }
+
+  /** Returns the user-selected model that every Research Scout must use. */
+  getResearchScoutModel(): z.infer<typeof researchScoutModelSchema> | undefined {
+    return researchScoutModelSchema.optional().parse(this.config.sandbox?.researchScoutModel);
+  }
+
+  /** Persists the global model choice so the main agent cannot select a scout model. */
+  async setResearchScoutModel(model: z.infer<typeof researchScoutModelSchema> | undefined): Promise<void> {
+    await this.reload();
+    const sandboxConfig = this.config.sandbox ?? {};
+    if (model === undefined) {
+      delete sandboxConfig.researchScoutModel;
+    } else {
+      sandboxConfig.researchScoutModel = researchScoutModelSchema.parse(model);
+    }
+
+    this.config.sandbox = sandboxConfig;
+    await this.save();
   }
 
   /** Sets whether blocked network requests prompt for access in the selected scope. */

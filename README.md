@@ -63,7 +63,7 @@ pi install npm:pi-web-access
 - `chat-mode.ts` — `/chat on|off|toggle|status` controls modes; `/chat <prompt>` toggles modes before submitting the prompt.
 - `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input.
 - `permissions/` — applies regex-based ask or deny rules to shell commands; `/permissions` edits project rules.
-- `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access.
+- `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access. Its `research_scout` tool runs an isolated scout with only sandboxed read, grep, find, and list access. Select its fixed model with `/sandbox global` → `Research Scout model`.
 - `startup-banner.ts` — replaces Pi's TUI header.
 - `shell-ui.ts` — adds a Powerlevel10k-inspired prompt and status area to Pi's terminal UI.
 - `zshrc.ts` — loads zsh aliases for host-side `!` commands.

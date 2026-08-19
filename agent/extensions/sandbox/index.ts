@@ -4,12 +4,13 @@ import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import {ConfigStore} from './config.ts';
 import {SandboxCommand} from './command.ts';
 import {SandboxSessionManager} from './session-manager.ts';
+import {SandboxSubagent} from './subagent.ts';
 import {SandboxTools} from './tools.ts';
 
 // Only these tools may execute commands; everything else stays explicitly allowlisted.
 const sandboxedTools = new Set(['bash', 'edit', 'find', 'grep', 'ls', 'read', 'write']);
-// These provider-backed tools intentionally stay on the credential-holding host.
-const hostTools = new Set(['fetch_content', 'get_search_content', 'source_check', 'web_search']);
+// Provider-backed tools and delegation keep model credentials on the host; delegation filesystem access is SRT-backed.
+const hostTools = new Set(['research_scout', 'fetch_content', 'get_search_content', 'source_check', 'web_search']);
 
 export class Sandbox {
   pi: ExtensionAPI;
@@ -28,6 +29,7 @@ export class Sandbox {
   register(): void {
     const {pi, cwd, config, sandbox} = this;
     new SandboxTools(pi, cwd, sandbox).register();
+    new SandboxSubagent(pi, cwd, sandbox, config).register();
 
     new SandboxCommand(config, sandbox).register(pi);
 
