@@ -1,5 +1,12 @@
 import {Buffer} from 'node:buffer';
-import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
+import {
+  mkdir,
+  readFile,
+  rm,
+  writeFile,
+} from 'node:fs/promises';
+import {dirname, resolve} from 'node:path';
+import {getAgentDir, type ExtensionAPI} from '@earendil-works/pi-coding-agent';
 
 const maxDiffBytes = 100_000;
 const conventionalCommitPattern = /^(?:build|chore|ci|docs|feat|fix|perf|refactor|revert|style|test)(?:\([0-9a-z][\-.\/0-9_a-z]*\))?!?: \S/v;
@@ -10,17 +17,101 @@ Allowed types: build, chore, ci, docs, feat, fix, perf, refactor, revert, style,
 Example: feat(commit): generate commit messages
 Output exactly one plain-text line with no quotes or Markdown, at most 100 characters.`;
 
-export default function commit(pi: ExtensionAPI): void {
+/**
+ Generates commit subjects with a user-selected model without changing the session model.
+ */
+export default function commit(
+  pi: ExtensionAPI,
+  configPath = resolve(getAgentDir(), '..', 'commit-model.json'),
+): void {
   pi.registerCommand('commit', {
-    description: 'Generate, edit, and prepare a secure commit command for all changes.',
-    async handler(_arguments, ctx) {
+    description: 'Generate a commit command, or choose its model with /commit model.',
+    async handler(arguments_, ctx) {
       if (ctx.mode !== 'tui' || !ctx.isProjectTrusted()) {
         ctx.ui.notify('/commit requires an interactive, trusted project.', 'error');
         return;
       }
 
-      if (ctx.model === undefined) {
-        ctx.ui.notify('/commit requires a selected model.', 'error');
+      let configuredModel: {id: string; provider: string} | undefined;
+      try {
+        const value = JSON.parse(await readFile(configPath, 'utf8')) as unknown;
+        if (typeof value !== 'object'
+          || value === null
+          || !('id' in value)
+          || typeof value.id !== 'string'
+          || !('provider' in value)
+          || typeof value.provider !== 'string') {
+          throw new Error(`${configPath} must contain a model provider and id.`);
+        }
+
+        configuredModel = {id: value.id, provider: value.provider};
+      } catch (error) {
+        const code = error instanceof Error && 'code' in error ? error.code : undefined;
+        if (code !== 'ENOENT') {
+          ctx.ui.notify(`Could not load the commit model: ${error instanceof Error ? error.message : String(error)}`, 'error');
+          return;
+        }
+      }
+
+      const input = arguments_.trim();
+      if (input === 'model') {
+        const available = ctx.modelRegistry.getAvailable().filter(model =>
+          ctx.scopedModels.length === 0
+          || ctx.scopedModels.some(({model: scoped}) => scoped.provider === model.provider && scoped.id === model.id));
+        const choices = available.map(model => `${model.provider}/${model.id}`);
+        const selection = await ctx.ui.select(
+          `Commit model${configuredModel === undefined ? ' (session model)' : ` (${configuredModel.provider}/${configuredModel.id})`}`,
+          [...choices, 'Use session model'],
+        );
+        if (selection === undefined) {
+          return;
+        }
+
+        if (selection === 'Use session model') {
+          await rm(configPath, {force: true});
+          ctx.ui.notify('Commits will use the current session model.', 'info');
+          return;
+        }
+
+        const model = available[choices.indexOf(selection)];
+        if (model === undefined) {
+          ctx.ui.notify('The selected commit model is unavailable.', 'error');
+          return;
+        }
+
+        await mkdir(dirname(configPath), {recursive: true});
+        await writeFile(configPath, `${JSON.stringify({provider: model.provider, id: model.id}, undefined, 2)}\n`);
+        ctx.ui.notify(`Commits will use ${model.provider}/${model.id}.`, 'info');
+        return;
+      }
+
+      if (input.length > 0) {
+        ctx.ui.notify('Usage: /commit [model]', 'error');
+        return;
+      }
+
+      const model = configuredModel === undefined
+        ? ctx.model
+        : ctx.modelRegistry.find(configuredModel.provider, configuredModel.id);
+      if (model === undefined) {
+        ctx.ui.notify(
+          configuredModel === undefined
+            ? '/commit requires a selected model.'
+            : `Commit model ${configuredModel.provider}/${configuredModel.id} is not configured. Choose another with /commit model.`,
+          'error',
+        );
+        return;
+      }
+
+      if (ctx.modelRegistry.getAvailable().every(available =>
+        available.provider !== model.provider || available.id !== model.id)) {
+        ctx.ui.notify(`Commit model ${model.provider}/${model.id} is unavailable. Choose another with /commit model.`, 'error');
+        return;
+      }
+
+      if (ctx.scopedModels.length > 0
+        && ctx.scopedModels.every(({model: scoped}) => scoped.provider !== model.provider || scoped.id !== model.id)) {
+        ctx.ui.notify(`Commit model ${model.provider}/${model.id} is outside this session's model scope.`, 'error');
         return;
       }
 
@@ -81,12 +172,12 @@ export default function commit(pi: ExtensionAPI): void {
         content: [{type: 'text' as const, text: `<staged-diff>\n${modelInput}\n</staged-diff>`}],
         timestamp: Date.now(),
       };
-      ctx.ui.notify(`Generating commit message with ${ctx.model.id}…`, 'info');
+      ctx.ui.notify(`Generating commit message with ${model.provider}/${model.id}…`, 'info');
 
       let response;
       try {
         response = await ctx.modelRegistry.complete(
-          ctx.model,
+          model,
           {systemPrompt, messages: [userMessage]},
           {cacheRetention: 'none', signal: AbortSignal.timeout(60_000)},
         );

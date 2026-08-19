@@ -61,7 +61,7 @@ pi install npm:pi-web-access
 ## Extensions
 
 - `ask-mode.ts` — `/ask on|off|toggle|status` controls modes; `/ask <prompt>` toggles modes before submitting the prompt.
-- `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input.
+- `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input; `/commit model` selects its model.
 - `permissions/` — applies regex-based ask or deny rules to shell commands; `/permissions` edits project rules.
 - `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access. Its `research_scout` tool runs an isolated scout with only sandboxed read, grep, find, and list access. Select its fixed model with `/sandbox global` → `Research Scout model`.
 - `startup-banner.ts` — replaces Pi's TUI header.
