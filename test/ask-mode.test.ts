@@ -167,7 +167,7 @@ void describe('ask-mode', () => {
       'fetch_content',
       'get_search_content',
     ]);
-    t.assert.strictEqual(harness.getStatus(), '[accent]󰒓 [dim]ask');
+    t.assert.strictEqual(harness.getStatus(), '[accent]󰋼 [dim]ask');
 
     const beforeAgentStartResult = await harness.getBeforeAgentStart()();
     t.assert.strictEqual(
@@ -188,7 +188,7 @@ void describe('ask-mode', () => {
       'edit',
       'write',
     ]);
-    t.assert.strictEqual(harness.getStatus(), '[success]󰒓 [dim]agent');
+    t.assert.strictEqual(harness.getStatus(), '[muted]󰚩 [dim]agent');
 
     const beforeAgentStartResult = await harness.getBeforeAgentStart()();
     t.assert.strictEqual(
@@ -235,11 +235,11 @@ void describe('ask-mode', () => {
       'fetch_content',
       'get_search_content',
     ]);
-    t.assert.strictEqual(harness.getStatus(), '[accent]󰒓 [dim]ask');
+    t.assert.strictEqual(harness.getStatus(), '[accent]󰋼 [dim]ask');
 
     await harness.getCommand('ask').handler('Now edit it', harness.ctx);
     t.assert.deepStrictEqual(harness.getActiveTools(), ['read', 'bash', 'edit', 'write']);
-    t.assert.strictEqual(harness.getStatus(), '[success]󰒓 [dim]agent');
+    t.assert.strictEqual(harness.getStatus(), '[muted]󰚩 [dim]agent');
     t.assert.deepStrictEqual(harness.getSentMessages().map(message => message.text), [
       'Explain this code',
       'Now edit it',

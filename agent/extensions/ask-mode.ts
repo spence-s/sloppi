@@ -63,7 +63,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
     ctx.ui.setStatus(
       askModeStatusId,
-      `${ctx.ui.theme.fg(isAskModeEnabled ? 'accent' : 'success', '󰒓')} ${ctx.ui.theme.fg('dim', isAskModeEnabled ? 'ask' : 'agent')}`,
+      `${ctx.ui.theme.fg(isAskModeEnabled ? 'accent' : 'muted', isAskModeEnabled ? '󰋼' : '󰚩')} ${ctx.ui.theme.fg('dim', isAskModeEnabled ? 'ask' : 'agent')}`,
     );
 
     if (!shouldNotify) {
@@ -112,7 +112,7 @@ export default function askMode(pi: ExtensionAPI): void {
 
     ctx.ui.setStatus(
       askModeStatusId,
-      `${ctx.ui.theme.fg(isAskModeEnabled ? 'accent' : 'success', '󰒓')} ${ctx.ui.theme.fg('dim', isAskModeEnabled ? 'ask' : 'agent')}`,
+      `${ctx.ui.theme.fg(isAskModeEnabled ? 'accent' : 'muted', isAskModeEnabled ? '󰋼' : '󰚩')} ${ctx.ui.theme.fg('dim', isAskModeEnabled ? 'ask' : 'agent')}`,
     );
   };
 
