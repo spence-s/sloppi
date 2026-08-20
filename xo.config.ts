@@ -40,6 +40,12 @@ const xoConfig: XoConfigItem[] = [
       '@typescript-eslint/no-unsafe-type-assertion': 'off',
     },
   },
+  {
+    files: ['agent/prompts/*.md'],
+    rules: {
+      'markdown/no-missing-label-refs': 'off',
+    },
+  },
 ];
 
 export default xoConfig;
