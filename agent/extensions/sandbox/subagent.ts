@@ -31,6 +31,7 @@ import type {SandboxSessionManager} from './session-manager.ts';
 
 const maxOutputBytes = 12 * 1024;
 const maxCollapsedLines = 14;
+const maxCollapsedResultLines = 8;
 const investigatingStatus = 'Investigating...';
 const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const scoutParameters = Type.Object({
@@ -98,7 +99,7 @@ export class SandboxSubagent {
 
         activity = activity.split(investigatingStatus).join(theme.fg('dim', investigatingStatus));
         const container = new Container();
-        const activityResult = new Box(1, 0, text => theme.bg('toolPendingBg', text));
+        const activityResult = new Box(4, 1, text => theme.bg('toolPendingBg', text));
         activityResult.addChild(new Text(activity, 0, 0));
         container.addChild(activityResult);
         if (isPartial) {
@@ -108,8 +109,19 @@ export class SandboxSubagent {
         container.addChild(new Spacer(1));
         const finalResult = new Box(1, 0);
         const finalResultHeading = theme.fg('success', theme.bold('Scout Research Result'));
+        const finalResultText = content?.text ?? '(no output)';
+        const finalResultLines = finalResultText.split('\n');
+        const hiddenResultLines = expanded ? 0 : Math.max(0, finalResultLines.length - maxCollapsedResultLines);
+        const visibleResult = expanded
+          ? finalResultText
+          : finalResultLines.slice(0, maxCollapsedResultLines).join('\n');
         finalResult.addChild(new Text(finalResultHeading, 0, 0));
-        finalResult.addChild(new Markdown(content?.text ?? '(no output)', 0, 0, getMarkdownTheme()));
+        finalResult.addChild(new Markdown(visibleResult, 0, 0, getMarkdownTheme()));
+        if (hiddenResultLines > 0) {
+          const expandHint = `… ${String(hiddenResultLines)} more lines · ${keyHint('app.tools.expand', 'to expand')}`;
+          finalResult.addChild(new Text(theme.fg('dim', expandHint), 0, 0));
+        }
+
         container.addChild(finalResult);
         return container;
       },
