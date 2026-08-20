@@ -8,6 +8,8 @@ import {
   createLsTool,
   createReadTool,
   getAgentDir,
+  getMarkdownTheme,
+  keyHint,
   ModelRuntime,
   SessionManager,
   SettingsManager,
@@ -16,15 +18,31 @@ import {
   type ResourceLoader,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
-import {Text} from '@earendil-works/pi-tui';
+import {
+  Box,
+  Container,
+  Markdown,
+  Spacer,
+  Text,
+} from '@earendil-works/pi-tui';
 import {Type} from 'typebox';
 import type {ConfigStore} from './config.ts';
 import type {SandboxSessionManager} from './session-manager.ts';
 
 const maxOutputBytes = 12 * 1024;
+const maxCollapsedLines = 14;
+const investigatingStatus = 'Investigating...';
+const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const scoutParameters = Type.Object({
   task: Type.String({minLength: 1, description: 'The focused repository question for the scout to investigate'}),
 });
+
+type ScoutDetails = {
+  model: string;
+  task: string;
+  truncated: boolean;
+  progress: string;
+};
 
 /**
  Gives the scout an isolated context and only SRT-backed inspection tools.
@@ -49,14 +67,52 @@ export class SandboxSubagent {
    Registers one intentionally narrow reconnaissance tool rather than a general worker.
    */
   register(): void {
-    this.pi.registerTool({
+    this.pi.registerTool<typeof scoutParameters, ScoutDetails>({
       name: 'research_scout',
       label: 'Research Scout',
       description: 'Send a focused repository question to an isolated, read-only scout. The scout can only read, grep, find, and list files through the Sloppi sandbox.',
       promptSnippet: 'Ask an isolated read-only scout to research the repository',
       promptGuidelines: ['Use research_scout for bounded repository reconnaissance or a second opinion before making changes; it cannot edit files or run shell commands.'],
       parameters: scoutParameters,
-      renderCall: ({task}, theme) => new Text(`${theme.bold('Research Scout')} ${theme.fg('muted', task)}`, 0, 0),
+      renderShell: 'self',
+      renderCall({task}, theme) {
+        const call = new Box(1, 0, text => theme.bg('toolPendingBg', text));
+        const title = theme.fg('accent', theme.bold('Research Scout'));
+        call.addChild(new Text(`${title} ${theme.fg('muted', task)}`, 0, 0));
+        return call;
+      },
+      renderResult(result, {expanded, isPartial}, theme) {
+        const {details} = result;
+        const content = result.content.find(part => part.type === 'text');
+        const progress = details?.progress ?? content?.text ?? '(no output)';
+        let activity = progress;
+        if (!expanded) {
+          const lines = progress.split('\n');
+          const hiddenLines = Math.max(0, lines.length - maxCollapsedLines);
+          const visibleLines = lines.slice(-maxCollapsedLines).join('\n');
+          const hint = hiddenLines > 0
+            ? `${theme.fg('dim', `… ${String(hiddenLines)} earlier lines · ${keyHint('app.tools.expand', 'to expand')}`)}\n`
+            : '';
+          activity = hint + visibleLines;
+        }
+
+        activity = activity.split(investigatingStatus).join(theme.fg('dim', investigatingStatus));
+        const container = new Container();
+        const activityResult = new Box(1, 0, text => theme.bg('toolPendingBg', text));
+        activityResult.addChild(new Text(activity, 0, 0));
+        container.addChild(activityResult);
+        if (isPartial) {
+          return container;
+        }
+
+        container.addChild(new Spacer(1));
+        const finalResult = new Box(1, 0);
+        const finalResultHeading = theme.fg('success', theme.bold('Scout Research Result'));
+        finalResult.addChild(new Text(finalResultHeading, 0, 0));
+        finalResult.addChild(new Markdown(content?.text ?? '(no output)', 0, 0, getMarkdownTheme()));
+        container.addChild(finalResult);
+        return container;
+      },
       execute: async (_toolCallId, {task}, signal, onUpdate, ctx) => this.run(task.trim(), signal, onUpdate, ctx),
     });
   }
@@ -64,7 +120,7 @@ export class SandboxSubagent {
   /**
    Runs a fresh SDK session so the scout cannot inherit parent messages or resources.
    */
-  async run(task: string, signal: AbortSignal | undefined, onUpdate: Parameters<ToolDefinition['execute']>[3], ctx: ExtensionContext) {
+  async run(task: string, signal: AbortSignal | undefined, onUpdate: Parameters<ToolDefinition<typeof scoutParameters, ScoutDetails>['execute']>[3], ctx: ExtensionContext) {
     if (task.length === 0) {
       throw new Error('The read-only delegation task cannot be empty.');
     }
@@ -121,12 +177,32 @@ export class SandboxSubagent {
         return undefined;
       },
     };
-    onUpdate?.({content: [{type: 'text', text: 'Research Scout is investigating…'}], details: undefined});
+    let progress = investigatingStatus;
+    let spinnerIndex = 0;
+    let streamType: 'thinking' | undefined;
+    const updateProgress = (): void => {
+      const animatedProgress = progress
+        .split(investigatingStatus)
+        .join(`${spinnerFrames[spinnerIndex]} ${investigatingStatus}`);
+      const visibleProgress = animatedProgress.slice(-maxOutputBytes);
+      onUpdate?.({
+        content: [{type: 'text', text: visibleProgress}],
+        details: {
+          model: `${model.provider}/${model.id}`,
+          task,
+          truncated: false,
+          progress: visibleProgress,
+        },
+      });
+    };
+
+    updateProgress();
 
     const {session} = await createAgentSession({
       cwd: this.cwd,
       agentDir,
       model,
+      thinkingLevel: ctx.thinkingLevel ?? 'off',
       modelRuntime,
       resourceLoader,
       sessionManager: SessionManager.inMemory(this.cwd),
@@ -139,9 +215,35 @@ export class SandboxSubagent {
       void session.abort();
     };
 
+    const spinnerInterval = setInterval(() => {
+      spinnerIndex = (spinnerIndex + 1) % spinnerFrames.length;
+      updateProgress();
+    }, 80);
+    spinnerInterval.unref();
+
     const unsubscribe = session.subscribe(event => {
-      if (event.type === 'tool_execution_start') {
-        onUpdate?.({content: [{type: 'text', text: `Research Scout is using ${event.toolName}…`}], details: undefined});
+      if (event.type === 'message_update') {
+        const update = event.assistantMessageEvent;
+        if (update.type === 'thinking_delta') {
+          if (streamType !== 'thinking') {
+            progress += '\n\nThinking:\n';
+            streamType = 'thinking';
+          }
+
+          progress += update.delta;
+          updateProgress();
+        }
+      } else if (event.type === 'tool_execution_start') {
+        streamType = undefined;
+        progress += `\n\n→ ${event.toolName} ${JSON.stringify(event.args)}`;
+        updateProgress();
+      } else if (event.type === 'message_end' && event.message.role === 'toolResult') {
+        const output = event.message.content
+          .filter(part => part.type === 'text')
+          .map(part => part.text)
+          .join('\n');
+        progress += `\n${event.message.isError ? '✗' : '←'} ${output.length > 0 ? output : '(no text output)'}`;
+        updateProgress();
       }
     });
 
@@ -169,9 +271,15 @@ export class SandboxSubagent {
         : output;
       return {
         content: [{type: 'text' as const, text: content}],
-        details: {model: `${model.provider}/${model.id}`, task, truncated: isTruncated},
+        details: {
+          model: `${model.provider}/${model.id}`,
+          task,
+          truncated: isTruncated,
+          progress: progress.slice(-maxOutputBytes),
+        },
       };
     } finally {
+      clearInterval(spinnerInterval);
       unsubscribe();
       signal?.removeEventListener('abort', abort);
       session.dispose();
