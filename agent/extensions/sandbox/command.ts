@@ -40,7 +40,31 @@ export class SandboxCommand {
     ctx.ui.notify(JSON.stringify(SandboxManager.getConfig(), undefined, 2), 'info');
   }
 
-  /** Lets the user fix Research Scout to one authenticated model. */
+  /** Lets the user persistently enable delegation or configure its default model. */
+  async manageResearchAgents(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
+    await this.config.load();
+    const isEnabled = this.config.areResearchAgentsEnabled();
+    const action = await ctx.ui.select('Research agents', [
+      isEnabled ? 'Turn off' : 'Turn on',
+      'Default model',
+    ]);
+    if (action === undefined) {
+      return;
+    }
+
+    if (action === 'Default model') {
+      await this.manageResearchScoutModel(ctx);
+      return;
+    }
+
+    const isNextEnabled = action === 'Turn on';
+    await this.config.setResearchAgentsEnabled(isNextEnabled);
+    const activeTools = pi.getActiveTools().filter(name => name !== 'research_scout');
+    pi.setActiveTools(isNextEnabled ? [...activeTools, 'research_scout'] : activeTools);
+    ctx.ui.notify(`Research agents are ${isNextEnabled ? 'on' : 'off'}.`, 'info');
+  }
+
+  /** Lets the user select the default model for research profiles. */
   async manageResearchScoutModel(ctx: ExtensionCommandContext): Promise<void> {
     await this.config.load();
     const current = this.config.getResearchScoutModel();
@@ -302,7 +326,7 @@ export class SandboxCommand {
             'Network',
             'Advanced SRT options',
             'Network-deny prompts',
-            ...(scope === 'global' ? ['Research Scout model'] : []),
+            ...(scope === 'global' ? ['Research agents'] : []),
             'Reset configuration',
           ]);
           switch (action) {
@@ -336,8 +360,8 @@ export class SandboxCommand {
               break;
             }
 
-            case 'Research Scout model': {
-              await this.manageResearchScoutModel(ctx);
+            case 'Research agents': {
+              await this.manageResearchAgents(pi, ctx);
               break;
             }
 

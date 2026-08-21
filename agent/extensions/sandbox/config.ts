@@ -84,6 +84,7 @@ export type Config = PartialWithUndefined<SandboxRuntimeConfig> & {
     exposeEnv?: string[] | undefined;
     promptOnNetworkDeny?: boolean | undefined;
     requestPolicies?: RequestPolicy[] | undefined;
+    researchAgentsEnabled?: boolean | undefined;
     researchScoutModel?: z.infer<typeof researchScoutModelSchema> | undefined;
   } | undefined;
   [key: string]: unknown;
@@ -319,6 +320,20 @@ export class ConfigStore {
     this.config = updatedConfig;
     await mkdir(dirname(this.path), {recursive: true});
     await writeFile(this.path, `${JSON.stringify(this.config, undefined, 2)}\n`);
+  }
+
+  /** Returns whether optional research-agent delegation is enabled. */
+  areResearchAgentsEnabled(): boolean {
+    return z.boolean().optional().parse(this.config.sandbox?.researchAgentsEnabled) ?? false;
+  }
+
+  /** Persists whether research-agent delegation is available to the main agent. */
+  async setResearchAgentsEnabled(isEnabled: boolean): Promise<void> {
+    await this.reload();
+    const sandboxConfig = this.config.sandbox ?? {};
+    sandboxConfig.researchAgentsEnabled = isEnabled;
+    this.config.sandbox = sandboxConfig;
+    await this.save();
   }
 
   /** Returns the default model for research profiles that do not select one. */
