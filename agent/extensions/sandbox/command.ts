@@ -56,7 +56,7 @@ export class SandboxCommand {
 
     if (selection === 'Clear model') {
       await this.config.setResearchScoutModel(undefined);
-      ctx.ui.notify('Research Scout model cleared; scouts are disabled until you select one.', 'info');
+      ctx.ui.notify('Default Research Scout model cleared; profiles without their own model are disabled.', 'info');
       return;
     }
 

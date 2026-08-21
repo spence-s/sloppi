@@ -63,12 +63,29 @@ pi install npm:pi-web-access
 - `ask-mode.ts` — `/ask on|off|toggle|status` controls modes; `/ask <prompt>` toggles modes before submitting the prompt.
 - `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input; `/commit model` selects its model.
 - `permissions/` — applies regex-based ask or deny rules to shell commands; `/permissions` edits project rules.
-- `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access. Its `research_scout` tool runs an isolated scout with only sandboxed read, grep, find, and list access. Select its fixed model with `/sandbox global` → `Research Scout model`.
+- `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access. Its `research_scout` tool runs isolated scout, planner, reviewer, or user-defined profiles with only sandboxed read, grep, find, and list access. Select the default model with `/sandbox global` → `Research Scout model`.
 - `startup-banner.ts` — replaces Pi's TUI header.
 - `shell-ui.ts` — adds a Powerlevel10k-inspired prompt and status area to Pi's terminal UI.
 - `zshrc.ts` — loads zsh aliases for host-side `!` commands.
 
 Sandbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. It blocks unapproved extension tools from host execution; Pi web-access tools remain host-side so provider credentials are not exposed to sandboxed commands.
+
+### Research agent profiles
+
+`research_scout` includes `scout`, `planner`, and `reviewer` profiles. Add user profiles under `~/.pi/agent/agents/*.md`:
+
+```md
+---
+name: architecture-reviewer
+description: Review repository architecture and boundaries
+tools: read, grep, find, ls
+model: anthropic/claude-sonnet-4-6
+---
+
+Review the requested architecture using repository evidence. Cite relevant files.
+```
+
+The `model` and `tools` fields are optional. Profiles without a model use the Research Scout model selected in `/sandbox global`. Tool choices are always restricted to `read`, `grep`, `find`, and `ls`; listing another tool does not grant it. User profiles with a built-in name override that profile. Existing calls without an `agent` continue to use `scout`.
 
 ## Sandbox configuration
 

@@ -321,12 +321,12 @@ export class ConfigStore {
     await writeFile(this.path, `${JSON.stringify(this.config, undefined, 2)}\n`);
   }
 
-  /** Returns the user-selected model that every Research Scout must use. */
+  /** Returns the default model for research profiles that do not select one. */
   getResearchScoutModel(): z.infer<typeof researchScoutModelSchema> | undefined {
     return researchScoutModelSchema.optional().parse(this.config.sandbox?.researchScoutModel);
   }
 
-  /** Persists the global model choice so the main agent cannot select a scout model. */
+  /** Persists the default model used by profiles without a model. */
   async setResearchScoutModel(model: z.infer<typeof researchScoutModelSchema> | undefined): Promise<void> {
     await this.reload();
     const sandboxConfig = this.config.sandbox ?? {};

@@ -26,6 +26,7 @@ import {
   Text,
 } from '@earendil-works/pi-tui';
 import {Type} from 'typebox';
+import {discoverResearchAgents} from './agents.ts';
 import type {ConfigStore} from './config.ts';
 import type {SandboxSessionManager} from './session-manager.ts';
 
@@ -35,10 +36,14 @@ const maxCollapsedResultLines = 8;
 const investigatingStatus = 'Investigating...';
 const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 const scoutParameters = Type.Object({
-  task: Type.String({minLength: 1, description: 'The focused repository question for the scout to investigate'}),
+  // TypeBox uses a capitalized function for optional schema fields.
+  // eslint-disable-next-line new-cap
+  agent: Type.Optional(Type.String({minLength: 1, description: 'Research agent profile. Defaults to scout.'})),
+  task: Type.String({minLength: 1, description: 'The focused repository task for the selected agent'}),
 });
 
 type ScoutDetails = {
+  agent: string;
   model: string;
   task: string;
   truncated: boolean;
@@ -46,7 +51,7 @@ type ScoutDetails = {
 };
 
 /**
- Gives the scout an isolated context and only SRT-backed inspection tools.
+ Gives each research agent an isolated context and only SRT-backed inspection tools.
  */
 export class SandboxSubagent {
   pi: ExtensionAPI;
@@ -55,7 +60,7 @@ export class SandboxSubagent {
   config: ConfigStore;
 
   /**
-   Keeps delegation coupled to the sandbox and the user's fixed model choice.
+   Keeps delegation coupled to the sandbox and user-owned profile configuration.
    */
   constructor(pi: ExtensionAPI, cwd: string, sandbox: SandboxSessionManager, config: ConfigStore) {
     this.pi = pi;
@@ -65,21 +70,26 @@ export class SandboxSubagent {
   }
 
   /**
-   Registers one intentionally narrow reconnaissance tool rather than a general worker.
+   Registers configurable research profiles behind one read-only tool.
    */
   register(): void {
     this.pi.registerTool<typeof scoutParameters, ScoutDetails>({
       name: 'research_scout',
       label: 'Research Scout',
-      description: 'Send a focused repository question to an isolated, read-only scout. The scout can only read, grep, find, and list files through the Sloppi sandbox.',
-      promptSnippet: 'Ask an isolated read-only scout to research the repository',
-      promptGuidelines: ['Use research_scout for bounded repository reconnaissance or a second opinion before making changes; it cannot edit files or run shell commands.'],
+      description: [
+        'Send a focused repository task to an isolated, configurable read-only agent.',
+        'Built-in profiles: scout, planner, reviewer.',
+        'User profiles load from ~/.pi/agent/agents/*.md.',
+        'Every profile remains limited to sandboxed read, grep, find, and list access.',
+      ].join(' '),
+      promptSnippet: 'Ask an isolated read-only agent to research, plan, or review repository work',
+      promptGuidelines: ['Use research_scout with the scout, planner, or reviewer profile for bounded repository work; it cannot edit files or run shell commands.'],
       parameters: scoutParameters,
       renderShell: 'self',
-      renderCall({task}, theme) {
+      renderCall({agent = 'scout', task}, theme) {
         const call = new Box(1, 0, text => theme.bg('toolPendingBg', text));
         const title = theme.fg('accent', theme.bold('Research Scout'));
-        call.addChild(new Text(`${title} ${theme.fg('muted', task)}`, 0, 0));
+        call.addChild(new Text(`${title} ${theme.fg('warning', `[${agent}]`)} ${theme.fg('muted', task)}`, 0, 0));
         return call;
       },
       renderResult(result, {expanded, isPartial}, theme) {
@@ -108,7 +118,9 @@ export class SandboxSubagent {
 
         container.addChild(new Spacer(1));
         const finalResult = new Box(1, 0);
-        const finalResultHeading = theme.fg('success', theme.bold('Scout Research Result'));
+        const resultAgent = details?.agent ?? 'scout';
+        const resultLabel = resultAgent.charAt(0).toUpperCase() + resultAgent.slice(1);
+        const finalResultHeading = theme.fg('success', theme.bold(`${resultLabel} Research Result`));
         const finalResultText = content?.text ?? '(no output)';
         const finalResultLines = finalResultText.split('\n');
         const hiddenResultLines = expanded ? 0 : Math.max(0, finalResultLines.length - maxCollapsedResultLines);
@@ -125,14 +137,15 @@ export class SandboxSubagent {
         container.addChild(finalResult);
         return container;
       },
-      execute: async (_toolCallId, {task}, signal, onUpdate, ctx) => this.run(task.trim(), signal, onUpdate, ctx),
+      execute: async (_toolCallId, {agent = 'scout', task}, signal, onUpdate, ctx) => this.run({agent: agent.trim(), task: task.trim()}, signal, onUpdate, ctx),
     });
   }
 
   /**
-   Runs a fresh SDK session so the scout cannot inherit parent messages or resources.
+   Runs a fresh SDK session so the selected agent cannot inherit parent context.
    */
-  async run(task: string, signal: AbortSignal | undefined, onUpdate: Parameters<ToolDefinition<typeof scoutParameters, ScoutDetails>['execute']>[3], ctx: ExtensionContext) {
+  async run(request: {agent: string; task: string}, signal: AbortSignal | undefined, onUpdate: Parameters<ToolDefinition<typeof scoutParameters, ScoutDetails>['execute']>[3], ctx: ExtensionContext) {
+    const {agent: agentName, task} = request;
     if (task.length === 0) {
       throw new Error('The read-only delegation task cannot be empty.');
     }
@@ -141,15 +154,33 @@ export class SandboxSubagent {
       throw new Error('Read-only delegation is unavailable because the Sloppi sandbox is not active.');
     }
 
+    const agents = discoverResearchAgents();
+    const agent = agents.find(candidate => candidate.name === agentName);
+    if (agent === undefined) {
+      throw new Error(`Unknown research agent ${JSON.stringify(agentName)}. Available agents: ${agents.map(candidate => candidate.name).join(', ')}.`);
+    }
+
     await this.config.load();
-    const selectedModel = this.config.getResearchScoutModel();
+    let selectedModel = this.config.getResearchScoutModel();
+    if (agent.model !== undefined) {
+      const separator = agent.model.indexOf('/');
+      if (separator <= 0 || separator === agent.model.length - 1) {
+        throw new Error(`Research agent ${agent.name} model must use provider/model format.`);
+      }
+
+      selectedModel = {
+        provider: agent.model.slice(0, separator),
+        id: agent.model.slice(separator + 1),
+      };
+    }
+
     if (selectedModel === undefined) {
-      throw new Error('Research Scout has no model. Select one with /sandbox global.');
+      throw new Error('Research Scout has no model. Select one with /sandbox global or configure one in the agent profile.');
     }
 
     const model = ctx.modelRegistry.find(selectedModel.provider, selectedModel.id);
     if (model === undefined) {
-      throw new Error(`Research Scout model ${selectedModel.provider}/${selectedModel.id} is not configured.`);
+      throw new Error(`Research agent model ${selectedModel.provider}/${selectedModel.id} is not configured.`);
     }
 
     if (ctx.modelRegistry.getAvailable().every(available => available.provider !== model.provider || available.id !== model.id)) {
@@ -175,9 +206,9 @@ export class SandboxSubagent {
       getThemes: () => ({themes: [], diagnostics: []}),
       getAgentsFiles: () => ({agentsFiles: []}),
       getSystemPrompt: () => [
-        'You are a read-only repository scout.',
+        `You are the ${agent.name} research agent: ${agent.description}.`,
         'Use only the supplied inspection tools. Do not attempt to edit files, execute commands, access the host, or bypass sandbox restrictions.',
-        'Return concise findings: relevant files, observed behavior, risks, and suggested next steps. Do not claim changes were made.',
+        agent.systemPrompt,
       ].join('\n'),
       getSystemPromptSource: () => undefined,
       getAppendSystemPrompt: () => [],
@@ -200,6 +231,7 @@ export class SandboxSubagent {
       onUpdate?.({
         content: [{type: 'text', text: visibleProgress}],
         details: {
+          agent: agent.name,
           model: `${model.provider}/${model.id}`,
           task,
           truncated: false,
@@ -210,6 +242,7 @@ export class SandboxSubagent {
 
     updateProgress();
 
+    const enabledTools = new Set<string>(agent.tools);
     const {session} = await createAgentSession({
       cwd: this.cwd,
       agentDir,
@@ -219,8 +252,8 @@ export class SandboxSubagent {
       resourceLoader,
       sessionManager: SessionManager.inMemory(this.cwd),
       settingsManager,
-      tools: ['read', 'grep', 'find', 'ls'],
-      customTools: this.createTools(),
+      tools: agent.tools,
+      customTools: this.createTools().filter(tool => enabledTools.has(tool.name)),
     });
 
     const abort = (): void => {
@@ -284,6 +317,7 @@ export class SandboxSubagent {
       return {
         content: [{type: 'text' as const, text: content}],
         details: {
+          agent: agent.name,
           model: `${model.provider}/${model.id}`,
           task,
           truncated: isTruncated,

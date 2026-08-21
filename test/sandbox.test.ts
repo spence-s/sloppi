@@ -18,6 +18,7 @@ import type {
   ExtensionAPI,
   ExtensionCommandContext,
 } from '@earendil-works/pi-coding-agent';
+import {discoverResearchAgents} from '../agent/extensions/sandbox/agents.ts';
 import {SandboxCommand} from '../agent/extensions/sandbox/command.ts';
 import {ConfigStore} from '../agent/extensions/sandbox/config.ts';
 import sandboxExtension, {Sandbox as SandboxExtension} from '../agent/extensions/sandbox/index.ts';
@@ -30,6 +31,36 @@ void test('uses no persisted sandbox access by default', (t: TestContext) => {
   configStore.hasLoaded = true;
 
   t.assert.deepStrictEqual(configStore.getEffectiveConfig(), {});
+});
+
+void test('loads user research agents without expanding the read-only tool set', async (t: TestContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-agent-test-'));
+
+  try {
+    await writeFile(join(directory, 'custom.md'), `---
+name: custom
+description: Custom repository analysis
+tools: read, grep, bash
+model: test/small
+---
+
+Follow the custom instructions.
+`);
+    await writeFile(join(directory, 'invalid.md'), 'Missing required frontmatter.\n');
+
+    const agents = discoverResearchAgents(directory);
+    const custom = agents.find(agent => agent.name === 'custom');
+    t.assert.deepStrictEqual(custom, {
+      name: 'custom',
+      description: 'Custom repository analysis',
+      tools: ['read', 'grep'],
+      model: 'test/small',
+      systemPrompt: 'Follow the custom instructions.',
+    });
+    t.assert.deepStrictEqual(agents.map(agent => agent.name), ['scout', 'planner', 'reviewer', 'custom']);
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
 });
 
 void test('persists the globally selected Research Scout model', async (t: TestContext) => {
