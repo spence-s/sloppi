@@ -63,6 +63,22 @@ Follow the custom instructions.
   }
 });
 
+void test('keeps research agents disabled until globally enabled', async (t: TestContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-agent-toggle-test-'));
+  const path = join(directory, 'sandbox.json');
+  const config = new ConfigStore('/project', path);
+
+  try {
+    await config.load();
+    t.assert.strictEqual(config.areResearchAgentsEnabled(), false);
+    await config.setResearchAgentsEnabled(true);
+    await config.reload();
+    t.assert.strictEqual(config.areResearchAgentsEnabled(), true);
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
+});
+
 void test('persists the globally selected Research Scout model', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-scout-model-test-'));
   const path = join(directory, 'sandbox.json');
@@ -472,7 +488,11 @@ void test('adds current sandbox access to the system prompt', async (t: TestCont
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-prompt-test-'));
   const configPath = join(directory, 'sandbox.json');
   const handlers = new Map<string, (...arguments_: unknown[]) => unknown>();
+  let activeTools = ['read', 'research_scout'];
   const pi = {
+    getActiveTools() {
+      return activeTools;
+    },
     on(name: string, handler: (...arguments_: unknown[]) => unknown) {
       handlers.set(name, handler);
     },
@@ -481,6 +501,9 @@ void test('adds current sandbox access to the system prompt', async (t: TestCont
     },
     registerTool() {
       return undefined;
+    },
+    setActiveTools(tools: string[]) {
+      activeTools = tools;
     },
   } as unknown as ExtensionAPI;
 
@@ -499,6 +522,7 @@ void test('adds current sandbox access to the system prompt', async (t: TestCont
     }
 
     const result = await handler({systemPrompt: 'base'}) as {systemPrompt: string};
+    t.assert.deepStrictEqual(activeTools, ['read']);
     t.assert.match(result.systemPrompt, new RegExp(JSON.stringify(extension.cwd), 'v'));
     t.assert.match(result.systemPrompt, /"\/shared"/v);
     t.assert.match(result.systemPrompt, /"api\.example\.com"/v);

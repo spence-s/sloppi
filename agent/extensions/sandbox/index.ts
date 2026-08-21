@@ -45,6 +45,10 @@ export class Sandbox {
       `.trim();
 
       await config.load();
+      if (!config.areResearchAgentsEnabled()) {
+        pi.setActiveTools(pi.getActiveTools().filter(name => name !== 'research_scout'));
+      }
+
       const effectiveConfig = config.getEffectiveConfig();
       const writePaths = [...new Set([cwd, ...(effectiveConfig.filesystem?.allowWrite ?? [])])];
       const allowedDomains = effectiveConfig.network?.allowedDomains ?? [];
@@ -63,6 +67,10 @@ export class Sandbox {
     });
 
     pi.on('tool_call', event => {
+      if (event.toolName === 'research_scout' && !config.areResearchAgentsEnabled()) {
+        return {block: true, reason: 'Research agents are disabled. Enable them with /sandbox global.'};
+      }
+
       if (!sandboxedTools.has(event.toolName) && !hostTools.has(event.toolName)) {
         return {block: true, reason: `Tool ${event.toolName} is not approved for host execution.`};
       }
@@ -135,6 +143,11 @@ export class Sandbox {
     });
 
     pi.on('session_start', async (_event, ctx) => {
+      await config.load();
+      if (!config.areResearchAgentsEnabled()) {
+        pi.setActiveTools(pi.getActiveTools().filter(name => name !== 'research_scout'));
+      }
+
       ctx.ui.setStatus('sandbox', `${ctx.ui.theme.bold(ctx.ui.theme.fg('warning', '󰂪'))} ${ctx.ui.theme.fg('muted', 'sandbox starting')}`);
       try {
         await sandbox.startSession();

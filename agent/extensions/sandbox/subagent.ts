@@ -48,6 +48,15 @@ type ScoutDetails = {
   task: string;
   truncated: boolean;
   progress: string;
+  usage: {
+    input: number;
+    output: number;
+    cacheRead: number;
+    cacheWrite: number;
+    contextTokens: number;
+    cost: number;
+    turns: number;
+  };
 };
 
 /**
@@ -111,6 +120,23 @@ export class SandboxSubagent {
         const container = new Container();
         const activityResult = new Box(4, 1, text => theme.bg('toolPendingBg', text));
         activityResult.addChild(new Text(activity, 0, 0));
+        if (details !== undefined && details.usage.turns > 0) {
+          const {usage} = details;
+          const turns = `${String(usage.turns)} turn${usage.turns === 1 ? '' : 's'}`;
+          const metrics = [
+            turns,
+            `↑${usage.input.toLocaleString('en-US')}`,
+            `↓${usage.output.toLocaleString('en-US')}`,
+            `R${usage.cacheRead.toLocaleString('en-US')}`,
+            `W${usage.cacheWrite.toLocaleString('en-US')}`,
+            `$${usage.cost.toFixed(4)}`,
+            `ctx:${usage.contextTokens.toLocaleString('en-US')}`,
+            details.model,
+          ].join(' ');
+          activityResult.addChild(new Spacer(1));
+          activityResult.addChild(new Text(theme.fg('dim', metrics), 0, 0));
+        }
+
         container.addChild(activityResult);
         if (isPartial) {
           return container;
@@ -223,6 +249,15 @@ export class SandboxSubagent {
     let progress = investigatingStatus;
     let spinnerIndex = 0;
     let streamType: 'thinking' | undefined;
+    const usage = {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      contextTokens: 0,
+      cost: 0,
+      turns: 0,
+    };
     const updateProgress = (): void => {
       const animatedProgress = progress
         .split(investigatingStatus)
@@ -236,6 +271,7 @@ export class SandboxSubagent {
           task,
           truncated: false,
           progress: visibleProgress,
+          usage: {...usage},
         },
       });
     };
@@ -267,28 +303,56 @@ export class SandboxSubagent {
     spinnerInterval.unref();
 
     const unsubscribe = session.subscribe(event => {
-      if (event.type === 'message_update') {
-        const update = event.assistantMessageEvent;
-        if (update.type === 'thinking_delta') {
-          if (streamType !== 'thinking') {
-            progress += '\n\nThinking:\n';
-            streamType = 'thinking';
+      // The scout only needs streaming, tool-start, and completed-message events.
+      // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
+      switch (event.type) {
+        case 'message_update': {
+          const update = event.assistantMessageEvent;
+          if (update.type === 'thinking_delta') {
+            if (streamType !== 'thinking') {
+              progress += '\n\nThinking:\n';
+              streamType = 'thinking';
+            }
+
+            progress += update.delta;
+            updateProgress();
           }
 
-          progress += update.delta;
-          updateProgress();
+          break;
         }
-      } else if (event.type === 'tool_execution_start') {
-        streamType = undefined;
-        progress += `\n\n→ ${event.toolName} ${JSON.stringify(event.args)}`;
-        updateProgress();
-      } else if (event.type === 'message_end' && event.message.role === 'toolResult') {
-        const output = event.message.content
-          .filter(part => part.type === 'text')
-          .map(part => part.text)
-          .join('\n');
-        progress += `\n${event.message.isError ? '✗' : '←'} ${output.length > 0 ? output : '(no text output)'}`;
-        updateProgress();
+
+        case 'tool_execution_start': {
+          streamType = undefined;
+          progress += `\n\n→ ${event.toolName} ${JSON.stringify(event.args)}`;
+          updateProgress();
+          break;
+        }
+
+        case 'message_end': {
+          if (event.message.role === 'assistant') {
+            usage.input += event.message.usage.input;
+            usage.output += event.message.usage.output;
+            usage.cacheRead += event.message.usage.cacheRead;
+            usage.cacheWrite += event.message.usage.cacheWrite;
+            usage.contextTokens = event.message.usage.totalTokens;
+            usage.cost += event.message.usage.cost.total;
+            usage.turns++;
+            updateProgress();
+          } else if (event.message.role === 'toolResult') {
+            const output = event.message.content
+              .filter(part => part.type === 'text')
+              .map(part => part.text)
+              .join('\n');
+            progress += `\n${event.message.isError ? '✗' : '←'} ${output.length > 0 ? output : '(no text output)'}`;
+            updateProgress();
+          }
+
+          break;
+        }
+
+        default: {
+          break;
+        }
       }
     });
 
@@ -322,6 +386,7 @@ export class SandboxSubagent {
           task,
           truncated: isTruncated,
           progress: progress.slice(-maxOutputBytes),
+          usage: {...usage},
         },
       };
     } finally {
