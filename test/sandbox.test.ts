@@ -14,9 +14,12 @@ import process from 'node:process';
 import {test, type TestContext} from 'node:test';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {execa} from 'execa';
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
+import {
+  initTheme,
+  Theme,
+  type ExtensionAPI,
+  type ExtensionCommandContext,
+  type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import {discoverResearchAgents} from '../agent/extensions/sandbox/agents.ts';
 import {SandboxCommand} from '../agent/extensions/sandbox/command.ts';
@@ -704,6 +707,103 @@ void test('registers the read-only research scout', (t: TestContext) => {
   subagent.register();
 
   t.assert.deepStrictEqual(tools, [{name: 'research_scout', label: 'Research Scout'}]);
+});
+
+void test('renders a stable live research dashboard and legacy results', (t: TestContext) => {
+  let registered: ToolDefinition | undefined;
+  const subagent = new SandboxSubagent({
+    registerTool(tool: ToolDefinition) {
+      registered = tool;
+    },
+  } as unknown as ExtensionAPI, '/project', {} as SandboxSessionManager, new ConfigStore('/project'));
+
+  subagent.register();
+  initTheme(undefined, false);
+  const {renderResult} = registered ?? {};
+  if (renderResult === undefined) {
+    throw new Error('Research scout renderer was not registered');
+  }
+
+  const testTheme = new Theme({
+    accent: 0, border: 0, borderAccent: 0, borderMuted: 0, success: 0, error: 0, warning: 0,
+    muted: 0, dim: 0, text: 0, thinkingText: 0, userMessageText: 0, customMessageText: 0,
+    customMessageLabel: 0, toolTitle: 0, toolOutput: 0, mdHeading: 0, mdLink: 0, mdLinkUrl: 0,
+    mdCode: 0, mdCodeBlock: 0, mdCodeBlockBorder: 0, mdQuote: 0, mdQuoteBorder: 0, mdHr: 0,
+    mdListBullet: 0, toolDiffAdded: 0, toolDiffRemoved: 0, toolDiffContext: 0, syntaxComment: 0,
+    syntaxKeyword: 0, syntaxFunction: 0, syntaxVariable: 0, syntaxString: 0, syntaxNumber: 0,
+    syntaxType: 0, syntaxOperator: 0, syntaxPunctuation: 0, thinkingOff: 0, thinkingMinimal: 0,
+    thinkingLow: 0, thinkingMedium: 0, thinkingHigh: 0, thinkingXhigh: 0, bashMode: 0,
+  }, {
+    selectedBg: 0, userMessageBg: 0, customMessageBg: 0, toolPendingBg: 0, toolSuccessBg: 0,
+    toolErrorBg: 0,
+  }, 'truecolor');
+  const context: Parameters<typeof renderResult>[3] = {
+    args: {},
+    toolCallId: 'test-call',
+    invalidate: () => undefined,
+    lastComponent: undefined,
+    state: undefined,
+    cwd: '/project',
+    executionStarted: true,
+    argsComplete: true,
+    isPartial: true,
+    expanded: false,
+    isError: false,
+    showImages: false,
+  };
+  const partial = renderResult({
+    content: [{type: 'text', text: 'final answer'}],
+    details: {
+      agent: 'reviewer',
+      model: 'provider/model',
+      task: 'Review authentication',
+      truncated: false,
+      progress: 'secret thinking transcript',
+      activity: {
+        phase: 'tool',
+        currentAction: 'Reading agent/auth/session.ts',
+        elapsedMs: 23_000,
+        spinnerIndex: 2,
+        filesRead: 2,
+        searches: 3,
+        listings: 0,
+      },
+      usage: {
+        input: 12_430,
+        output: 1842,
+        cacheRead: 8200,
+        cacheWrite: 0,
+        contextTokens: 14_272,
+        cost: 0.0421,
+        turns: 2,
+      },
+    },
+  }, {expanded: false, isPartial: true}, testTheme, context).render(200).join('\n');
+
+  t.assert.match(partial, /Reading agent\/auth\/session\.ts/v);
+  t.assert.match(partial, /2 files · 3 searches · 2 turns/v);
+  t.assert.match(partial, /↑12,430 ↓1,842 R8,200 W0 \$0\.0421 ctx:14,272/v);
+  t.assert.doesNotMatch(partial, /secret thinking transcript/v);
+
+  const aborted = renderResult({
+    content: [{type: 'text', text: 'Aborted after 17s.'}],
+    details: {},
+  }, {expanded: false, isPartial: false}, testTheme, context).render(200).join('\n');
+  t.assert.match(aborted, /⚠ Aborted after 17s/v);
+  t.assert.doesNotMatch(aborted, /Research Result/v);
+
+  const legacy = renderResult({
+    content: [{type: 'text', text: 'legacy result'}],
+    details: {
+      agent: 'scout',
+      model: 'provider/model',
+      task: 'Inspect files',
+      truncated: false,
+      progress: 'old activity',
+    },
+  }, {expanded: false, isPartial: false}, testTheme, context).render(200).join('\n');
+  t.assert.match(legacy, /Completed/v);
+  t.assert.match(legacy, /legacy result/v);
 });
 
 void test('registers /sandbox to manage access during a session', (t: TestContext) => {

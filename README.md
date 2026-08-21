@@ -72,7 +72,7 @@ Sandbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, an
 
 ### Research agent profiles
 
-Research agents are off by default. Enable them persistently with `/sandbox global` → `Research agents` → `Turn on`. The `research_scout` tool includes `scout`, `planner`, and `reviewer` profiles. Add user profiles under `~/.pi/agent/agents/*.md`:
+Research agents are off by default. Enable them persistently with `/sandbox global` → `Research agents` → `Turn on`. While one runs, its activity panel shows the current phase, elapsed time, read/search counters, usage, and cancel hint; `Ctrl+O` expands the detailed transcript. The `research_scout` tool includes `scout`, `planner`, and `reviewer` profiles. Add user profiles under `~/.pi/agent/agents/*.md`:
 
 ```md
 ---

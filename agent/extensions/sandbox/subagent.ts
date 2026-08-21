@@ -31,10 +31,32 @@ import type {ConfigStore} from './config.ts';
 import type {SandboxSessionManager} from './session-manager.ts';
 
 const maxOutputBytes = 12 * 1024;
-const maxCollapsedLines = 14;
 const maxCollapsedResultLines = 8;
 const investigatingStatus = 'Investigating...';
 const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
+type ScoutPhase = 'starting' | 'thinking' | 'tool' | 'analyzing' | 'writing' | 'complete';
+
+type ScoutUsage = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+  contextTokens: number;
+  cost: number;
+  turns: number;
+};
+
+type ScoutActivity = {
+  phase: ScoutPhase;
+  currentAction: string;
+  elapsedMs: number;
+  spinnerIndex: number;
+  filesRead: number;
+  searches: number;
+  listings: number;
+};
+
 const scoutParameters = Type.Object({
   // TypeBox uses a capitalized function for optional schema fields.
   // eslint-disable-next-line new-cap
@@ -48,15 +70,8 @@ type ScoutDetails = {
   task: string;
   truncated: boolean;
   progress: string;
-  usage: {
-    input: number;
-    output: number;
-    cacheRead: number;
-    cacheWrite: number;
-    contextTokens: number;
-    cost: number;
-    turns: number;
-  };
+  activity?: ScoutActivity;
+  usage?: ScoutUsage;
 };
 
 /**
@@ -101,44 +116,96 @@ export class SandboxSubagent {
         call.addChild(new Text(`${title} ${theme.fg('warning', `[${agent}]`)} ${theme.fg('muted', task)}`, 0, 0));
         return call;
       },
+      // eslint-disable-next-line complexity -- this is the single renderer for compact, expanded, pending, and completed states.
       renderResult(result, {expanded, isPartial}, theme) {
         const {details} = result;
         const content = result.content.find(part => part.type === 'text');
-        const progress = details?.progress ?? content?.text ?? '(no output)';
-        let activity = progress;
-        if (!expanded) {
-          const lines = progress.split('\n');
-          const hiddenLines = Math.max(0, lines.length - maxCollapsedLines);
-          const visibleLines = lines.slice(-maxCollapsedLines).join('\n');
-          const hint = hiddenLines > 0
-            ? `${theme.fg('dim', `… ${String(hiddenLines)} earlier lines · ${keyHint('app.tools.expand', 'to expand')}`)}\n`
-            : '';
-          activity = hint + visibleLines;
+        const finalResultText = content?.text ?? '(no output)';
+        const isAborted = details?.activity === undefined
+          && details?.progress === undefined
+          && /aborted/iv.test(finalResultText);
+        const progress = details?.progress ?? (isAborted ? '' : finalResultText);
+        const activity = details?.activity;
+        const usage = details?.usage;
+        const elapsedSeconds = Math.max(0, Math.floor((activity?.elapsedMs ?? 0) / 1000));
+        const elapsed = elapsedSeconds < 60
+          ? `${String(elapsedSeconds)}s`
+          : `${String(Math.floor(elapsedSeconds / 60))}m ${String(elapsedSeconds % 60).padStart(2, '0')}s`;
+        const spinner = spinnerFrames[activity?.spinnerIndex ?? 0] ?? spinnerFrames[0] ?? '⠋';
+        let status: string;
+        if (isPartial) {
+          status = `${spinner} ${activity?.currentAction ?? investigatingStatus} · ${elapsed}`;
+        } else if (isAborted) {
+          status = `⚠ ${finalResultText.replace(/[!.]$/v, '')}`;
+        } else {
+          status = `✓ Completed${activity === undefined ? '' : ` in ${elapsed}`}`;
         }
 
-        activity = activity.split(investigatingStatus).join(theme.fg('dim', investigatingStatus));
+        const counters: string[] = [];
+        if (activity?.filesRead !== undefined && activity.filesRead > 0) {
+          counters.push(`${String(activity.filesRead)} file${activity.filesRead === 1 ? '' : 's'}`);
+        }
+
+        if (activity?.searches !== undefined && activity.searches > 0) {
+          counters.push(`${String(activity.searches)} search${activity.searches === 1 ? '' : 'es'}`);
+        }
+
+        if (activity?.listings !== undefined && activity.listings > 0) {
+          counters.push(`${String(activity.listings)} listing${activity.listings === 1 ? '' : 's'}`);
+        }
+
+        if (usage !== undefined && usage.turns > 0) {
+          counters.push(`${String(usage.turns)} turn${usage.turns === 1 ? '' : 's'}`);
+        }
+
         const container = new Container();
         const activityResult = new Box(4, 1, text => theme.bg('toolPendingBg', text));
-        activityResult.addChild(new Text(activity, 0, 0));
-        if (details !== undefined && details.usage.turns > 0) {
-          const {usage} = details;
-          const turns = `${String(usage.turns)} turn${usage.turns === 1 ? '' : 's'}`;
+        let statusColor: 'warning' | 'dim' | 'success' = isPartial ? 'dim' : 'success';
+        if (isAborted) {
+          statusColor = 'warning';
+        }
+
+        const statusText = theme.fg(statusColor, status);
+        activityResult.addChild(new Text(statusText, 0, 0));
+        if (counters.length > 0) {
+          const counterText = theme.fg('dim', counters.join(' · '));
+          activityResult.addChild(new Text(counterText, 0, 0));
+        }
+
+        if (usage !== undefined && usage.turns > 0) {
           const metrics = [
-            turns,
             `↑${usage.input.toLocaleString('en-US')}`,
             `↓${usage.output.toLocaleString('en-US')}`,
             `R${usage.cacheRead.toLocaleString('en-US')}`,
             `W${usage.cacheWrite.toLocaleString('en-US')}`,
             `$${usage.cost.toFixed(4)}`,
             `ctx:${usage.contextTokens.toLocaleString('en-US')}`,
-            details.model,
           ].join(' ');
-          activityResult.addChild(new Spacer(1));
           activityResult.addChild(new Text(theme.fg('dim', metrics), 0, 0));
+          if (expanded) {
+            const modelText = theme.fg('dim', details?.model ?? '');
+            activityResult.addChild(new Text(modelText, 0, 0));
+          }
+        }
+
+        if (expanded) {
+          activityResult.addChild(new Spacer(1));
+          activityResult.addChild(new Text(progress, 0, 0));
+          const expandedHint = isPartial
+            ? `${keyHint('app.interrupt', 'to cancel')} · ${keyHint('app.tools.expand', 'to collapse')}`
+            : keyHint('app.tools.expand', 'to collapse');
+          activityResult.addChild(new Text(theme.fg('dim', expandedHint), 0, 0));
+        } else if (isPartial) {
+          activityResult.addChild(new Spacer(1));
+          const pendingHint = `${keyHint('app.interrupt', 'to cancel')} · ${keyHint('app.tools.expand', 'activity')}`;
+          activityResult.addChild(new Text(theme.fg('dim', pendingHint), 0, 0));
+        } else {
+          const completedHint = keyHint('app.tools.expand', 'activity');
+          activityResult.addChild(new Text(theme.fg('dim', completedHint), 0, 0));
         }
 
         container.addChild(activityResult);
-        if (isPartial) {
+        if (isPartial || isAborted) {
           return container;
         }
 
@@ -147,7 +214,6 @@ export class SandboxSubagent {
         const resultAgent = details?.agent ?? 'scout';
         const resultLabel = resultAgent.charAt(0).toUpperCase() + resultAgent.slice(1);
         const finalResultHeading = theme.fg('success', theme.bold(`${resultLabel} Research Result`));
-        const finalResultText = content?.text ?? '(no output)';
         const finalResultLines = finalResultText.split('\n');
         const hiddenResultLines = expanded ? 0 : Math.max(0, finalResultLines.length - maxCollapsedResultLines);
         const visibleResult = expanded
@@ -170,6 +236,7 @@ export class SandboxSubagent {
   /**
    Runs a fresh SDK session so the selected agent cannot inherit parent context.
    */
+  // eslint-disable-next-line complexity -- the child lifecycle owns setup, streaming, abort, and cleanup.
   async run(request: {agent: string; task: string}, signal: AbortSignal | undefined, onUpdate: Parameters<ToolDefinition<typeof scoutParameters, ScoutDetails>['execute']>[3], ctx: ExtensionContext) {
     const {agent: agentName, task} = request;
     if (task.length === 0) {
@@ -246,10 +313,16 @@ export class SandboxSubagent {
         return undefined;
       },
     };
-    let progress = investigatingStatus;
+    const startedAt = Date.now();
+    let progress = '';
+    let phase: ScoutPhase = 'starting';
+    let currentAction = 'Starting agent...';
     let spinnerIndex = 0;
     let streamType: 'thinking' | undefined;
-    const usage = {
+    const filesRead = new Set<string>();
+    let searches = 0;
+    let listings = 0;
+    const usage: ScoutUsage = {
       input: 0,
       output: 0,
       cacheRead: 0,
@@ -259,10 +332,7 @@ export class SandboxSubagent {
       turns: 0,
     };
     const updateProgress = (): void => {
-      const animatedProgress = progress
-        .split(investigatingStatus)
-        .join(`${spinnerFrames[spinnerIndex]} ${investigatingStatus}`);
-      const visibleProgress = animatedProgress.slice(-maxOutputBytes);
+      const visibleProgress = progress.slice(-maxOutputBytes);
       onUpdate?.({
         content: [{type: 'text', text: visibleProgress}],
         details: {
@@ -271,6 +341,15 @@ export class SandboxSubagent {
           task,
           truncated: false,
           progress: visibleProgress,
+          activity: {
+            phase,
+            currentAction,
+            elapsedMs: Date.now() - startedAt,
+            spinnerIndex,
+            filesRead: filesRead.size,
+            searches,
+            listings,
+          },
           usage: {...usage},
         },
       });
@@ -302,19 +381,34 @@ export class SandboxSubagent {
     }, 80);
     spinnerInterval.unref();
 
+    // eslint-disable-next-line complexity -- one event stream owns all live child-session state.
     const unsubscribe = session.subscribe(event => {
       // The scout only needs streaming, tool-start, and completed-message events.
       // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
       switch (event.type) {
         case 'message_update': {
           const update = event.assistantMessageEvent;
-          if (update.type === 'thinking_delta') {
+          if (update.type === 'thinking_start' || update.type === 'thinking_delta') {
+            phase = 'thinking';
+            currentAction = 'Thinking...';
             if (streamType !== 'thinking') {
               progress += '\n\nThinking:\n';
               streamType = 'thinking';
             }
 
-            progress += update.delta;
+            if (update.type === 'thinking_delta') {
+              progress += update.delta;
+            }
+
+            updateProgress();
+          } else if (update.type === 'text_start' || update.type === 'text_delta') {
+            phase = 'writing';
+            currentAction = 'Writing findings...';
+            if (streamType === 'thinking') {
+              progress += '\n\nWriting findings...';
+              streamType = undefined;
+            }
+
             updateProgress();
           }
 
@@ -322,14 +416,75 @@ export class SandboxSubagent {
         }
 
         case 'tool_execution_start': {
+          const args: unknown = event.args as unknown;
+          const path = typeof args === 'object' && args !== null && !Array.isArray(args) && 'path' in args && typeof args.path === 'string'
+            ? args.path
+            : undefined;
+          const pattern = typeof args === 'object' && args !== null && !Array.isArray(args) && 'pattern' in args && typeof args.pattern === 'string'
+            ? args.pattern
+            : undefined;
+          const shownPattern = pattern === undefined
+            ? 'matches'
+            : JSON.stringify(pattern.length > 80 ? `${pattern.slice(0, 77)}...` : pattern);
+          const location = path === undefined ? '' : ` in ${path}`;
+          let action: string;
+          switch (event.toolName) {
+            case 'read': {
+              action = `Reading ${path ?? 'file'}`;
+              break;
+            }
+
+            case 'grep': {
+              action = `Searching for ${shownPattern}${location}`;
+              break;
+            }
+
+            case 'find': {
+              action = `Finding ${shownPattern}${location}`;
+              break;
+            }
+
+            case 'ls': {
+              action = `Listing ${path ?? 'directory'}`;
+              break;
+            }
+
+            default: {
+              action = `Running ${event.toolName}`;
+              break;
+            }
+          }
+
+          phase = 'tool';
+          currentAction = action;
+          if (event.toolName === 'read' && path !== undefined) {
+            filesRead.add(path);
+          } else if (event.toolName === 'grep' || event.toolName === 'find') {
+            searches++;
+          } else if (event.toolName === 'ls') {
+            listings++;
+          }
+
           streamType = undefined;
           progress += `\n\n→ ${event.toolName} ${JSON.stringify(event.args)}`;
           updateProgress();
           break;
         }
 
+        case 'tool_execution_end': {
+          phase = 'analyzing';
+          currentAction = event.isError ? 'Reviewing tool error...' : 'Analyzing results...';
+          updateProgress();
+          break;
+        }
+
         case 'message_end': {
           if (event.message.role === 'assistant') {
+            if (phase !== 'writing') {
+              phase = 'analyzing';
+              currentAction = 'Analyzing results...';
+            }
+
             usage.input += event.message.usage.input;
             usage.output += event.message.usage.output;
             usage.cacheRead += event.message.usage.cacheRead;
@@ -365,8 +520,12 @@ export class SandboxSubagent {
         throw new Error('Research Scout ended without a response.');
       }
 
-      if (message.stopReason === 'error' || message.stopReason === 'aborted') {
-        throw new Error(message.errorMessage ?? `Research Scout ${message.stopReason}.`);
+      if (message.stopReason === 'aborted') {
+        throw new Error('Research Scout aborted.');
+      }
+
+      if (message.stopReason === 'error') {
+        throw new Error(message.errorMessage ?? 'Research Scout failed.');
       }
 
       const text = message.content
@@ -378,6 +537,8 @@ export class SandboxSubagent {
       const content = isTruncated
         ? `${Buffer.from(output).subarray(0, maxOutputBytes).toString('utf8')}\n\n[Scout output truncated.]`
         : output;
+      phase = 'complete';
+      currentAction = 'Completed';
       return {
         content: [{type: 'text' as const, text: content}],
         details: {
@@ -386,9 +547,28 @@ export class SandboxSubagent {
           task,
           truncated: isTruncated,
           progress: progress.slice(-maxOutputBytes),
+          activity: {
+            phase,
+            currentAction,
+            elapsedMs: Date.now() - startedAt,
+            spinnerIndex,
+            filesRead: filesRead.size,
+            searches,
+            listings,
+          },
           usage: {...usage},
         },
       };
+    } catch (error) {
+      if (signal?.aborted ?? (error instanceof Error && /aborted/iv.test(error.message))) {
+        const elapsedSeconds = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+        const elapsed = elapsedSeconds < 60
+          ? `${String(elapsedSeconds)}s`
+          : `${String(Math.floor(elapsedSeconds / 60))}m ${String(elapsedSeconds % 60).padStart(2, '0')}s`;
+        throw new Error(`Aborted after ${elapsed}.`, {cause: error});
+      }
+
+      throw error;
     } finally {
       clearInterval(spinnerInterval);
       unsubscribe();
