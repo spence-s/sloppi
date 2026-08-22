@@ -38,6 +38,23 @@ type SandboxSession = {
 };
 
 /**
+ Restores process-level temporary directory overrides after a sandbox stops or fails.
+ */
+const restoreEnvironment = (session: SandboxSession): void => {
+  if (session.previousClaudeCodeTmpdir === undefined) {
+    delete process.env.CLAUDE_CODE_TMPDIR;
+  } else {
+    process.env.CLAUDE_CODE_TMPDIR = session.previousClaudeCodeTmpdir;
+  }
+
+  if (session.previousTmpdir === undefined) {
+    delete process.env.TMPDIR;
+  } else {
+    process.env.TMPDIR = session.previousTmpdir;
+  }
+};
+
+/**
  Checks whether an exact policy destination is covered by an SRT domain pattern.
  */
 const isDomainPatternMatch = (destination: string, pattern: string): boolean => {
@@ -128,7 +145,13 @@ export class SandboxSessionManager {
         denyWrite: [],
       },
     }, this.config.getEffectiveConfig());
-    const parsedRuntimeConfig = SandboxRuntimeConfigSchema.parse(runtimeConfig);
+    const runtimeConfigValidation = SandboxRuntimeConfigSchema.safeParse(runtimeConfig);
+    if (!runtimeConfigValidation.success) {
+      await rm(scratchPath, {force: true, recursive: true});
+      throw runtimeConfigValidation.error;
+    }
+
+    const parsedRuntimeConfig = runtimeConfigValidation.data;
     if (requestPolicies.length > 0) {
       const excludedDomains = parsedRuntimeConfig.network.tlsTerminate?.excludeDomains ?? [];
       const excludedDestination = requestPolicies.find(policy =>
@@ -200,18 +223,7 @@ export class SandboxSessionManager {
       await SandboxManager.initialize(parsedRuntimeConfig);
       this.session = {previousClaudeCodeTmpdir, previousTmpdir, scratchPath};
     } catch (error) {
-      if (previousClaudeCodeTmpdir === undefined) {
-        delete process.env.CLAUDE_CODE_TMPDIR;
-      } else {
-        process.env.CLAUDE_CODE_TMPDIR = previousClaudeCodeTmpdir;
-      }
-
-      if (previousTmpdir === undefined) {
-        delete process.env.TMPDIR;
-      } else {
-        process.env.TMPDIR = previousTmpdir;
-      }
-
+      restoreEnvironment({previousClaudeCodeTmpdir, previousTmpdir, scratchPath});
       await rm(scratchPath, {force: true, recursive: true});
       throw error;
     }
@@ -284,18 +296,7 @@ export class SandboxSessionManager {
     try {
       await SandboxManager.reset();
     } finally {
-      if (session.previousClaudeCodeTmpdir === undefined) {
-        delete process.env.CLAUDE_CODE_TMPDIR;
-      } else {
-        process.env.CLAUDE_CODE_TMPDIR = session.previousClaudeCodeTmpdir;
-      }
-
-      if (session.previousTmpdir === undefined) {
-        delete process.env.TMPDIR;
-      } else {
-        process.env.TMPDIR = session.previousTmpdir;
-      }
-
+      restoreEnvironment(session);
       this.session = undefined;
       await rm(session.scratchPath, {force: true, recursive: true});
     }

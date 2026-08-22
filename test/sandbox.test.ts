@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   symlink,
   writeFile,
@@ -14,9 +15,12 @@ import process from 'node:process';
 import {test, type TestContext} from 'node:test';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {execa} from 'execa';
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
+import {
+  initTheme,
+  Theme,
+  type ExtensionAPI,
+  type ExtensionCommandContext,
+  type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import {discoverResearchAgents} from '../agent/extensions/sandbox/agents.ts';
 import {SandboxCommand} from '../agent/extensions/sandbox/command.ts';
@@ -63,7 +67,7 @@ Follow the custom instructions.
   }
 });
 
-void test('keeps research agents disabled until globally enabled', async (t: TestContext) => {
+void test('lets projects override or inherit the global research-agent setting', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-agent-toggle-test-'));
   const path = join(directory, 'sandbox.json');
   const config = new ConfigStore('/project', path);
@@ -71,8 +75,11 @@ void test('keeps research agents disabled until globally enabled', async (t: Tes
   try {
     await config.load();
     t.assert.strictEqual(config.areResearchAgentsEnabled(), false);
-    await config.setResearchAgentsEnabled(true);
-    await config.reload();
+    await config.setResearchAgentsEnabled('global', true);
+    t.assert.strictEqual(config.areResearchAgentsEnabled(), true);
+    await config.setResearchAgentsEnabled('project', false);
+    t.assert.strictEqual(config.areResearchAgentsEnabled(), false);
+    await config.setResearchAgentsEnabled('project', undefined);
     t.assert.strictEqual(config.areResearchAgentsEnabled(), true);
   } finally {
     await rm(directory, {force: true, recursive: true});
@@ -96,6 +103,25 @@ void test('persists the globally selected Research Scout model', async (t: TestC
 void test('requires an explicit session before running commands', async (t: TestContext) => {
   const sandbox = new SandboxSessionManager('/project', new ConfigStore('/project'));
   await t.assert.rejects(sandbox.run`true`, /has not started/v);
+});
+
+/**
+ Verifies failed startup removes its private scratch directory.
+ */
+void test('cleans up after sandbox configuration errors', async (t: TestContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-startup-error-test-'));
+  const config = new ConfigStore('/project');
+  config.config = {network: {allowedDomains: ['*']}};
+  config.hasLoaded = true;
+  const sandbox = new SandboxSessionManager('/project', config);
+  t.mock.property(process, 'env', {...process.env, TMPDIR: directory});
+
+  try {
+    await t.assert.rejects(sandbox.startSession(), /Invalid domain pattern/v);
+    t.assert.deepStrictEqual(await readdir(directory), []);
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
 });
 
 void test('isolates reads and temporary Unix sockets', async (t: TestContext) => {
@@ -218,8 +244,8 @@ void test('preserves config changes saved by another running session', async (t:
   try {
     await writeFile(configPath, `${JSON.stringify({sandbox: {otherSetting: true}})}\n`);
     await Promise.all([first.load(), second.load()]);
-    await first.addDomain('global', 'first.example');
-    await second.addDomain('global', 'second.example');
+    await first.updateDomain('global', 'allow', 'add', 'first.example');
+    await second.updateDomain('global', 'allow', 'add', 'second.example');
     await second.setPrompting('global', false);
 
     const saved = JSON.parse(await readFile(configPath, 'utf8')) as {
@@ -645,6 +671,71 @@ void test('/sandbox mutates projects by default and global configuration only wh
   }
 });
 
+/**
+ Verifies project research-agent settings take effect immediately and can return to inheritance.
+ */
+void test('/sandbox configures research agents globally or per project', async (t: TestContext) => {
+  type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-command-test-'));
+  const configPath = join(directory, 'sandbox.json');
+  const configStore = new ConfigStore('/project', configPath);
+  const selections = [
+    'Research agents',
+    'Turn on',
+    'Research agents',
+    'Turn off',
+    'Research agents',
+    'Use global setting',
+  ];
+  const notifications: string[] = [];
+  let activeTools = ['read'];
+  let handler: Handler | undefined;
+
+  new SandboxCommand(configStore, {} as SandboxSessionManager).register({
+    getActiveTools() {
+      return activeTools;
+    },
+    registerCommand(_name: string, options: {handler: Handler}) {
+      handler = options.handler;
+    },
+    setActiveTools(tools: string[]) {
+      activeTools = tools;
+    },
+  } as unknown as ExtensionAPI);
+
+  const ctx = {
+    ui: {
+      notify(message: string) {
+        notifications.push(message);
+      },
+      select: async () => selections.shift(),
+    },
+  } as unknown as ExtensionCommandContext;
+
+  try {
+    if (handler === undefined) {
+      throw new Error('/sandbox handler was not registered');
+    }
+
+    await handler('global', ctx);
+    t.assert.deepStrictEqual(activeTools, ['read', 'research_scout']);
+    await handler('', ctx);
+    t.assert.deepStrictEqual(activeTools, ['read']);
+    await handler('', ctx);
+    t.assert.deepStrictEqual(activeTools, ['read', 'research_scout']);
+
+    const saved = JSON.parse(await readFile(configPath, 'utf8')) as {
+      sandbox: {researchAgentsEnabled: boolean};
+      projects: Record<string, {sandbox: {researchAgentsEnabled?: boolean}}>;
+    };
+    t.assert.strictEqual(saved.sandbox.researchAgentsEnabled, true);
+    t.assert.strictEqual(saved.projects['/project']?.sandbox.researchAgentsEnabled, undefined);
+    t.assert.match(notifications.at(-1) ?? '', /use the global setting and are on/v);
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
+});
+
 void test('/sandbox does not remove inherited global rules from project scope', async (t: TestContext) => {
   type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-command-test-'));
@@ -704,6 +795,98 @@ void test('registers the read-only research scout', (t: TestContext) => {
   subagent.register();
 
   t.assert.deepStrictEqual(tools, [{name: 'research_scout', label: 'Research Scout'}]);
+});
+
+void test('renders a stable live research dashboard and legacy results', (t: TestContext) => {
+  let registered: ToolDefinition | undefined;
+  const subagent = new SandboxSubagent({
+    registerTool(tool: ToolDefinition) {
+      registered = tool;
+    },
+  } as unknown as ExtensionAPI, '/project', {} as SandboxSessionManager, new ConfigStore('/project'));
+
+  subagent.register();
+  initTheme(undefined, false);
+  const {renderResult} = registered ?? {};
+  if (renderResult === undefined) {
+    throw new Error('Research scout renderer was not registered');
+  }
+
+  const testTheme = new Theme({
+    accent: 0, border: 0, borderAccent: 0, borderMuted: 0, success: 0, error: 0, warning: 0,
+    muted: 0, dim: 0, text: 0, thinkingText: 0, userMessageText: 0, customMessageText: 0,
+    customMessageLabel: 0, toolTitle: 0, toolOutput: 0, mdHeading: 0, mdLink: 0, mdLinkUrl: 0,
+    mdCode: 0, mdCodeBlock: 0, mdCodeBlockBorder: 0, mdQuote: 0, mdQuoteBorder: 0, mdHr: 0,
+    mdListBullet: 0, toolDiffAdded: 0, toolDiffRemoved: 0, toolDiffContext: 0, syntaxComment: 0,
+    syntaxKeyword: 0, syntaxFunction: 0, syntaxVariable: 0, syntaxString: 0, syntaxNumber: 0,
+    syntaxType: 0, syntaxOperator: 0, syntaxPunctuation: 0, thinkingOff: 0, thinkingMinimal: 0,
+    thinkingLow: 0, thinkingMedium: 0, thinkingHigh: 0, thinkingXhigh: 0, bashMode: 0,
+  }, {
+    selectedBg: 0, userMessageBg: 0, customMessageBg: 0, toolPendingBg: 0, toolSuccessBg: 0,
+    toolErrorBg: 0,
+  }, 'truecolor');
+  const context: Parameters<typeof renderResult>[3] = {
+    args: {},
+    toolCallId: 'test-call',
+    invalidate: () => undefined,
+    lastComponent: undefined,
+    state: undefined,
+    cwd: '/project',
+    executionStarted: true,
+    argsComplete: true,
+    isPartial: true,
+    expanded: false,
+    isError: false,
+    showImages: false,
+  };
+  const partial = renderResult({
+    content: [{type: 'text', text: 'final answer'}],
+    details: {
+      agent: 'reviewer',
+      model: 'provider/model',
+      progress: 'secret thinking transcript',
+      activity: {
+        currentAction: 'Reading agent/auth/session.ts',
+        elapsedMs: 23_000,
+        spinnerIndex: 2,
+        filesRead: 2,
+        searches: 3,
+        listings: 0,
+      },
+      usage: {
+        input: 12_430,
+        output: 1842,
+        cacheRead: 8200,
+        cacheWrite: 0,
+        contextTokens: 14_272,
+        cost: 0.0421,
+        turns: 2,
+      },
+    },
+  }, {expanded: false, isPartial: true}, testTheme, context).render(200).join('\n');
+
+  t.assert.match(partial, /Reading agent\/auth\/session\.ts/v);
+  t.assert.match(partial, /2 files · 3 searches · 2 turns/v);
+  t.assert.match(partial, /↑12,430 ↓1,842 R8,200 W0 \$0\.0421 ctx:14,272/v);
+  t.assert.doesNotMatch(partial, /secret thinking transcript/v);
+
+  const aborted = renderResult({
+    content: [{type: 'text', text: 'Aborted after 17s.'}],
+    details: {},
+  }, {expanded: false, isPartial: false}, testTheme, context).render(200).join('\n');
+  t.assert.match(aborted, /⚠ Aborted after 17s/v);
+  t.assert.doesNotMatch(aborted, /Research Result/v);
+
+  const legacy = renderResult({
+    content: [{type: 'text', text: 'legacy result'}],
+    details: {
+      agent: 'scout',
+      model: 'provider/model',
+      progress: 'old activity',
+    },
+  }, {expanded: false, isPartial: false}, testTheme, context).render(200).join('\n');
+  t.assert.match(legacy, /Completed/v);
+  t.assert.match(legacy, /legacy result/v);
 });
 
 void test('registers /sandbox to manage access during a session', (t: TestContext) => {

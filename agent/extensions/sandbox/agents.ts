@@ -1,4 +1,4 @@
-import {existsSync, readdirSync, readFileSync} from 'node:fs';
+import {readdirSync, readFileSync} from 'node:fs';
 import {join} from 'node:path';
 import {getAgentDir, parseFrontmatter} from '@earendil-works/pi-coding-agent';
 
@@ -48,10 +48,6 @@ const builtInAgents: ResearchAgent[] = [
  */
 export function discoverResearchAgents(directory = join(getAgentDir(), 'agents')): ResearchAgent[] {
   const agents = new Map(builtInAgents.map(agent => [agent.name, agent]));
-  if (!existsSync(directory)) {
-    return agents.values().toArray();
-  }
-
   let entries;
   try {
     entries = readdirSync(directory, {withFileTypes: true});
