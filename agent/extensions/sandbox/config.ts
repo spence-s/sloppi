@@ -314,17 +314,28 @@ export class ConfigStore {
     await writeFile(this.path, `${JSON.stringify(this.config, undefined, 2)}\n`);
   }
 
-  /** Returns whether optional research-agent delegation is enabled. */
-  areResearchAgentsEnabled(): boolean {
-    return z.boolean().optional().parse(this.config.sandbox?.researchAgentsEnabled) ?? false;
+  /** Returns the research-agent setting stored directly in one scope. */
+  getResearchAgentsSetting(scope: ConfigScope): boolean | undefined {
+    return z.boolean().optional().parse(this.getScopedConfig(scope).sandbox?.researchAgentsEnabled);
   }
 
-  /** Persists whether research-agent delegation is available to the main agent. */
-  async setResearchAgentsEnabled(isEnabled: boolean): Promise<void> {
+  /** Returns the project override, global default, or disabled fallback. */
+  areResearchAgentsEnabled(): boolean {
+    return this.getResearchAgentsSetting('project') ?? this.getResearchAgentsSetting('global') ?? false;
+  }
+
+  /** Persists or clears research-agent delegation in one scope. */
+  async setResearchAgentsEnabled(scope: ConfigScope, isEnabled: boolean | undefined): Promise<void> {
     await this.reload();
-    const sandboxConfig = this.config.sandbox ?? {};
-    sandboxConfig.researchAgentsEnabled = isEnabled;
-    this.config.sandbox = sandboxConfig;
+    const scopedConfig = this.getScopedConfig(scope);
+    const sandboxConfig = scopedConfig.sandbox ?? {};
+    if (isEnabled === undefined) {
+      delete sandboxConfig.researchAgentsEnabled;
+    } else {
+      sandboxConfig.researchAgentsEnabled = isEnabled;
+    }
+
+    scopedConfig.sandbox = sandboxConfig;
     await this.save();
   }
 

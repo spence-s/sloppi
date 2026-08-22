@@ -67,7 +67,7 @@ Follow the custom instructions.
   }
 });
 
-void test('keeps research agents disabled until globally enabled', async (t: TestContext) => {
+void test('lets projects override or inherit the global research-agent setting', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-agent-toggle-test-'));
   const path = join(directory, 'sandbox.json');
   const config = new ConfigStore('/project', path);
@@ -75,8 +75,11 @@ void test('keeps research agents disabled until globally enabled', async (t: Tes
   try {
     await config.load();
     t.assert.strictEqual(config.areResearchAgentsEnabled(), false);
-    await config.setResearchAgentsEnabled(true);
-    await config.reload();
+    await config.setResearchAgentsEnabled('global', true);
+    t.assert.strictEqual(config.areResearchAgentsEnabled(), true);
+    await config.setResearchAgentsEnabled('project', false);
+    t.assert.strictEqual(config.areResearchAgentsEnabled(), false);
+    await config.setResearchAgentsEnabled('project', undefined);
     t.assert.strictEqual(config.areResearchAgentsEnabled(), true);
   } finally {
     await rm(directory, {force: true, recursive: true});
@@ -663,6 +666,71 @@ void test('/sandbox mutates projects by default and global configuration only wh
     t.assert.deepStrictEqual(saved.filesystem.allowWrite, ['/global-write']);
     t.assert.strictEqual(restarts, 2);
     t.assert.match(notifications.at(-1) ?? '', /Use \/sandbox or \/sandbox global/v);
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
+});
+
+/**
+ Verifies project research-agent settings take effect immediately and can return to inheritance.
+ */
+void test('/sandbox configures research agents globally or per project', async (t: TestContext) => {
+  type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-command-test-'));
+  const configPath = join(directory, 'sandbox.json');
+  const configStore = new ConfigStore('/project', configPath);
+  const selections = [
+    'Research agents',
+    'Turn on',
+    'Research agents',
+    'Turn off',
+    'Research agents',
+    'Use global setting',
+  ];
+  const notifications: string[] = [];
+  let activeTools = ['read'];
+  let handler: Handler | undefined;
+
+  new SandboxCommand(configStore, {} as SandboxSessionManager).register({
+    getActiveTools() {
+      return activeTools;
+    },
+    registerCommand(_name: string, options: {handler: Handler}) {
+      handler = options.handler;
+    },
+    setActiveTools(tools: string[]) {
+      activeTools = tools;
+    },
+  } as unknown as ExtensionAPI);
+
+  const ctx = {
+    ui: {
+      notify(message: string) {
+        notifications.push(message);
+      },
+      select: async () => selections.shift(),
+    },
+  } as unknown as ExtensionCommandContext;
+
+  try {
+    if (handler === undefined) {
+      throw new Error('/sandbox handler was not registered');
+    }
+
+    await handler('global', ctx);
+    t.assert.deepStrictEqual(activeTools, ['read', 'research_scout']);
+    await handler('', ctx);
+    t.assert.deepStrictEqual(activeTools, ['read']);
+    await handler('', ctx);
+    t.assert.deepStrictEqual(activeTools, ['read', 'research_scout']);
+
+    const saved = JSON.parse(await readFile(configPath, 'utf8')) as {
+      sandbox: {researchAgentsEnabled: boolean};
+      projects: Record<string, {sandbox: {researchAgentsEnabled?: boolean}}>;
+    };
+    t.assert.strictEqual(saved.sandbox.researchAgentsEnabled, true);
+    t.assert.strictEqual(saved.projects['/project']?.sandbox.researchAgentsEnabled, undefined);
+    t.assert.match(notifications.at(-1) ?? '', /use the global setting and are on/v);
   } finally {
     await rm(directory, {force: true, recursive: true});
   }

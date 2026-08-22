@@ -40,14 +40,13 @@ export class SandboxCommand {
     ctx.ui.notify(JSON.stringify(SandboxManager.getConfig(), undefined, 2), 'info');
   }
 
-  /** Lets the user persistently enable delegation or configure its default model. */
-  async manageResearchAgents(pi: ExtensionAPI, ctx: ExtensionCommandContext): Promise<void> {
+  /** Lets the user configure scoped delegation or its global default model. */
+  async manageResearchAgents(pi: ExtensionAPI, ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
     await this.config.load();
-    const isEnabled = this.config.areResearchAgentsEnabled();
-    const action = await ctx.ui.select('Research agents', [
-      isEnabled ? 'Turn off' : 'Turn on',
-      'Default model',
-    ]);
+    const scopedSetting = this.config.getResearchAgentsSetting(scope);
+    const action = await ctx.ui.select('Research agents', scope === 'global'
+      ? [scopedSetting === true ? 'Turn off' : 'Turn on', 'Default model']
+      : ['Turn on', 'Turn off', 'Use global setting']);
     if (action === undefined) {
       return;
     }
@@ -57,11 +56,16 @@ export class SandboxCommand {
       return;
     }
 
-    const isNextEnabled = action === 'Turn on';
-    await this.config.setResearchAgentsEnabled(isNextEnabled);
+    await this.config.setResearchAgentsEnabled(scope, action === 'Use global setting' ? undefined : action === 'Turn on');
+    const isNextEnabled = this.config.areResearchAgentsEnabled();
     const activeTools = pi.getActiveTools().filter(name => name !== 'research_scout');
     pi.setActiveTools(isNextEnabled ? [...activeTools, 'research_scout'] : activeTools);
-    ctx.ui.notify(`Research agents are ${isNextEnabled ? 'on' : 'off'}.`, 'info');
+    ctx.ui.notify(
+      action === 'Use global setting'
+        ? `Research agents now use the global setting and are ${isNextEnabled ? 'on' : 'off'}.`
+        : `Research agents are ${action === 'Turn on' ? 'on' : 'off'} in ${scope} scope.`,
+      'info',
+    );
   }
 
   /** Lets the user select the default model for research profiles. */
@@ -326,7 +330,7 @@ export class SandboxCommand {
             'Network',
             'Advanced SRT options',
             'Network-deny prompts',
-            ...(scope === 'global' ? ['Research agents'] : []),
+            'Research agents',
             'Reset configuration',
           ]);
           switch (action) {
@@ -361,7 +365,7 @@ export class SandboxCommand {
             }
 
             case 'Research agents': {
-              await this.manageResearchAgents(pi, ctx);
+              await this.manageResearchAgents(pi, ctx, scope);
               break;
             }
 
