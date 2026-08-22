@@ -14,8 +14,11 @@ import {
   type LsOperations,
   type ReadOperations,
   type WriteOperations,
+  type GrepOperations,
 } from '@earendil-works/pi-coding-agent';
 import type {SandboxSessionManager} from './session-manager.ts';
+
+type GrepExecute = ReturnType<typeof createGrepTool>['execute'];
 
 export class SandboxTools {
   pi: ExtensionAPI;
@@ -28,9 +31,9 @@ export class SandboxTools {
     this.sandbox = sandbox;
   }
 
-  register(): void {
-    const {pi, cwd, sandbox} = this;
-    const read: ReadOperations = {
+  get readOperations(): ReadOperations {
+    const {sandbox} = this;
+    return {
       async access(path) {
         const result = await sandbox.run`test -r ${path}`;
         if (result.exitCode !== 0) {
@@ -55,8 +58,11 @@ export class SandboxTools {
         return ['image/gif', 'image/jpeg', 'image/png', 'image/webp'].includes(mime) ? mime : null;
       },
     };
+  }
 
-    const write: WriteOperations = {
+  get writeOperations(): WriteOperations {
+    const {sandbox} = this;
+    return {
       async mkdir(path) {
         const result = await sandbox.run`mkdir -p -- ${path}`;
         if (result.exitCode !== 0) {
@@ -70,10 +76,13 @@ export class SandboxTools {
         }
       },
     };
+  }
 
-    const edit: EditOperations = {
-      ...read,
-      ...write,
+  get editOperations(): EditOperations {
+    const {sandbox} = this;
+    return {
+      ...this.readOperations,
+      ...this.writeOperations,
       async access(path) {
         const result = await sandbox.run`test -r ${path} && test -w ${path}`;
         if (result.exitCode !== 0) {
@@ -81,8 +90,33 @@ export class SandboxTools {
         }
       },
     };
+  }
 
-    const bash: BashOperations = {
+  get grepOperations(): GrepOperations {
+    const {sandbox} = this;
+    return {
+      async isDirectory(path) {
+        const result = await sandbox.run`test -d ${path}`;
+        if (result.exitCode !== 0) {
+          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot check ${path}`);
+        }
+
+        return result.exitCode === 0;
+      },
+      async readFile(path) {
+        const result = await sandbox.run`base64 < ${path} | tr -d '\n'`;
+        if (result.exitCode !== 0) {
+          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot read ${path}`);
+        }
+
+        return Buffer.from(result.stdout, 'base64').toString('utf8');
+      },
+    };
+  }
+
+  get bashOperations(): BashOperations {
+    const {sandbox} = this;
+    return {
       async exec(command, commandCwd, {onData}) {
         const result = await sandbox.run({cwd: commandCwd})`sh -c ${command}`;
         onData(Buffer.from(result.stdout));
@@ -90,8 +124,56 @@ export class SandboxTools {
         return {exitCode: result.exitCode ?? null};
       },
     };
+  }
 
-    const find: FindOperations = {
+  get grepExecute(): GrepExecute {
+    const {sandbox} = this;
+    return async (_id, {pattern, path = '.', glob, ignoreCase, literal, context, limit = 100}) => {
+      const arguments_ = ['rg', '--line-number', '--color=never', '--hidden', '--glob', '!.git/**', '--glob', '!node_modules/**'];
+      if (ignoreCase === true) {
+        arguments_.push('--ignore-case');
+      }
+
+      if (literal === true) {
+        arguments_.push('--fixed-strings');
+      }
+
+      if (glob !== undefined) {
+        arguments_.push('--glob', glob);
+      }
+
+      if (context !== undefined && context > 0) {
+        arguments_.push('--context', String(context));
+      }
+
+      arguments_.push('--', pattern, path);
+
+      const result = await sandbox.run`${arguments_}`;
+      if (result.exitCode !== 0 && result.exitCode !== 1) {
+        const stderr = result.stderr.trim();
+        let error = stderr.length > 0 ? stderr : `rg failed (${String(result.exitCode)})`;
+        if (/operation not permitted|<sandbox_violations>|connection blocked by network allowlist/iv.test(error)) {
+          error += `\n\n${[
+            'SandboxSessionManager restriction: work in the current project, use mktemp for private temporary files,',
+            'and treat global skills as read-only. Network access is limited by the configured allowlist.',
+            'Do not retry an outside path or seek a host-execution workaround.',
+          ].join(' ')}`;
+        }
+
+        throw new Error(error);
+      }
+
+      const output = result.stdout.trim().split('\n').filter(Boolean).slice(0, limit).join('\n');
+      return {
+        content: [{type: 'text' as const, text: output.length > 0 ? output : 'No matches found'}],
+        details: undefined,
+      };
+    };
+  }
+
+  get findOperations(): FindOperations {
+    const {sandbox} = this;
+    return {
       async exists(path) {
         const result = await sandbox.run`test -e ${path}`;
         return result.exitCode === 0;
@@ -108,8 +190,11 @@ export class SandboxTools {
         return results.slice(0, limit);
       },
     };
+  }
 
-    const ls: LsOperations = {
+  get lsOperations(): LsOperations {
+    const {sandbox} = this;
+    return {
       async exists(path) {
         const result = await sandbox.run`test -e ${path}`;
         return result.exitCode === 0;
@@ -132,57 +217,22 @@ export class SandboxTools {
         return result.stdout.trim().split('\n').filter(Boolean);
       },
     };
+  }
 
-    pi.registerTool(createReadTool(cwd, {operations: read}));
-    pi.registerTool(createWriteTool(cwd, {operations: write}));
-    pi.registerTool(createEditTool(cwd, {operations: edit}));
-    pi.registerTool(createBashTool(cwd, {operations: bash, exposeSessionEnvironment: false}));
-    pi.registerTool(createFindTool(cwd, {operations: find}));
-    pi.registerTool(createLsTool(cwd, {operations: ls}));
+  register(): void {
+    const {pi, cwd, sandbox} = this;
+
+    pi.registerTool(createReadTool(cwd, {operations: this.readOperations}));
+    pi.registerTool(createWriteTool(cwd, {operations: this.writeOperations}));
+    pi.registerTool(createEditTool(cwd, {operations: this.editOperations}));
+    pi.registerTool(createBashTool(cwd, {operations: this.bashOperations, exposeSessionEnvironment: false}));
+    pi.registerTool(createFindTool(cwd, {operations: this.findOperations}));
+    pi.registerTool(createLsTool(cwd, {operations: this.lsOperations}));
 
     pi.registerTool({
+      // https://github.com/earendil-works/pi/issues/5354
       ...createGrepTool(cwd),
-      async execute(_id, {pattern, path = '.', glob, ignoreCase, literal, context, limit = 100}) {
-        const arguments_ = ['rg', '--line-number', '--color=never', '--hidden', '--glob', '!.git/**', '--glob', '!node_modules/**'];
-        if (ignoreCase === true) {
-          arguments_.push('--ignore-case');
-        }
-
-        if (literal === true) {
-          arguments_.push('--fixed-strings');
-        }
-
-        if (glob !== undefined) {
-          arguments_.push('--glob', glob);
-        }
-
-        if (context !== undefined && context > 0) {
-          arguments_.push('--context', String(context));
-        }
-
-        arguments_.push('--', pattern, path);
-
-        const result = await sandbox.run`${arguments_}`;
-        if (result.exitCode !== 0 && result.exitCode !== 1) {
-          const stderr = result.stderr.trim();
-          let error = stderr.length > 0 ? stderr : `rg failed (${String(result.exitCode)})`;
-          if (/operation not permitted|<sandbox_violations>|connection blocked by network allowlist/iv.test(error)) {
-            error += `\n\n${[
-              'SandboxSessionManager restriction: work in the current project, use mktemp for private temporary files,',
-              'and treat global skills as read-only. Network access is limited by the configured allowlist.',
-              'Do not retry an outside path or seek a host-execution workaround.',
-            ].join(' ')}`;
-          }
-
-          throw new Error(error);
-        }
-
-        const output = result.stdout.trim().split('\n').filter(Boolean).slice(0, limit).join('\n');
-        return {
-          content: [{type: 'text' as const, text: output.length > 0 ? output : 'No matches found'}],
-          details: undefined,
-        };
-      },
+      execute: this.grepExecute,
     });
   }
 }
