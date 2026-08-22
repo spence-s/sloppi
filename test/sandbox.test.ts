@@ -4,6 +4,7 @@ import {
   mkdir,
   mkdtemp,
   readFile,
+  readdir,
   rm,
   symlink,
   writeFile,
@@ -99,6 +100,25 @@ void test('persists the globally selected Research Scout model', async (t: TestC
 void test('requires an explicit session before running commands', async (t: TestContext) => {
   const sandbox = new SandboxSessionManager('/project', new ConfigStore('/project'));
   await t.assert.rejects(sandbox.run`true`, /has not started/v);
+});
+
+/**
+ Verifies failed startup removes its private scratch directory.
+ */
+void test('cleans up after sandbox configuration errors', async (t: TestContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-startup-error-test-'));
+  const config = new ConfigStore('/project');
+  config.config = {network: {allowedDomains: ['*']}};
+  config.hasLoaded = true;
+  const sandbox = new SandboxSessionManager('/project', config);
+  t.mock.property(process, 'env', {...process.env, TMPDIR: directory});
+
+  try {
+    await t.assert.rejects(sandbox.startSession(), /Invalid domain pattern/v);
+    t.assert.deepStrictEqual(await readdir(directory), []);
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
 });
 
 void test('isolates reads and temporary Unix sockets', async (t: TestContext) => {
@@ -221,8 +241,8 @@ void test('preserves config changes saved by another running session', async (t:
   try {
     await writeFile(configPath, `${JSON.stringify({sandbox: {otherSetting: true}})}\n`);
     await Promise.all([first.load(), second.load()]);
-    await first.addDomain('global', 'first.example');
-    await second.addDomain('global', 'second.example');
+    await first.updateDomain('global', 'allow', 'add', 'first.example');
+    await second.updateDomain('global', 'allow', 'add', 'second.example');
     await second.setPrompting('global', false);
 
     const saved = JSON.parse(await readFile(configPath, 'utf8')) as {
@@ -756,11 +776,8 @@ void test('renders a stable live research dashboard and legacy results', (t: Tes
     details: {
       agent: 'reviewer',
       model: 'provider/model',
-      task: 'Review authentication',
-      truncated: false,
       progress: 'secret thinking transcript',
       activity: {
-        phase: 'tool',
         currentAction: 'Reading agent/auth/session.ts',
         elapsedMs: 23_000,
         spinnerIndex: 2,
@@ -797,8 +814,6 @@ void test('renders a stable live research dashboard and legacy results', (t: Tes
     details: {
       agent: 'scout',
       model: 'provider/model',
-      task: 'Inspect files',
-      truncated: false,
       progress: 'old activity',
     },
   }, {expanded: false, isPartial: false}, testTheme, context).render(200).join('\n');

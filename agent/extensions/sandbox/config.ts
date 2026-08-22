@@ -114,10 +114,7 @@ export class ConfigStore {
         throw new Error(`${this.path} must contain a JSON object.`);
       }
 
-      this.config = {};
-      for (const [key, value] of Object.entries(parsedConfig)) {
-        this.config[key] = value;
-      }
+      this.config = {...parsedConfig};
     } catch (error) {
       const errorCode = error instanceof Error && 'code' in error ? error.code : undefined;
       if (errorCode !== 'ENOENT') {
@@ -248,11 +245,6 @@ export class ConfigStore {
 
     scopedConfig.network = network;
     await this.save();
-  }
-
-  /** Preserves the existing network-deny prompt API used by automatic prompts. */
-  async addDomain(scope: ConfigScope, domain: string): Promise<void> {
-    await this.updateDomain(scope, 'allow', 'add', domain);
   }
 
   /** Returns only settings explicitly stored in a scope, excluding Sloppi metadata. */

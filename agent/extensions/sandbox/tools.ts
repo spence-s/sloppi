@@ -228,17 +228,12 @@ export class SandboxTools {
   }
 
   register(): void {
-    this.pi.registerTool(createReadTool(this.cwd, {operations: this.readOperations}));
-    this.pi.registerTool(createWriteTool(this.cwd, {operations: this.writeOperations}));
-    this.pi.registerTool(createEditTool(this.cwd, {operations: this.editOperations}));
-    this.pi.registerTool(createBashTool(this.cwd, {operations: this.bashOperations, exposeSessionEnvironment: false}));
-    this.pi.registerTool(createFindTool(this.cwd, {operations: this.findOperations}));
-    this.pi.registerTool(createLsTool(this.cwd, {operations: this.lsOperations}));
-
-    // https://github.com/earendil-works/pi/issues/5354
-    this.pi.registerTool({
-      ...createGrepTool(this.cwd),
-      execute: this.grepExecute,
-    });
+    this.pi.registerTool(this.read);
+    this.pi.registerTool(this.write);
+    this.pi.registerTool(this.edit);
+    this.pi.registerTool(this.bash);
+    this.pi.registerTool(this.find);
+    this.pi.registerTool(this.ls);
+    this.pi.registerTool(this.grep);
   }
 }

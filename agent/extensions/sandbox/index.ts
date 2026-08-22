@@ -130,7 +130,7 @@ export class Sandbox {
         }
 
         const approvedDomain = domain.trim();
-        await config.addDomain('project', approvedDomain);
+        await config.updateDomain('project', 'allow', 'add', approvedDomain);
         await sandbox.restartSession();
         const approvalMessage = `Sandbox access to ${approvedDomain} was approved and is now active. Retry the failed tool call.`;
         ctx.ui.notify(approvalMessage, 'info');

@@ -3,10 +3,6 @@ import {join} from 'node:path';
 import {
   createAgentSession,
   createExtensionRuntime,
-  createFindTool,
-  createGrepTool,
-  createLsTool,
-  createReadTool,
   getAgentDir,
   getMarkdownTheme,
   keyHint,
@@ -36,8 +32,6 @@ const maxCollapsedResultLines = 8;
 const investigatingStatus = 'Investigating...';
 const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
-type ScoutPhase = 'starting' | 'thinking' | 'tool' | 'analyzing' | 'writing' | 'complete';
-
 type ScoutUsage = {
   input: number;
   output: number;
@@ -49,7 +43,6 @@ type ScoutUsage = {
 };
 
 type ScoutActivity = {
-  phase: ScoutPhase;
   currentAction: string;
   elapsedMs: number;
   spinnerIndex: number;
@@ -68,8 +61,6 @@ const scoutParameters = Type.Object({
 type ScoutDetails = {
   agent: string;
   model: string;
-  task: string;
-  truncated: boolean;
   progress: string;
   activity?: ScoutActivity;
   usage?: ScoutUsage;
@@ -316,7 +307,6 @@ export class SandboxSubagent {
     };
     const startedAt = Date.now();
     let progress = '';
-    let phase: ScoutPhase = 'starting';
     let currentAction = 'Starting agent...';
     let spinnerIndex = 0;
     let streamType: 'thinking' | undefined;
@@ -339,11 +329,8 @@ export class SandboxSubagent {
         details: {
           agent: agent.name,
           model: `${model.provider}/${model.id}`,
-          task,
-          truncated: false,
           progress: visibleProgress,
           activity: {
-            phase,
             currentAction,
             elapsedMs: Date.now() - startedAt,
             spinnerIndex,
@@ -359,6 +346,7 @@ export class SandboxSubagent {
     updateProgress();
 
     const enabledTools = new Set<string>(agent.tools);
+    const tools = new SandboxTools(this.pi, this.cwd, this.sandbox);
     const {session} = await createAgentSession({
       cwd: this.cwd,
       agentDir,
@@ -369,7 +357,7 @@ export class SandboxSubagent {
       sessionManager: SessionManager.inMemory(this.cwd),
       settingsManager,
       tools: agent.tools,
-      customTools: this.createTools().filter(tool => enabledTools.has(tool.name)),
+      customTools: [tools.read, tools.find, tools.grep, tools.ls].filter(tool => enabledTools.has(tool.name)),
     });
 
     const abort = (): void => {
@@ -390,7 +378,6 @@ export class SandboxSubagent {
         case 'message_update': {
           const update = event.assistantMessageEvent;
           if (update.type === 'thinking_start' || update.type === 'thinking_delta') {
-            phase = 'thinking';
             currentAction = 'Thinking...';
             if (streamType !== 'thinking') {
               progress += '\n\nThinking:\n';
@@ -403,7 +390,6 @@ export class SandboxSubagent {
 
             updateProgress();
           } else if (update.type === 'text_start' || update.type === 'text_delta') {
-            phase = 'writing';
             currentAction = 'Writing findings...';
             if (streamType === 'thinking') {
               progress += '\n\nWriting findings...';
@@ -456,7 +442,6 @@ export class SandboxSubagent {
             }
           }
 
-          phase = 'tool';
           currentAction = action;
           if (event.toolName === 'read' && path !== undefined) {
             filesRead.add(path);
@@ -473,7 +458,6 @@ export class SandboxSubagent {
         }
 
         case 'tool_execution_end': {
-          phase = 'analyzing';
           currentAction = event.isError ? 'Reviewing tool error...' : 'Analyzing results...';
           updateProgress();
           break;
@@ -481,8 +465,7 @@ export class SandboxSubagent {
 
         case 'message_end': {
           if (event.message.role === 'assistant') {
-            if (phase !== 'writing') {
-              phase = 'analyzing';
+            if (currentAction !== 'Writing findings...') {
               currentAction = 'Analyzing results...';
             }
 
@@ -538,18 +521,13 @@ export class SandboxSubagent {
       const content = isTruncated
         ? `${Buffer.from(output).subarray(0, maxOutputBytes).toString('utf8')}\n\n[Scout output truncated.]`
         : output;
-      phase = 'complete';
-      currentAction = 'Completed';
       return {
         content: [{type: 'text' as const, text: content}],
         details: {
           agent: agent.name,
           model: `${model.provider}/${model.id}`,
-          task,
-          truncated: isTruncated,
           progress: progress.slice(-maxOutputBytes),
           activity: {
-            phase,
             currentAction,
             elapsedMs: Date.now() - startedAt,
             spinnerIndex,
@@ -576,18 +554,5 @@ export class SandboxSubagent {
       signal?.removeEventListener('abort', abort);
       session.dispose();
     }
-  }
-
-  /**
-   Reuses the existing SRT session for every child filesystem operation.
-   */
-  createTools(): ToolDefinition[] {
-    const tools = new SandboxTools(this.pi, this.cwd, this.sandbox);
-    const read = createReadTool(this.cwd, {operations: tools.readOperations});
-    const find = createFindTool(this.cwd, {operations: tools.findOperations});
-    const grep = {...createGrepTool(this.cwd), execute: tools.grepExecute};
-    const ls = createLsTool(this.cwd, {operations: tools.lsOperations});
-
-    return [read, find, grep, ls];
   }
 }
