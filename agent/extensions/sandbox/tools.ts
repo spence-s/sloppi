@@ -92,28 +92,6 @@ export class SandboxTools {
     };
   }
 
-  get grepOperations(): GrepOperations {
-    const {sandbox} = this;
-    return {
-      async isDirectory(path) {
-        const result = await sandbox.run`test -d ${path}`;
-        if (result.exitCode !== 0) {
-          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot check ${path}`);
-        }
-
-        return result.exitCode === 0;
-      },
-      async readFile(path) {
-        const result = await sandbox.run`base64 < ${path} | tr -d '\n'`;
-        if (result.exitCode !== 0) {
-          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot read ${path}`);
-        }
-
-        return Buffer.from(result.stdout, 'base64').toString('utf8');
-      },
-    };
-  }
-
   get bashOperations(): BashOperations {
     const {sandbox} = this;
     return {
@@ -126,6 +104,7 @@ export class SandboxTools {
     };
   }
 
+  // https://github.com/earendil-works/pi/issues/5354
   get grepExecute(): GrepExecute {
     const {sandbox} = this;
     return async (_id, {pattern, path = '.', glob, ignoreCase, literal, context, limit = 100}) => {
@@ -219,19 +198,46 @@ export class SandboxTools {
     };
   }
 
+  get read(): ReturnType<typeof createReadTool> {
+    return createReadTool(this.cwd, {operations: this.readOperations});
+  }
+
+  get write(): ReturnType<typeof createWriteTool> {
+    return createWriteTool(this.cwd, {operations: this.writeOperations});
+  }
+
+  get edit(): ReturnType<typeof createEditTool> {
+    return createEditTool(this.cwd, {operations: this.editOperations});
+  }
+
+  get bash(): ReturnType<typeof createBashTool> {
+    return createBashTool(this.cwd, {operations: this.bashOperations, exposeSessionEnvironment: false});
+  }
+
+  get find(): ReturnType<typeof createFindTool> {
+    return createFindTool(this.cwd, {operations: this.findOperations});
+  }
+
+  get ls(): ReturnType<typeof createLsTool> {
+    return createLsTool(this.cwd, {operations: this.lsOperations});
+  }
+
+  // https://github.com/earendil-works/pi/issues/5354
+  get grep(): ReturnType<typeof createGrepTool> {
+    return {...createGrepTool(this.cwd), execute: this.grepExecute};
+  }
+
   register(): void {
-    const {pi, cwd, sandbox} = this;
+    this.pi.registerTool(createReadTool(this.cwd, {operations: this.readOperations}));
+    this.pi.registerTool(createWriteTool(this.cwd, {operations: this.writeOperations}));
+    this.pi.registerTool(createEditTool(this.cwd, {operations: this.editOperations}));
+    this.pi.registerTool(createBashTool(this.cwd, {operations: this.bashOperations, exposeSessionEnvironment: false}));
+    this.pi.registerTool(createFindTool(this.cwd, {operations: this.findOperations}));
+    this.pi.registerTool(createLsTool(this.cwd, {operations: this.lsOperations}));
 
-    pi.registerTool(createReadTool(cwd, {operations: this.readOperations}));
-    pi.registerTool(createWriteTool(cwd, {operations: this.writeOperations}));
-    pi.registerTool(createEditTool(cwd, {operations: this.editOperations}));
-    pi.registerTool(createBashTool(cwd, {operations: this.bashOperations, exposeSessionEnvironment: false}));
-    pi.registerTool(createFindTool(cwd, {operations: this.findOperations}));
-    pi.registerTool(createLsTool(cwd, {operations: this.lsOperations}));
-
-    pi.registerTool({
-      // https://github.com/earendil-works/pi/issues/5354
-      ...createGrepTool(cwd),
+    // https://github.com/earendil-works/pi/issues/5354
+    this.pi.registerTool({
+      ...createGrepTool(this.cwd),
       execute: this.grepExecute,
     });
   }

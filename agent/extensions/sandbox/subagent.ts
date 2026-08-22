@@ -29,6 +29,7 @@ import {Type} from 'typebox';
 import {discoverResearchAgents} from './agents.ts';
 import type {ConfigStore} from './config.ts';
 import type {SandboxSessionManager} from './session-manager.ts';
+import {SandboxTools} from './tools.ts';
 
 const maxOutputBytes = 12 * 1024;
 const maxCollapsedResultLines = 8;
@@ -581,116 +582,11 @@ export class SandboxSubagent {
    Reuses the existing SRT session for every child filesystem operation.
    */
   createTools(): ToolDefinition[] {
-    const {sandbox} = this;
-    const read = createReadTool(this.cwd, {
-      operations: {
-        async access(path) {
-          const result = await sandbox.run`test -r ${path}`;
-          if (result.exitCode !== 0) {
-            throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot read ${path}`);
-          }
-        },
-        async readFile(path) {
-          const result = await sandbox.run`base64 < ${path} | tr -d '\n'`;
-          if (result.exitCode !== 0) {
-            throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot read ${path}`);
-          }
-
-          return Buffer.from(result.stdout, 'base64');
-        },
-        async detectImageMimeType(path) {
-          const result = await sandbox.run`file --mime-type -b -- ${path}`;
-          if (result.exitCode !== 0) {
-            throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot identify ${path}`);
-          }
-
-          const mime = result.stdout.trim();
-          return ['image/gif', 'image/jpeg', 'image/png', 'image/webp'].includes(mime) ? mime : null;
-        },
-      },
-    });
-    const find = createFindTool(this.cwd, {
-      operations: {
-        async exists(path) {
-          const result = await sandbox.run`test -e ${path}`;
-          return result.exitCode === 0;
-        },
-        async glob(pattern, path, {ignore, limit}) {
-          const name = pattern.includes('/') ? '-path' : '-name';
-          const match = name === '-path' ? `*${pattern}` : pattern;
-          const result = await sandbox.run`${['find', path, '-type', 'f', ...ignore.flatMap(entry => ['!', '-path', `*${entry}`]), name, match, '-print']}`;
-          if (result.exitCode !== 0) {
-            throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot find ${pattern}`);
-          }
-
-          return result.stdout.trim().split('\n').filter(Boolean).slice(0, limit);
-        },
-      },
-    });
-    const ls = createLsTool(this.cwd, {
-      operations: {
-        async exists(path) {
-          const result = await sandbox.run`test -e ${path}`;
-          return result.exitCode === 0;
-        },
-        async stat(path) {
-          const exists = await sandbox.run`test -e ${path}`;
-          if (exists.exitCode !== 0) {
-            throw new Error(`Path not found: ${path}`);
-          }
-
-          const directory = await sandbox.run`test -d ${path}`;
-          return {isDirectory: () => directory.exitCode === 0};
-        },
-        async readdir(path) {
-          const result = await sandbox.run`ls -1A -- ${path}`;
-          if (result.exitCode !== 0) {
-            throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot list ${path}`);
-          }
-
-          return result.stdout.trim().split('\n').filter(Boolean);
-        },
-      },
-    });
-    const grep = {
-      ...createGrepTool(this.cwd),
-      async execute(_id: string, {pattern, path = '.', glob, ignoreCase, literal, context, limit = 100}: {
-        pattern: string;
-        path?: string;
-        glob?: string;
-        ignoreCase?: boolean;
-        literal?: boolean;
-        context?: number;
-        limit?: number;
-      }) {
-        const arguments_ = ['rg', '--line-number', '--color=never', '--hidden', '--glob', '!.git/**', '--glob', '!node_modules/**'];
-        if (ignoreCase === true) {
-          arguments_.push('--ignore-case');
-        }
-
-        if (literal === true) {
-          arguments_.push('--fixed-strings');
-        }
-
-        if (glob !== undefined) {
-          arguments_.push('--glob', glob);
-        }
-
-        if (context !== undefined && context > 0) {
-          arguments_.push('--context', String(context));
-        }
-
-        arguments_.push('--', pattern, path);
-
-        const result = await sandbox.run`${arguments_}`;
-        if (result.exitCode !== 0 && result.exitCode !== 1) {
-          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `rg failed (${String(result.exitCode)})`);
-        }
-
-        const output = result.stdout.trim().split('\n').filter(Boolean).slice(0, limit).join('\n');
-        return {content: [{type: 'text' as const, text: output.length > 0 ? output : 'No matches found'}], details: undefined};
-      },
-    };
+    const tools = new SandboxTools(this.pi, this.cwd, this.sandbox);
+    const read = createReadTool(this.cwd, {operations: tools.readOperations});
+    const find = createFindTool(this.cwd, {operations: tools.findOperations});
+    const grep = {...createGrepTool(this.cwd), execute: tools.grepExecute};
+    const ls = createLsTool(this.cwd, {operations: tools.lsOperations});
 
     return [read, find, grep, ls];
   }
