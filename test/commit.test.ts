@@ -9,6 +9,7 @@ void test('uses the selected commit model and loads a safely quoted command', as
   type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
   let handler: Handler | undefined;
   let editorText = '';
+  let diffArguments: string[] = [];
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-commit-'));
   t.after(async () => rm(directory, {recursive: true}));
   const sessionModel = {id: 'session-model', provider: 'test-provider'};
@@ -28,7 +29,12 @@ void test('uses the selected commit model and loads a safely quoted command', as
         return {code: 0, stderr: '', stdout: ''};
       }
 
+      if (arguments_[0] === 'diff' && arguments_.includes('--stat')) {
+        return {code: 0, stderr: '', stdout: ' file | 1 +\n 1 file changed, 1 insertion(+)\n'};
+      }
+
       if (arguments_[0] === 'diff') {
+        diffArguments = arguments_;
         return {code: 0, stderr: '', stdout: 'diff --git a/file b/file\n+secure change\n'};
       }
 
@@ -48,7 +54,9 @@ void test('uses the selected commit model and loads a safely quoted command', as
     modelRegistry: {
       async complete(model: unknown, prompt: {messages: Array<{content: Array<{text: string}>}>}) {
         t.assert.deepStrictEqual(model, commitModel);
-        t.assert.match(prompt.messages[0]?.content[0]?.text ?? '', /secure change/v);
+        const modelInput = prompt.messages[0]?.content[0]?.text ?? '';
+        t.assert.match(modelInput, /1 file changed/v);
+        t.assert.match(modelInput, /secure change/v);
         return {
           content: [{type: 'text', text: 'feat(commit): improve command\'s safety'}],
           stopReason: 'stop',
@@ -74,6 +82,8 @@ void test('uses the selected commit model and loads a safely quoted command', as
   await handler?.('model', ctx);
   await handler?.('', ctx);
 
+  t.assert.ok(diffArguments.includes(':(exclude,glob)**/package-lock.json'));
+  t.assert.ok(diffArguments.includes(':(exclude,glob)**/*.snap'));
   t.assert.strictEqual(
     editorText,
     '!git commit -m \'feat(commit): improve command\'"\'"\'s safety\'',
