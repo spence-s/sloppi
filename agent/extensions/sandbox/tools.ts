@@ -1,4 +1,5 @@
 import {Buffer} from 'node:buffer';
+import {realpathSync} from 'node:fs';
 import {
   createBashTool,
   createEditTool,
@@ -35,13 +36,13 @@ export class SandboxTools {
     const {sandbox} = this;
     return {
       async access(path) {
-        const result = await sandbox.run`test -r ${path}`;
+        const result = await sandbox.run`test -r ${realpathSync(path)}`;
         if (result.exitCode !== 0) {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot read ${path}`);
         }
       },
       async readFile(path) {
-        const result = await sandbox.run`base64 < ${path} | tr -d '\n'`;
+        const result = await sandbox.run`base64 < ${realpathSync(path)}`;
         if (result.exitCode !== 0) {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot read ${path}`);
         }
@@ -49,7 +50,7 @@ export class SandboxTools {
         return Buffer.from(result.stdout, 'base64');
       },
       async detectImageMimeType(path) {
-        const result = await sandbox.run`file --mime-type -b -- ${path}`;
+        const result = await sandbox.run`file --mime-type -b -- ${realpathSync(path)}`;
         if (result.exitCode !== 0) {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot identify ${path}`);
         }

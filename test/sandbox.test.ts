@@ -220,6 +220,32 @@ void test('allows only logical and canonical global skill directories', async (t
   }
 });
 
+void test('canonicalizes read paths before sandbox execution', async (t: TestContext) => {
+  const directory = await mkdtemp(join(process.cwd(), '.sloppi-read-path-test-'));
+  const target = join(directory, 'target');
+  const alias = join(directory, 'alias');
+  const arguments_: unknown[] = [];
+  const sandbox = {
+    /**
+     Captures the path passed through the sandbox command template.
+     */
+    async run(_strings: TemplateStringsArray, ...values: unknown[]) {
+      arguments_.push(...values);
+      return {exitCode: 0, stderr: '', stdout: ''};
+    },
+  } as unknown as SandboxSessionManager;
+
+  try {
+    await mkdir(target);
+    await writeFile(join(target, 'file.txt'), 'test\n');
+    await symlink(target, alias);
+    await new SandboxTools({} as ExtensionAPI, directory, sandbox).readOperations.access(join(alias, 'file.txt'));
+    t.assert.strictEqual(arguments_[0], join(target, 'file.txt'));
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
+});
+
 void test('loads the former project directory configuration', (t: TestContext) => {
   const configStore = new ConfigStore('/project-a');
   configStore.config = {
