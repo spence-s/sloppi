@@ -47,6 +47,7 @@ Sloppi does not change Pi's project trust behavior.
 ## Requirements
 
 - Node.js 22 or newer
+- Google Chrome for optional Playwright CLI browser automation
 - macOS: `brew install ripgrep`
 - Linux: install `bubblewrap`, `socat`, `ripgrep`, and `fd`
 
@@ -69,6 +70,19 @@ pi install npm:pi-web-access
 - `zshrc.ts` — loads zsh aliases for host-side `!` commands.
 
 Sandbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. It blocks unapproved extension tools from host execution; Pi web-access tools remain host-side so provider credentials are not exposed to sandboxed commands.
+
+### Browser automation
+
+The first sandboxed `playwright-cli` command starts a disposable headless Chrome on the host for the current session. Chrome traffic uses SRT's authenticated filtering proxy.
+
+```bash
+npm run dev
+playwright-cli open http://localhost:3000
+playwright-cli snapshot
+/playwright off
+```
+
+Playwright is off by default. Use `/playwright on|off|status` for explicit control. Enable `network.allowLocalBinding` under `/sandbox` → `Advanced SRT options` before using a local development server. Playwright CLI blocks direct `file:` navigation by default; serve local files from inside the sandbox instead. The browser control endpoint is visible inside the sandbox while enabled, so this bridge is not equivalent to running Chrome itself under SRT.
 
 ### Research agent profiles
 

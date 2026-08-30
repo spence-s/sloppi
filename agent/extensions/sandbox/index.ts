@@ -3,6 +3,7 @@ import process from 'node:process';
 import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import {ConfigStore} from './config.ts';
 import {SandboxCommand} from './command.ts';
+import {PlaywrightBridge} from './playwright.ts';
 import {SandboxSessionManager} from './session-manager.ts';
 import {SandboxSubagent} from './subagent.ts';
 import {SandboxTools} from './tools.ts';
@@ -30,8 +31,8 @@ export class Sandbox {
     const {pi, cwd, config, sandbox} = this;
     new SandboxTools(pi, cwd, sandbox).register();
     new SandboxSubagent(pi, cwd, sandbox, config).register();
-
     new SandboxCommand(config, sandbox).register(pi);
+    new PlaywrightBridge(config).register(pi);
 
     pi.on('before_agent_start', async event => {
       const sandboxSystemPrompt = `

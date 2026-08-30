@@ -15,6 +15,7 @@ import process from 'node:process';
 import {test, type TestContext} from 'node:test';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {execa} from 'execa';
+import {chromium} from 'playwright';
 import {
   initTheme,
   Theme,
@@ -26,6 +27,7 @@ import {discoverResearchAgents} from '../agent/extensions/sandbox/agents.ts';
 import {SandboxCommand} from '../agent/extensions/sandbox/command.ts';
 import {ConfigStore} from '../agent/extensions/sandbox/config.ts';
 import sandboxExtension, {Sandbox as SandboxExtension} from '../agent/extensions/sandbox/index.ts';
+import {PlaywrightBridge} from '../agent/extensions/sandbox/playwright.ts';
 import {SandboxSessionManager} from '../agent/extensions/sandbox/session-manager.ts';
 import {SandboxSubagent} from '../agent/extensions/sandbox/subagent.ts';
 import {SandboxTools} from '../agent/extensions/sandbox/tools.ts';
@@ -103,6 +105,97 @@ void test('persists the globally selected Research Scout model', async (t: TestC
 void test('requires an explicit session before running commands', async (t: TestContext) => {
   const sandbox = new SandboxSessionManager('/project', new ConfigStore('/project'));
   await t.assert.rejects(sandbox.run`true`, /has not started/v);
+});
+
+/**
+ Verifies the bridge exposes the native CLI and closes its managed browser.
+ */
+void test('configures the sandboxed Playwright CLI for host Chrome', async (t: TestContext) => {
+  const config = new ConfigStore('/project');
+  config.hasLoaded = true;
+  const bridge = new PlaywrightBridge(config);
+  let launchOptions: Parameters<typeof chromium.launchServer>[0];
+  let didClose = false;
+  const browser = {
+    async close() {
+      didClose = true;
+    },
+    wsEndpoint() {
+      return 'ws://127.0.0.1:4321/session';
+    },
+  };
+
+  t.mock.method(SandboxManager, 'getProxyPort', () => 1234);
+  t.mock.method(SandboxManager, 'getProxyAuthToken', () => 'token');
+  t.mock.method(SandboxManager, 'getMitmCA', () => undefined);
+  t.mock.method(chromium, 'launchServer', async (options: Parameters<typeof chromium.launchServer>[0]) => {
+    launchOptions = options;
+    return browser;
+  });
+
+  let browserScratch: string | undefined;
+  try {
+    t.assert.strictEqual(await bridge.start(), 'ws://127.0.0.1:4321/session');
+    t.assert.strictEqual(launchOptions?.host, '127.0.0.1');
+    t.assert.strictEqual(launchOptions?.proxy?.server, 'http://127.0.0.1:1234');
+    t.assert.strictEqual(launchOptions?.proxy?.username, 'srt');
+    t.assert.strictEqual(launchOptions?.proxy?.password, 'token');
+    browserScratch = launchOptions?.env?.TMPDIR;
+  } finally {
+    await bridge.stop();
+  }
+
+  t.assert.strictEqual(didClose, true);
+  await t.assert.rejects(access(browserScratch ?? ''), /ENOENT/v);
+});
+
+/**
+ Verifies the native Bash tool enables Playwright before invoking its CLI.
+ */
+void test('prepares Playwright on its first sandboxed CLI command', async (t: TestContext) => {
+  const handlers = new Map<string, (...arguments_: unknown[]) => unknown>();
+  let starts = 0;
+  const bridge = new PlaywrightBridge(new ConfigStore('/project'));
+  t.mock.method(bridge, 'start', async () => {
+    starts += 1;
+    return 'ws://127.0.0.1:4321/session';
+  });
+  bridge.register({
+    on(name: string, handler: (...arguments_: unknown[]) => unknown) {
+      handlers.set(name, handler);
+    },
+    registerCommand() {
+      return undefined;
+    },
+  } as unknown as ExtensionAPI);
+
+  const handler = handlers.get('tool_call');
+  if (handler === undefined) {
+    throw new Error('tool_call handler was not registered');
+  }
+
+  const input = {command: ['command', '-v', 'playwright-cli'].join(' ')};
+  await handler({toolCallId: 'playwright', toolName: 'bash', input});
+  t.assert.strictEqual(starts, 1);
+  const command: unknown = Reflect.get(input, 'command');
+  if (typeof command !== 'string') {
+    throw new TypeError('Bash command was not preserved');
+  }
+
+  t.assert.match(command, /PLAYWRIGHT_MCP_CONFIG/v);
+  t.assert.match(command, /ws:\/\/127\.0\.0\.1:4321\/session/v);
+  t.assert.match(command, /command -v playwright-cli$/v);
+
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-playwright-command-test-'));
+  try {
+    const result = await execa(command, {env: {...process.env, TMPDIR: directory}, shell: true});
+    t.assert.strictEqual(result.stdout, join(directory, 'playwright-bin', 'playwright-cli'));
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
+
+  await handler({toolCallId: 'other', toolName: 'bash', input: {command: 'printf browser'}});
+  t.assert.strictEqual(starts, 1);
 });
 
 /**
@@ -915,7 +1008,7 @@ void test('renders a stable live research dashboard and legacy results', (t: Tes
   t.assert.match(legacy, /legacy result/v);
 });
 
-void test('registers /sandbox to manage access during a session', (t: TestContext) => {
+void test('registers session commands', (t: TestContext) => {
   const commands: string[] = [];
 
   sandboxExtension({
@@ -930,6 +1023,6 @@ void test('registers /sandbox to manage access during a session', (t: TestContex
     },
   } as unknown as Parameters<typeof sandboxExtension>[0]);
 
-  t.assert.deepStrictEqual(commands, ['sandbox']);
+  t.assert.deepStrictEqual(commands, ['sandbox', 'playwright']);
 });
 

@@ -43,8 +43,10 @@
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.74",
+    "@playwright/cli": "0.1.18",
     "execa": "^10.0.1",
     "object-deep-merge": "^2.0.1",
+    "playwright": "1.63.0-alpha-2026-08-05",
     "typebox": "^1.3.19",
     "zod": "^4.4.3"
   },
@@ -80,6 +82,9 @@
       "./agent/extensions/startup-banner.ts",
       "./agent/extensions/shell-ui.ts",
       "./agent/extensions/zshrc.ts"
+    ],
+    "skills": [
+      "./node_modules/@playwright/cli/skills"
     ],
     "themes": [
       "./agent/themes/dracula.json"
