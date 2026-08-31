@@ -1,21 +1,13 @@
 import {createHash, X509Certificate} from 'node:crypto';
-import {mkdtemp, rm} from 'node:fs/promises';
-import {tmpdir} from 'node:os';
-import {join} from 'node:path';
-import process from 'node:process';
-import {fileURLToPath} from 'node:url';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {isToolCallEventType, type ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import {chromium, type BrowserServer} from 'playwright';
 import type {ConfigStore} from './config.ts';
 
-const playwrightCliPath = fileURLToPath(import.meta.resolve('@playwright/cli/playwright-cli.js'));
-
 export class PlaywrightBridge {
   browser: BrowserServer | undefined;
   config: ConfigStore;
   proxyIdentity: string | undefined;
-  scratchPath: string | undefined;
 
   /**
    Keeps optional host-browser automation independent from sandbox session management.
@@ -59,13 +51,10 @@ export class PlaywrightBridge {
       }
 
       const endpoint = await this.start();
-      const cliPath = `'${playwrightCliPath.replaceAll('\'', '\'"\'"\'')}'`;
       const cliConfig = `'${JSON.stringify({browser: {remoteEndpoint: endpoint}}).replaceAll('\'', '\'"\'"\'')}'`;
       event.input.command = [
-        'mkdir -p "$TMPDIR/playwright-bin"',
-        `ln -sf ${cliPath} "$TMPDIR/playwright-bin/playwright-cli"`,
         String.raw`printf '%s\n' ${cliConfig} > "$TMPDIR/playwright-cli.json"`,
-        'export PATH="$TMPDIR/playwright-bin:$PATH" PLAYWRIGHT_MCP_CONFIG="$TMPDIR/playwright-cli.json"',
+        'export PLAYWRIGHT_MCP_CONFIG="$TMPDIR/playwright-cli.json"',
         event.input.command,
       ].join(' && ');
     });
@@ -111,53 +100,35 @@ export class PlaywrightBridge {
       args.push(`--ignore-certificate-errors-spki-list=${createHash('sha256').update(publicKey).digest('base64')}`);
     }
 
-    const scratchPath = await mkdtemp(join(tmpdir(), 'sloppi-playwright-'));
-    try {
-      const browser = await chromium.launchServer({
-        args,
-        channel: 'chrome',
-        env: {
-          ...process.env,
-          CFFIXED_USER_HOME: scratchPath,
-          MAC_CHROMIUM_TMPDIR: scratchPath,
-          TMPDIR: scratchPath,
-        },
-        headless: true,
-        host: '127.0.0.1',
-        port: 0,
-        proxy: {
-          server: `http://127.0.0.1:${proxyPort}`,
-          username: 'srt',
-          password: proxyAuthToken,
-          ...(isLocalhostAllowed && {bypass: 'localhost,127.0.0.1,[::1]'}),
-        },
-      });
-      this.browser = browser;
-      this.proxyIdentity = proxyIdentity;
-      this.scratchPath = scratchPath;
-      return browser.wsEndpoint();
-    } catch (error) {
-      await rm(scratchPath, {force: true, recursive: true});
-      throw error;
-    }
+    const browser = await chromium.launchServer({
+      args,
+      channel: 'chrome',
+      headless: true,
+      host: '127.0.0.1',
+      port: 0,
+      proxy: {
+        server: `http://127.0.0.1:${proxyPort}`,
+        username: 'srt',
+        password: proxyAuthToken,
+        ...(isLocalhostAllowed && {bypass: 'localhost,127.0.0.1,[::1]'}),
+      },
+    });
+    this.browser = browser;
+    this.proxyIdentity = proxyIdentity;
+    return browser.wsEndpoint();
   }
 
   /**
-   Closes host Chrome and removes files owned solely by the bridge.
+   Closes host Chrome while tolerating an already-exited browser.
    */
   async stop(): Promise<void> {
-    const {browser, scratchPath} = this;
+    const {browser} = this;
     this.browser = undefined;
     this.proxyIdentity = undefined;
-    this.scratchPath = undefined;
     try {
       await browser?.close();
     } catch {
       // Chrome may already have exited unexpectedly.
-    }
-
-    if (scratchPath !== undefined) {
-      await rm(scratchPath, {force: true, recursive: true});
     }
   }
 }

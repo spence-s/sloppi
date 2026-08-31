@@ -133,20 +133,17 @@ void test('configures the sandboxed Playwright CLI for host Chrome', async (t: T
     return browser;
   });
 
-  let browserScratch: string | undefined;
   try {
     t.assert.strictEqual(await bridge.start(), 'ws://127.0.0.1:4321/session');
     t.assert.strictEqual(launchOptions?.host, '127.0.0.1');
     t.assert.strictEqual(launchOptions?.proxy?.server, 'http://127.0.0.1:1234');
     t.assert.strictEqual(launchOptions?.proxy?.username, 'srt');
     t.assert.strictEqual(launchOptions?.proxy?.password, 'token');
-    browserScratch = launchOptions?.env?.TMPDIR;
   } finally {
     await bridge.stop();
   }
 
   t.assert.strictEqual(didClose, true);
-  await t.assert.rejects(access(browserScratch ?? ''), /ENOENT/v);
 });
 
 /**
@@ -174,7 +171,7 @@ void test('prepares Playwright on its first sandboxed CLI command', async (t: Te
     throw new Error('tool_call handler was not registered');
   }
 
-  const input = {command: ['command', '-v', 'playwright-cli'].join(' ')};
+  const input = {command: ['test', '-f', '"$PLAYWRIGHT_MCP_CONFIG"', '&&', 'printf', 'playwright-cli'].join(' ')};
   await handler({toolCallId: 'playwright', toolName: 'bash', input});
   t.assert.strictEqual(starts, 1);
   const command: unknown = Reflect.get(input, 'command');
@@ -184,12 +181,16 @@ void test('prepares Playwright on its first sandboxed CLI command', async (t: Te
 
   t.assert.match(command, /PLAYWRIGHT_MCP_CONFIG/v);
   t.assert.match(command, /ws:\/\/127\.0\.0\.1:4321\/session/v);
-  t.assert.match(command, /command -v playwright-cli$/v);
+  t.assert.match(command, /test -f "\$PLAYWRIGHT_MCP_CONFIG" && printf playwright-cli$/v);
 
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-playwright-command-test-'));
   try {
     const result = await execa(command, {env: {...process.env, TMPDIR: directory}, shell: true});
-    t.assert.strictEqual(result.stdout, join(directory, 'playwright-bin', 'playwright-cli'));
+    t.assert.strictEqual(result.stdout, 'playwright-cli');
+    const configText = await readFile(join(directory, 'playwright-cli.json'), 'utf8');
+    t.assert.deepStrictEqual(JSON.parse(configText), {
+      browser: {remoteEndpoint: 'ws://127.0.0.1:4321/session'},
+    });
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
