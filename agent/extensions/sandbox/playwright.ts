@@ -51,7 +51,21 @@ export class PlaywrightBridge {
       }
 
       const endpoint = await this.start();
-      const cliConfig = `'${JSON.stringify({browser: {remoteEndpoint: endpoint}}).replaceAll('\'', '\'"\'"\'')}'`;
+      const config = {
+        // Keep CLI file access workspace-scoped. https://playwright.dev/agent-cli/configuration#full-config-schema
+        allowUnrestrictedFileAccess: false,
+        browser: {
+          contextOptions: {
+            // Start without browser permissions. https://playwright.dev/docs/api/class-browsercontext#browser-context-grant-permissions
+            permissions: [],
+            // Prevent background persistence and hidden requests. https://playwright.dev/docs/service-workers#how-to-disable-service-workers
+            serviceWorkers: 'block' as const,
+          },
+          // Attach the sandboxed CLI to managed host Chrome. https://playwright.dev/agent-cli/configuration#full-config-schema
+          remoteEndpoint: endpoint,
+        },
+      };
+      const cliConfig = `'${JSON.stringify(config).replaceAll('\'', '\'"\'"\'')}'`;
       event.input.command = [
         String.raw`printf '%s\n' ${cliConfig} > "$TMPDIR/playwright-cli.json"`,
         'export PLAYWRIGHT_MCP_CONFIG="$TMPDIR/playwright-cli.json"',
@@ -86,26 +100,36 @@ export class PlaywrightBridge {
     }
 
     await this.stop();
+
     const args = [
-      '--disable-background-networking',
-      '--disable-component-update',
-      '--disable-extensions',
+      // Keep browser traffic on TCP where SRT can proxy it. https://peter.sh/experiments/chromium-command-line-switches/#disable-quic
       '--disable-quic',
+      // Prevent WebRTC from bypassing the proxy over UDP. https://chromeenterprise.google/policies/web-rtc-ip-handling/
       '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
-      '--no-first-run',
     ];
+
     const mitmCA = SandboxManager.getMitmCA();
+
     if (mitmCA !== undefined) {
       const publicKey = new X509Certificate(mitmCA.certPem).publicKey.export({format: 'der', type: 'spki'});
+      // Trust only SRT's generated interception key. https://peter.sh/experiments/chromium-command-line-switches/#ignore-certificate-errors-spki-list
       args.push(`--ignore-certificate-errors-spki-list=${createHash('sha256').update(publicKey).digest('base64')}`);
     }
 
     const browser = await chromium.launchServer({
+      // Pass the two network-hardening switches above. https://playwright.dev/docs/api/class-browsertype#browser-type-launch-option-args
       args,
+      // Use the installed stable Chrome. https://playwright.dev/docs/api/class-browsertype#browser-type-launch-option-channel
       channel: 'chrome',
+      // Retain Chromium's renderer and process sandbox. https://playwright.dev/docs/api/class-browsertype#browser-type-launch-option-chromium-sandbox
+      chromiumSandbox: true,
+      // Avoid exposing an interactive host window. https://playwright.dev/docs/api/class-browsertype#browser-type-launch-option-headless
       headless: true,
+      // Expose browser control only on loopback. https://playwright.dev/docs/api/class-browsertype#browser-type-launch-server-option-host
       host: '127.0.0.1',
+      // Let the OS select an unused loopback port. https://playwright.dev/docs/api/class-browsertype#browser-type-launch-server-option-port
       port: 0,
+      // Route web traffic through SRT's authenticated filter. https://playwright.dev/docs/api/class-browsertype#browser-type-launch-option-proxy
       proxy: {
         server: `http://127.0.0.1:${proxyPort}`,
         username: 'srt',

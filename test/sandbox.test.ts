@@ -135,6 +135,13 @@ void test('configures the sandboxed Playwright CLI for host Chrome', async (t: T
 
   try {
     t.assert.strictEqual(await bridge.start(), 'ws://127.0.0.1:4321/session');
+    t.assert.deepStrictEqual(launchOptions?.args, [
+      '--disable-quic',
+      '--force-webrtc-ip-handling-policy=disable_non_proxied_udp',
+    ]);
+    t.assert.strictEqual(launchOptions?.channel, 'chrome');
+    t.assert.strictEqual(launchOptions?.chromiumSandbox, true);
+    t.assert.strictEqual(launchOptions?.headless, true);
     t.assert.strictEqual(launchOptions?.host, '127.0.0.1');
     t.assert.strictEqual(launchOptions?.proxy?.server, 'http://127.0.0.1:1234');
     t.assert.strictEqual(launchOptions?.proxy?.username, 'srt');
@@ -189,7 +196,14 @@ void test('prepares Playwright on its first sandboxed CLI command', async (t: Te
     t.assert.strictEqual(result.stdout, 'playwright-cli');
     const configText = await readFile(join(directory, 'playwright-cli.json'), 'utf8');
     t.assert.deepStrictEqual(JSON.parse(configText), {
-      browser: {remoteEndpoint: 'ws://127.0.0.1:4321/session'},
+      allowUnrestrictedFileAccess: false,
+      browser: {
+        contextOptions: {
+          permissions: [],
+          serviceWorkers: 'block',
+        },
+        remoteEndpoint: 'ws://127.0.0.1:4321/session',
+      },
     });
   } finally {
     await rm(directory, {force: true, recursive: true});
