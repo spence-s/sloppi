@@ -96,10 +96,15 @@ export class SandboxTools {
   get bashOperations(): BashOperations {
     const {sandbox} = this;
     return {
-      async exec(command, commandCwd, {onData}) {
-        const result = await sandbox.run({cwd: commandCwd})`sh -c ${command}`;
-        onData(Buffer.from(result.stdout));
-        onData(Buffer.from(result.stderr));
+      async exec(command, commandCwd, {onData, signal, timeout}) {
+        const result = await sandbox.run({
+          cwd: commandCwd,
+          onData(data) {
+            onData(Buffer.from(data));
+          },
+          signal,
+          timeout,
+        })`sh -c ${command}`;
         return {exitCode: result.exitCode ?? null};
       },
     };

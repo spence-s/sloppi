@@ -108,6 +108,67 @@ void test('requires an explicit session before running commands', async (t: Test
 });
 
 /**
+ Verifies sandboxed commands stream output and honor Bash cancellation controls.
+ */
+void test('streams, times out, and cancels sandboxed commands', async (t: TestContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-command-test-'));
+  const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory));
+  sandbox.session = {
+    previousClaudeCodeTmpdir: undefined,
+    previousTmpdir: undefined,
+    scratchPath: directory,
+  };
+  t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => command);
+
+  try {
+    const operations = new SandboxTools({} as ExtensionAPI, directory, sandbox).bashOperations;
+    let streamed = '';
+    const {promise: firstChunk, resolve: receivedFirstChunk} = Promise.withResolvers<void>();
+    let isSettled = false;
+    const running = operations.exec('printf first; sleep 0.2; printf second', directory, {
+      onData(data) {
+        streamed += data.toString();
+        if (streamed.includes('first')) {
+          receivedFirstChunk();
+        }
+      },
+    });
+    void running.then(() => {
+      isSettled = true;
+    });
+
+    await firstChunk;
+    t.assert.strictEqual(isSettled, false);
+    const result = await running;
+    t.assert.strictEqual(result.exitCode, 0);
+    t.assert.strictEqual(streamed, 'firstsecond');
+
+    await t.assert.rejects(
+      operations.exec('sleep 1', directory, {
+        onData() {
+          // This command intentionally emits no output.
+        },
+        timeout: 0.01,
+      }),
+      /timeout:0\.01/v,
+    );
+
+    const controller = new AbortController();
+    const canceled = operations.exec('sleep 1', directory, {
+      onData() {
+        // This command intentionally emits no output.
+      },
+      signal: controller.signal,
+    });
+    controller.abort();
+    await t.assert.rejects(canceled, /aborted/v);
+  } finally {
+    sandbox.session = undefined;
+    await rm(directory, {force: true, recursive: true});
+  }
+});
+
+/**
  Verifies the bridge exposes the native CLI and closes its managed browser.
  */
 void test('configures the sandboxed Playwright CLI for host Chrome', async (t: TestContext) => {

@@ -23,7 +23,12 @@ const safeRealPath = async (path: string): Promise<string> => {
 
 type CommandValue = string | number | ReadonlyArray<string | number>;
 
-type RunOptions = {cwd: string};
+type RunOptions = {
+  cwd: string;
+  onData?: ((data: Uint8Array) => void) | undefined;
+  signal?: AbortSignal | undefined;
+  timeout?: number | undefined;
+};
 
 type CommandResult = {
   exitCode?: number | undefined;
@@ -233,7 +238,7 @@ export class SandboxSessionManager {
   run(strings: TemplateStringsArray, ...values: CommandValue[]): Promise<CommandResult>;
   run(options: RunOptions): (strings: TemplateStringsArray, ...values: CommandValue[]) => Promise<CommandResult>;
   run(stringsOrOptions: TemplateStringsArray | RunOptions, ...values: CommandValue[]) {
-    const run = async (strings: TemplateStringsArray, commandValues: CommandValue[], cwd: string): Promise<CommandResult> => {
+    const run = async (strings: TemplateStringsArray, commandValues: CommandValue[], options: RunOptions): Promise<CommandResult> => {
       const currentSession = this.session;
       if (currentSession === undefined) {
         throw new Error('Sandbox session has not started.');
@@ -264,20 +269,40 @@ export class SandboxSessionManager {
         }
       }
 
-      const execaOptions = {
+      const subprocess = execa(wrapped, {
+        ...(options.signal !== undefined && {cancelSignal: options.signal}),
+        ...(options.timeout !== undefined && {timeout: options.timeout * 1000}),
+        buffer: options.onData === undefined,
         shell: true,
         reject: false,
-        cwd,
+        cwd: options.cwd,
         extendEnv: false,
         env,
-      };
+      });
+      if (options.onData !== undefined) {
+        subprocess.stdout?.on('data', options.onData);
+        subprocess.stderr?.on('data', options.onData);
+      }
 
-      return execa(wrapped, execaOptions);
+      const result = await subprocess;
+      if (result.isCanceled) {
+        throw new Error('aborted');
+      }
+
+      if (result.timedOut) {
+        throw new Error(`timeout:${String(options.timeout)}`);
+      }
+
+      return {
+        ...result,
+        stderr: result.stderr ?? '',
+        stdout: result.stdout ?? '',
+      };
     };
 
     return 'cwd' in stringsOrOptions
-      ? async (strings: TemplateStringsArray, ...commandValues: CommandValue[]) => run(strings, commandValues, stringsOrOptions.cwd)
-      : run(stringsOrOptions, values, this.cwd);
+      ? async (strings: TemplateStringsArray, ...commandValues: CommandValue[]) => run(strings, commandValues, stringsOrOptions)
+      : run(stringsOrOptions, values, {cwd: this.cwd});
   }
 
   /** Recreates the session so persisted configuration changes take effect. */
