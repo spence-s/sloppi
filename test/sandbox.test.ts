@@ -13,6 +13,7 @@ import {homedir, tmpdir} from 'node:os';
 import {dirname, join, resolve} from 'node:path';
 import process from 'node:process';
 import {test, type TestContext} from 'node:test';
+import {setTimeout as delay} from 'node:timers/promises';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {execa} from 'execa';
 import {chromium} from 'playwright';
@@ -121,7 +122,14 @@ void test('streams, times out, and cancels sandboxed commands', async (t: TestCo
   t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => command);
 
   try {
-    const operations = new SandboxTools({} as ExtensionAPI, directory, sandbox).bashOperations;
+    const tools = new SandboxTools({} as ExtensionAPI, directory, sandbox);
+    const operations = tools.bashOperations;
+    const largeContent = 'x'.repeat(3_000_000);
+    const largePath = join(directory, 'large.txt');
+    await tools.writeOperations.writeFile(largePath, largeContent);
+    const savedLargeContent = await readFile(largePath);
+    t.assert.strictEqual(savedLargeContent.length, largeContent.length);
+
     let streamed = '';
     const {promise: firstChunk, resolve: receivedFirstChunk} = Promise.withResolvers<void>();
     let isSettled = false;
@@ -154,14 +162,97 @@ void test('streams, times out, and cancels sandboxed commands', async (t: TestCo
     );
 
     const controller = new AbortController();
-    const canceled = operations.exec('sleep 1', directory, {
-      onData() {
-        // This command intentionally emits no output.
+    const {promise: descendantReady, resolve: markDescendantReady} = Promise.withResolvers<void>();
+    const canceled = operations.exec(
+      'trap : HUP; printf ready; sleep 0.2; printf survived > descendant-survived',
+      directory,
+      {
+        onData(data) {
+          if (data.includes('ready')) {
+            markDescendantReady();
+          }
+        },
+        signal: controller.signal,
       },
-      signal: controller.signal,
-    });
+    );
+    await descendantReady;
     controller.abort();
     await t.assert.rejects(canceled, /aborted/v);
+    await delay(300);
+    await t.assert.rejects(access(join(directory, 'descendant-survived')), {code: 'ENOENT'});
+  } finally {
+    sandbox.session = undefined;
+    await rm(directory, {force: true, recursive: true});
+  }
+});
+
+/**
+ Verifies sandboxed grep uses ripgrep limits and stops promptly when aborted.
+ */
+void test('bounds and cancels sandboxed grep', async (t: TestContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-grep-test-'));
+  const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory));
+  sandbox.session = {
+    previousClaudeCodeTmpdir: undefined,
+    previousTmpdir: undefined,
+    scratchPath: directory,
+  };
+  let shouldBlockRipgrep = false;
+  const {promise: ripgrepStarted, resolve: markRipgrepStarted} = Promise.withResolvers<void>();
+  t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => {
+    if (shouldBlockRipgrep && command.startsWith('\'rg\' ')) {
+      markRipgrepStarted();
+      return 'sleep 10';
+    }
+
+    return command;
+  });
+
+  try {
+    const grep = new SandboxTools({} as ExtensionAPI, directory, sandbox).grepExecute;
+    const longLine = `needle ${'x'.repeat(1000)}`;
+    const path = join(directory, 'grep.txt');
+    await writeFile(path, ['before', longLine, 'after', 'needle second', 'tail', 'needle third'].join('\n'));
+
+    const limited = await grep('limited', {
+      pattern: 'needle',
+      path,
+      context: 1,
+      limit: 2,
+    }, undefined);
+    const limitedText = limited.content.find(entry => entry.type === 'text')?.text ?? '';
+    t.assert.strictEqual(limitedText.matchAll(/:\d+:/gv).toArray().length, 2);
+    t.assert.match(limitedText, /\[truncated\]/v);
+    t.assert.doesNotMatch(limitedText, new RegExp('x'.repeat(600), 'v'));
+
+    // `rg --max-count` would return two matches from each file; Pi promises two in total.
+    await writeFile(join(directory, 'second.txt'), 'needle fourth\nneedle fifth\n');
+    const globalLimit = await grep('global-limit', {
+      pattern: 'needle',
+      path: directory,
+      limit: 2,
+    }, undefined);
+    const globalText = globalLimit.content.find(entry => entry.type === 'text')?.text ?? '';
+    t.assert.strictEqual(globalText.matchAll(/:\d+:/gv).toArray().length, 2);
+    t.assert.match(globalText, /2 matches limit reached/v);
+
+    await writeFile(path, `${Array.from({length: 110}, () => longLine).join('\n')}\n`);
+    const bounded = await grep('bounded', {
+      pattern: 'needle',
+      path,
+      context: 1,
+      limit: 100,
+    }, undefined);
+    const boundedText = bounded.content.find(entry => entry.type === 'text')?.text ?? '';
+    t.assert.match(boundedText, /50(?:\.0)?KB limit reached/v);
+
+    shouldBlockRipgrep = true;
+    const controller = new AbortController();
+    const canceled = grep('canceled', {pattern: 'needle', path}, controller.signal);
+    await ripgrepStarted;
+    await delay(20);
+    controller.abort();
+    await t.assert.rejects(canceled, /Operation aborted/v);
   } finally {
     sandbox.session = undefined;
     await rm(directory, {force: true, recursive: true});

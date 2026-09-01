@@ -24,9 +24,19 @@ const safeRealPath = async (path: string): Promise<string> => {
 type CommandValue = string | number | ReadonlyArray<string | number>;
 
 type RunOptions = {
+  // Run inside this directory after the sandbox policy has wrapped the command.
   cwd: string;
+  // Send large or binary input through stdin instead of embedding it in a shell command.
+  input?: string | Uint8Array | undefined;
+  // Merge stdout and stderr for interactive consumers such as Pi's bash tool.
   onData?: ((data: Uint8Array) => void) | undefined;
+  // Keep structured stdout separate when it must be parsed, as with `rg --json`.
+  onStdout?: ((data: Uint8Array) => void) | undefined;
+  // Deliver diagnostics separately from structured stdout.
+  onStderr?: ((data: Uint8Array) => void) | undefined;
+  // Cancel the wrapped process and every descendant started through its shell.
   signal?: AbortSignal | undefined;
+  // Sandbox tool APIs express timeout in seconds; Execa receives milliseconds below.
   timeout?: number | undefined;
 };
 
@@ -269,30 +279,67 @@ export class SandboxSessionManager {
         }
       }
 
+      /*
+       Execa normally buffers stdout and stderr until the process exits. That is convenient for
+       short commands, but grep must inspect output while ripgrep is still running so it can stop
+       at the global match limit. Supplying any stream callback transfers buffering responsibility
+       to that caller and prevents Execa from retaining a second, potentially large copy.
+       */
+      const shouldStream = options.onData !== undefined
+        || options.onStdout !== undefined
+        || options.onStderr !== undefined;
       const subprocess = execa(wrapped, {
+        ...(options.input !== undefined && {input: options.input}),
         ...(options.signal !== undefined && {cancelSignal: options.signal}),
         ...(options.timeout !== undefined && {timeout: options.timeout * 1000}),
-        buffer: options.onData === undefined,
+        buffer: !shouldStream,
+        // The sandbox wrapper uses a shell; cancellation must also stop commands launched by it.
+        killDescendants: true,
         shell: true,
+        // Return ordinary non-zero exits for tool-specific handling; cancellation still rejects below.
         reject: false,
         cwd: options.cwd,
         extendEnv: false,
         env,
       });
+      /*
+       `onData` intentionally merges both streams for interactive commands such as bash, where Pi
+       should display output as it arrives regardless of its source.
+       */
       if (options.onData !== undefined) {
         subprocess.stdout?.on('data', options.onData);
         subprocess.stderr?.on('data', options.onData);
       }
 
+      /*
+       Structured tools need separate callbacks: grep parses stdout as JSON but must retain stderr
+       as plain diagnostic text. Optional chaining also tolerates commands without a piped stream.
+       */
+      if (options.onStdout !== undefined) {
+        subprocess.stdout?.on('data', options.onStdout);
+      }
+
+      if (options.onStderr !== undefined) {
+        subprocess.stderr?.on('data', options.onStderr);
+      }
+
+      // Waiting here resolves buffered commands and keeps streaming commands alive until termination.
       const result = await subprocess;
+
+      // Normalize Execa's cancellation state into the error contract used by sandboxed tools.
       if (result.isCanceled) {
         throw new Error('aborted');
       }
 
+      // Keep timeout distinct from cancellation so the bash tool can report the configured duration.
       if (result.timedOut) {
         throw new Error(`timeout:${String(options.timeout)}`);
       }
 
+      /*
+       Streaming commands have no buffered `stdout` or `stderr`, so Execa leaves them undefined.
+       Normalize both to strings to keep every `sandbox.run` caller on one simple result shape.
+       */
       return {
         ...result,
         stderr: result.stderr ?? '',
