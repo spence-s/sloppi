@@ -10,6 +10,7 @@ import type {
   FilesystemPermission,
   NetworkPermission,
 } from './config.ts';
+import type {PlaywrightBridge} from './playwright.ts';
 import type {SandboxSessionManager} from './session-manager.ts';
 
 type RuleSelection = {
@@ -23,10 +24,45 @@ type RuleSelection = {
 export class SandboxCommand {
   config: ConfigStore;
   sandbox: SandboxSessionManager;
+  playwright: PlaywrightBridge | undefined;
 
-  constructor(config: ConfigStore, sandbox: SandboxSessionManager) {
+  constructor(config: ConfigStore, sandbox: SandboxSessionManager, playwright?: PlaywrightBridge) {
     this.config = config;
     this.sandbox = sandbox;
+    this.playwright = playwright;
+  }
+
+  /** Shows the current tool-execution boundary in Pi's shared status area. */
+  setStatus(ctx: ExtensionCommandContext): void {
+    ctx.ui.setStatus(
+      'sandbox',
+      this.sandbox.isEnabled
+        ? `${ctx.ui.theme.bold(ctx.ui.theme.fg('success', '󰕥'))} ${ctx.ui.theme.fg('muted', 'sandbox')}`
+        : `${ctx.ui.theme.bold(ctx.ui.theme.fg('warning', '󰒲'))} ${ctx.ui.theme.fg('warning', 'sandbox off')}`,
+    );
+  }
+
+  /** Switches tool execution between SRT and the host for this session. */
+  async setEnabled(ctx: ExtensionCommandContext, isEnabled: boolean): Promise<void> {
+    if (isEnabled === this.sandbox.isEnabled) {
+      ctx.ui.notify(`Sandbox is already ${isEnabled ? 'on' : 'off'}.`, 'info');
+      return;
+    }
+
+    if (!isEnabled && !await ctx.ui.confirm(
+      'Turn off the sandbox?',
+      'All tool calls will execute directly on the host with your user permissions for this session.',
+    )) {
+      return;
+    }
+
+    await this.sandbox.setEnabled(isEnabled);
+    if (!isEnabled) {
+      await this.playwright?.stop();
+    }
+
+    this.setStatus(ctx);
+    ctx.ui.notify(`Sandbox is ${isEnabled ? 'on' : 'off'} for this session.`, isEnabled ? 'info' : 'warning');
   }
 
   async finish(ctx: ExtensionCommandContext, message: string): Promise<void> {
@@ -35,6 +71,11 @@ export class SandboxCommand {
   }
 
   async show(ctx: ExtensionCommandContext): Promise<void> {
+    if (!this.sandbox.isEnabled) {
+      ctx.ui.notify('Sandbox is off; tools currently have unrestricted host access.', 'warning');
+      return;
+    }
+
     await this.config.reload();
     await this.sandbox.restartSession();
     ctx.ui.notify(JSON.stringify(SandboxManager.getConfig(), undefined, 2), 'info');
@@ -314,17 +355,30 @@ export class SandboxCommand {
 
   register(pi: ExtensionAPI): void {
     pi.registerCommand('sandbox', {
-      description: 'Manage project sandbox access; use /sandbox global for global access.',
+      description: 'Toggle sandboxing or manage project access; use /sandbox global for global access.',
       handler: async (rawArguments, ctx) => {
         const argument = rawArguments.trim();
-        if (argument !== '' && argument !== 'global') {
-          ctx.ui.notify('Use /sandbox or /sandbox global.', 'error');
-          return;
-        }
-
-        const scope: ConfigScope = argument === 'global' ? 'global' : 'project';
         try {
+          if (['on', 'off', 'toggle'].includes(argument)) {
+            await this.setEnabled(ctx, argument === 'toggle' ? !this.sandbox.isEnabled : argument === 'on');
+            return;
+          }
+
+          if (argument === 'status') {
+            this.setStatus(ctx);
+            ctx.ui.notify(`Sandbox is ${this.sandbox.isEnabled ? 'on' : 'off'} for this session.`, 'info');
+            return;
+          }
+
+          if (argument !== '' && argument !== 'global') {
+            ctx.ui.notify('Use /sandbox or /sandbox global; runtime controls are on, off, toggle, and status.', 'error');
+            return;
+          }
+
+          const scope: ConfigScope = argument === 'global' ? 'global' : 'project';
+          const toggleAction = this.sandbox.isEnabled ? 'Turn off for this session' : 'Turn on for this session';
           const action = await ctx.ui.select(`Sandbox (${scope})`, [
+            toggleAction,
             'View access',
             'Filesystem',
             'Network',
@@ -334,6 +388,12 @@ export class SandboxCommand {
             'Reset configuration',
           ]);
           switch (action) {
+            case 'Turn off for this session':
+            case 'Turn on for this session': {
+              await this.setEnabled(ctx, !this.sandbox.isEnabled);
+              break;
+            }
+
             case 'View access': {
               await this.show(ctx);
               break;

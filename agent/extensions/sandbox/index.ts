@@ -31,8 +31,9 @@ export class Sandbox {
     const {pi, cwd, config, sandbox} = this;
     new SandboxTools(pi, cwd, sandbox).register();
     new SandboxSubagent(pi, cwd, sandbox, config).register();
-    new SandboxCommand(config, sandbox).register(pi);
-    new PlaywrightBridge(config).register(pi);
+    const playwright = new PlaywrightBridge(config, sandbox);
+    new SandboxCommand(config, sandbox, playwright).register(pi);
+    playwright.register(pi);
 
     pi.on('before_agent_start', async event => {
       const sandboxSystemPrompt = `
@@ -48,6 +49,16 @@ export class Sandbox {
       await config.load();
       if (!config.areResearchAgentsEnabled()) {
         pi.setActiveTools(pi.getActiveTools().filter(name => name !== 'research_scout'));
+      }
+
+      if (!sandbox.isEnabled) {
+        const hostPrompt = [
+          '## Sloppi Sandbox',
+          '',
+          'Sandbox is OFF. All tool calls execute directly on the host with the current user permissions.',
+          'Sloppi filesystem, network, credential, and host-service restrictions do not apply.',
+        ].join('\n');
+        return {systemPrompt: `${event.systemPrompt}\n\n${hostPrompt}`};
       }
 
       const effectiveConfig = config.getEffectiveConfig();
@@ -68,6 +79,10 @@ export class Sandbox {
     });
 
     pi.on('tool_call', event => {
+      if (!sandbox.isEnabled) {
+        return;
+      }
+
       if (event.toolName === 'research_scout' && !config.areResearchAgentsEnabled()) {
         return {block: true, reason: 'Research agents are disabled. Enable them with /sandbox or /sandbox global.'};
       }
@@ -78,7 +93,7 @@ export class Sandbox {
     });
 
     pi.on('tool_result', async (event, ctx) => {
-      if (!sandboxedTools.has(event.toolName) || !ctx.hasUI || this.isPromptInProgress) {
+      if (!sandbox.isEnabled || !sandboxedTools.has(event.toolName) || !ctx.hasUI || this.isPromptInProgress) {
         return;
       }
 

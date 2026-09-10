@@ -105,6 +105,7 @@ const isDomainPatternMatch = (destination: string, pattern: string): boolean => 
 
 export class SandboxSessionManager {
   session: SandboxSession | undefined;
+  isEnabled = true;
   cwd: string;
   config: ConfigStore;
 
@@ -249,11 +250,6 @@ export class SandboxSessionManager {
   run(options: RunOptions): (strings: TemplateStringsArray, ...values: CommandValue[]) => Promise<CommandResult>;
   run(stringsOrOptions: TemplateStringsArray | RunOptions, ...values: CommandValue[]) {
     const run = async (strings: TemplateStringsArray, commandValues: CommandValue[], options: RunOptions): Promise<CommandResult> => {
-      const currentSession = this.session;
-      if (currentSession === undefined) {
-        throw new Error('Sandbox session has not started.');
-      }
-
       let command = strings[0] ?? '';
       for (const [index, value] of commandValues.entries()) {
         const arguments_ = Array.isArray(value) ? value : [value];
@@ -261,22 +257,31 @@ export class SandboxSessionManager {
         command += strings[index + 1] ?? '';
       }
 
-      const wrapped = await SandboxManager.wrapWithSandbox(command);
+      const currentSession = this.session;
+      if (this.isEnabled && currentSession === undefined) {
+        throw new Error('Sandbox session has not started.');
+      }
 
-      const env: Record<string, string> = {
-        CLAUDE_CODE_TMPDIR: currentSession.scratchPath,
-        HOME: currentSession.scratchPath,
-        PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
-        LANG: process.env.LANG ?? 'C.UTF-8',
-        NODE_USE_ENV_PROXY: '1',
-        TMPDIR: currentSession.scratchPath,
-        USER: 'sandbox',
-      };
-      for (const name of this.config.getExposedEnv()) {
-        const value = process.env[name];
-        if (value !== undefined && (name === 'HOME' || env[name] === undefined)) {
-          env[name] = value;
+      const executable = this.isEnabled ? await SandboxManager.wrapWithSandbox(command) : command;
+      let sandboxEnvironment: {env: Record<string, string>; extendEnv: false} | undefined;
+      if (this.isEnabled && currentSession !== undefined) {
+        const env: Record<string, string> = {
+          CLAUDE_CODE_TMPDIR: currentSession.scratchPath,
+          HOME: currentSession.scratchPath,
+          PATH: process.env.PATH ?? '/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin',
+          LANG: process.env.LANG ?? 'C.UTF-8',
+          NODE_USE_ENV_PROXY: '1',
+          TMPDIR: currentSession.scratchPath,
+          USER: 'sandbox',
+        };
+        for (const name of this.config.getExposedEnv()) {
+          const value = process.env[name];
+          if (value !== undefined && (name === 'HOME' || env[name] === undefined)) {
+            env[name] = value;
+          }
         }
+
+        sandboxEnvironment = {env, extendEnv: false};
       }
 
       /*
@@ -288,7 +293,7 @@ export class SandboxSessionManager {
       const shouldStream = options.onData !== undefined
         || options.onStdout !== undefined
         || options.onStderr !== undefined;
-      const subprocess = execa(wrapped, {
+      const subprocess = execa(executable, {
         ...(options.input !== undefined && {input: options.input}),
         ...(options.signal !== undefined && {cancelSignal: options.signal}),
         ...(options.timeout !== undefined && {timeout: options.timeout * 1000}),
@@ -299,8 +304,7 @@ export class SandboxSessionManager {
         // Return ordinary non-zero exits for tool-specific handling; cancellation still rejects below.
         reject: false,
         cwd: options.cwd,
-        extendEnv: false,
-        env,
+        ...sandboxEnvironment,
       });
       /*
        `onData` intentionally merges both streams for interactive commands such as bash, where Pi
@@ -352,8 +356,33 @@ export class SandboxSessionManager {
       : run(stringsOrOptions, values, {cwd: this.cwd});
   }
 
+  /** Enables or disables SRT routing for the current Pi session. */
+  async setEnabled(isEnabled: boolean): Promise<void> {
+    if (isEnabled === this.isEnabled) {
+      return;
+    }
+
+    if (!isEnabled) {
+      await this.stopSession();
+      this.isEnabled = false;
+      return;
+    }
+
+    this.isEnabled = true;
+    try {
+      await this.startSession();
+    } catch (error) {
+      this.isEnabled = false;
+      throw error;
+    }
+  }
+
   /** Recreates the session so persisted configuration changes take effect. */
   async restartSession() {
+    if (!this.isEnabled) {
+      return;
+    }
+
     await this.stopSession();
     return this.startSession();
   }

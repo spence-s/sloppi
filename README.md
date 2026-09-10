@@ -64,12 +64,12 @@ pi install npm:pi-web-access
 - `ask-mode.ts` — `/ask on|off|toggle|status` controls modes; `/ask <prompt>` toggles modes before submitting the prompt.
 - `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input; `/commit model` selects its model.
 - `permissions/` — applies regex-based ask or deny rules to shell commands; `/permissions` edits project rules.
-- `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox` manages its access. Its `research_scout` tool runs isolated scout, planner, reviewer, or user-defined profiles with only sandboxed read, grep, find, and list access. Select the default model with `/sandbox global` → `Research agents` → `Default model`.
+- `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox on|off|toggle|status` controls it for the current session, while `/sandbox` manages its access. Its `research_scout` tool runs isolated scout, planner, reviewer, or user-defined profiles with only read, grep, find, and list access. Select the default model with `/sandbox global` → `Research agents` → `Default model`.
 - `startup-banner.ts` — replaces Pi's TUI header.
 - `shell-ui.ts` — adds a Powerlevel10k-inspired prompt and status area to Pi's terminal UI.
 - `zshrc.ts` — loads zsh aliases for host-side `!` commands.
 
-Sandbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. It blocks unapproved extension tools from host execution; Pi web-access tools remain host-side so provider credentials are not exposed to sandboxed commands.
+Sandbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. While enabled, it blocks unapproved extension tools from host execution; Pi web-access tools remain host-side so provider credentials are not exposed to sandboxed commands. Turning it off routes every tool directly through the host with your user permissions.
 
 ### Browser automation
 
@@ -153,7 +153,7 @@ Request policies add method, path, and exact header-value restrictions to an all
 
 Global and project request policies combine. A listed destination denies requests unless one `allow` rule matches; predicates within a rule all apply. `paths` matches exactly, while `pathPrefixes` matches a path segment and its children. Destinations require an exact `host:port` and must also be present in `network.allowedDomains`. Sloppi enables SRT TLS termination when policies are configured, so protected HTTPS destinations cannot be listed in `tlsTerminate.excludeDomains`. Do not store secret header values in this file. Run `/reload` after editing the file.
 
-Use `/sandbox` to manage the current project's access interactively. Use `/sandbox global` to open the same controls for global access. Access views and rule lists show the effective configuration, while changes apply only to the selected project or global layer. Request policies are configured manually; the advanced editor validates the complete serializable SRT configuration before saving and warns before enabling weaker isolation options.
+Use `/sandbox on|off|toggle|status` to control sandboxing for the current Pi session; each new session starts with it on. Use `/sandbox` to manage the current project's access interactively, or `/sandbox global` for global access. Access views and rule lists show the effective configuration, while changes apply only to the selected project or global layer. Request policies are configured manually; the advanced editor validates the complete serializable SRT configuration before saving and warns before enabling weaker isolation options.
 
 By default, filesystem tools can write only the current project and private session scratch space. Global Pi skills and Git/npm package directories are readable. Network access is denied until allowed. A blocked network request can prompt to add a project domain rule; use `/sandbox` to disable those prompts.
 

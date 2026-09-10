@@ -108,6 +108,15 @@ void test('requires an explicit session before running commands', async (t: Test
   await t.assert.rejects(sandbox.run`true`, /has not started/v);
 });
 
+void test('runs commands directly on the host while sandboxing is off', async (t: TestContext) => {
+  const sandbox = new SandboxSessionManager(process.cwd(), new ConfigStore(process.cwd()));
+  await sandbox.setEnabled(false);
+  const result = await sandbox.run`printf host`;
+
+  t.assert.strictEqual(result.stdout, 'host');
+  t.assert.strictEqual(sandbox.session, undefined);
+});
+
 /**
  Verifies sandboxed commands stream output and honor Bash cancellation controls.
  */
@@ -838,6 +847,13 @@ void test('adds current sandbox access to the system prompt', async (t: TestCont
     t.assert.match(result.systemPrompt, new RegExp(JSON.stringify(extension.cwd), 'v'));
     t.assert.match(result.systemPrompt, /"\/shared"/v);
     t.assert.match(result.systemPrompt, /"api\.example\.com"/v);
+
+    extension.sandbox.isEnabled = false;
+    const hostResult = await handler({systemPrompt: 'base'}) as {systemPrompt: string};
+    t.assert.match(hostResult.systemPrompt, /Sandbox is OFF/v);
+    t.assert.match(hostResult.systemPrompt, /directly on the host/v);
+    const toolCall = handlers.get('tool_call');
+    t.assert.strictEqual(await toolCall?.({toolName: 'unapproved_extension_tool'}), undefined);
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
@@ -864,6 +880,7 @@ void test('reports approved network access to both the UI and the model', async 
   const extension = new SandboxExtension(pi);
   extension.config = new ConfigStore(extension.cwd, configPath);
   extension.sandbox = {
+    isEnabled: true,
     async restartSession() {
       restarts += 1;
     },
@@ -902,6 +919,56 @@ void test('reports approved network access to both the UI and the model', async 
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
+});
+
+void test('/sandbox toggles host execution and updates its status', async (t: TestContext) => {
+  type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
+  let handler: Handler | undefined;
+  let bridgeStops = 0;
+  const statuses: string[] = [];
+  const config = new ConfigStore('/project');
+  const sandbox = new SandboxSessionManager('/project', config);
+  t.mock.method(sandbox, 'setEnabled', async (isNextEnabled: boolean) => {
+    sandbox.isEnabled = isNextEnabled;
+  });
+  const playwright = new PlaywrightBridge(config);
+  t.mock.method(playwright, 'stop', async () => {
+    bridgeStops++;
+  });
+
+  new SandboxCommand(config, sandbox, playwright).register({
+    registerCommand(_name: string, options: {handler: Handler}) {
+      handler = options.handler;
+    },
+  } as unknown as ExtensionAPI);
+  if (handler === undefined) {
+    throw new Error('/sandbox handler was not registered');
+  }
+
+  const ctx = {
+    ui: {
+      confirm: async () => true,
+      notify() {
+        return undefined;
+      },
+      setStatus(_id: string, status: string) {
+        statuses.push(status);
+      },
+      theme: {
+        bold: (text: string) => text,
+        fg: (_color: string, text: string) => text,
+      },
+    },
+  } as unknown as ExtensionCommandContext;
+
+  await handler('off', ctx);
+  t.assert.strictEqual(sandbox.isEnabled, false);
+  t.assert.strictEqual(bridgeStops, 1);
+  t.assert.match(statuses.at(-1) ?? '', /󰒲 sandbox off/v);
+
+  await handler('on', ctx);
+  t.assert.strictEqual(sandbox.isEnabled, true);
+  t.assert.match(statuses.at(-1) ?? '', /󰕥 sandbox/v);
 });
 
 void test('/sandbox mutates projects by default and global configuration only when requested', async (t: TestContext) => {

@@ -67,7 +67,7 @@ type ScoutDetails = {
 };
 
 /**
- Gives each research agent an isolated context and only SRT-backed inspection tools.
+ Gives each research agent an isolated context and only read-only inspection tools.
  */
 export class SandboxSubagent {
   pi: ExtensionAPI;
@@ -96,7 +96,7 @@ export class SandboxSubagent {
         'Send a focused repository task to an isolated, configurable read-only agent.',
         'Built-in profiles: scout, planner, reviewer.',
         'User profiles load from ~/.pi/agent/agents/*.md.',
-        'Every profile remains limited to sandboxed read, grep, find, and list access.',
+        'Every profile remains limited to read, grep, find, and list access.',
       ].join(' '),
       promptSnippet: 'Ask an isolated read-only agent to research, plan, or review repository work',
       promptGuidelines: ['Use research_scout with the scout, planner, or reviewer profile for bounded repository work; it cannot edit files or run shell commands.'],
@@ -235,8 +235,8 @@ export class SandboxSubagent {
       throw new Error('The read-only delegation task cannot be empty.');
     }
 
-    if (this.sandbox.session === undefined) {
-      throw new Error('Read-only delegation is unavailable because the Sloppi sandbox is not active.');
+    if (this.sandbox.isEnabled && this.sandbox.session === undefined) {
+      throw new Error('Read-only delegation is unavailable because the Sloppi sandbox failed to start.');
     }
 
     const agents = discoverResearchAgents();
@@ -292,7 +292,7 @@ export class SandboxSubagent {
       getAgentsFiles: () => ({agentsFiles: []}),
       getSystemPrompt: () => [
         `You are the ${agent.name} research agent: ${agent.description}.`,
-        'Use only the supplied inspection tools. Do not attempt to edit files, execute commands, access the host, or bypass sandbox restrictions.',
+        'Use only the supplied inspection tools. Do not attempt to edit files, execute commands, or bypass their read-only boundary.',
         agent.systemPrompt,
       ].join('\n'),
       getSystemPromptSource: () => undefined,

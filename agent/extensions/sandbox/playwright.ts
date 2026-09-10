@@ -3,17 +3,20 @@ import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {isToolCallEventType, type ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import {chromium, type BrowserServer} from 'playwright';
 import type {ConfigStore} from './config.ts';
+import type {SandboxSessionManager} from './session-manager.ts';
 
 export class PlaywrightBridge {
   browser: BrowserServer | undefined;
   config: ConfigStore;
+  sandbox: SandboxSessionManager | undefined;
   proxyIdentity: string | undefined;
 
   /**
    Keeps optional host-browser automation independent from sandbox session management.
    */
-  constructor(config: ConfigStore) {
+  constructor(config: ConfigStore, sandbox?: SandboxSessionManager) {
     this.config = config;
+    this.sandbox = sandbox;
   }
 
   /**
@@ -25,6 +28,12 @@ export class PlaywrightBridge {
       handler: async (arguments_, ctx) => {
         const action = arguments_.trim();
         if (action === 'on') {
+          if (this.sandbox?.isEnabled === false) {
+            await this.stop();
+            ctx.ui.notify('Sandbox is off; Playwright CLI runs directly on the host.', 'warning');
+            return;
+          }
+
           await this.start();
           ctx.ui.notify('Playwright CLI is enabled for this session.', 'info');
           return;
@@ -47,6 +56,11 @@ export class PlaywrightBridge {
 
     pi.on('tool_call', async event => {
       if (!isToolCallEventType('bash', event) || !/\bplaywright-cli(?:\s|$)/v.test(event.input.command)) {
+        return;
+      }
+
+      if (this.sandbox?.isEnabled === false) {
+        await this.stop();
         return;
       }
 
