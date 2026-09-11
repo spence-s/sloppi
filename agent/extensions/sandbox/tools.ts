@@ -1,6 +1,12 @@
 import {Buffer} from 'node:buffer';
 import {realpathSync} from 'node:fs';
 import {
+  basename,
+  isAbsolute,
+  matchesGlob,
+  resolve,
+} from 'node:path';
+import {
   createBashTool,
   createEditTool,
   createFindTool,
@@ -439,15 +445,40 @@ export class SandboxTools {
         return result.exitCode === 0;
       },
       async glob(pattern, path, {ignore, limit}) {
-        const name = pattern.includes('/') ? '-path' : '-name';
-        const match = name === '-path' ? `*${pattern}` : pattern;
-        const result = await sandbox.run`${['find', path, '-type', 'f', ...ignore.flatMap(entry => ['!', '-path', `*${entry}`]), name, match, '-print']}`;
-        if (result.exitCode !== 0) {
+        const arguments_ = [
+          'rg',
+          '--files',
+          '--hidden',
+          ...ignore.flatMap(entry => [
+            '--glob',
+            `!${entry}`,
+            ...(entry.startsWith('**/') ? ['--glob', `!${entry.slice(3)}`] : []),
+          ]),
+          '--',
+        ];
+        const effectiveLimit = Math.max(0, Math.floor(limit));
+        const result = await sandbox.run({
+          cwd: path,
+          pipe: ['head', '-n', effectiveLimit],
+          transformStdout(candidate) {
+            if (!pattern.includes('/')) {
+              return matchesGlob(basename(candidate), pattern) ? candidate : undefined;
+            }
+
+            if (isAbsolute(pattern)) {
+              return matchesGlob(resolve(path, candidate), pattern) ? candidate : undefined;
+            }
+
+            return matchesGlob(candidate, pattern) || matchesGlob(candidate, `**/${pattern}`)
+              ? candidate
+              : undefined;
+          },
+        })`${arguments_}`;
+        if (result.exitCode !== 0 && result.exitCode !== 1) {
           throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot find ${pattern}`);
         }
 
-        const results = result.stdout.trim().split('\n').filter(Boolean);
-        return results.slice(0, limit);
+        return result.stdout.trim().split('\n').filter(Boolean);
       },
     };
   }

@@ -196,6 +196,51 @@ void test('streams, times out, and cancels sandboxed commands', async (t: TestCo
 });
 
 /**
+ Verifies sandboxed find preserves Pi glob semantics and repository ignores.
+ */
+void test('matches brace globs with sandboxed find', async (t: TestContext) => {
+  const directory = await mkdtemp(join(process.cwd(), '.sloppi-find-test-'));
+  const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory));
+  sandbox.session = {
+    previousClaudeCodeTmpdir: undefined,
+    previousTmpdir: undefined,
+    scratchPath: directory,
+  };
+  const commands: string[] = [];
+  t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => {
+    commands.push(command);
+    return command;
+  });
+
+  try {
+    await mkdir(join(directory, 'src'), {recursive: true});
+    await mkdir(join(directory, 'node_modules'), {recursive: true});
+    await writeFile(join(directory, '.gitignore'), 'ignored.ts\n');
+    await writeFile(join(directory, 'src', 'app.ts'), '');
+    await writeFile(join(directory, 'src', 'app.js'), '');
+    await writeFile(join(directory, 'src', 'app.css'), '');
+    await writeFile(join(directory, 'ignored.ts'), '');
+    await writeFile(join(directory, 'node_modules', 'package.ts'), '');
+
+    const operations = new SandboxTools({} as ExtensionAPI, directory, sandbox).findOperations;
+    const options = {ignore: ['**/node_modules/**', '**/.git/**'], limit: 10};
+    const matches = await operations.glob('**/*.{js,ts}', directory, options);
+    t.assert.deepStrictEqual(new Set(matches), new Set(['src/app.js', 'src/app.ts']));
+
+    const nested = await operations.glob('src/**/*.ts', directory, {...options, limit: 1});
+    t.assert.deepStrictEqual(nested, ['src/app.ts']);
+    t.assert.ok(commands.includes('\'head\' \'-n\' \'1\''));
+
+    const emptyDirectory = join(directory, 'empty');
+    await mkdir(emptyDirectory);
+    t.assert.deepStrictEqual(await operations.glob('*.ts', emptyDirectory, options), []);
+  } finally {
+    sandbox.session = undefined;
+    await rm(directory, {force: true, recursive: true});
+  }
+});
+
+/**
  Verifies sandboxed grep uses ripgrep limits and stops promptly when aborted.
  */
 void test('bounds and cancels sandboxed grep', async (t: TestContext) => {
