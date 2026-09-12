@@ -252,8 +252,10 @@ void test('bounds and cancels sandboxed grep', async (t: TestContext) => {
     scratchPath: directory,
   };
   let shouldBlockRipgrep = false;
+  const commands: string[] = [];
   const {promise: ripgrepStarted, resolve: markRipgrepStarted} = Promise.withResolvers<void>();
   t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => {
+    commands.push(command);
     if (shouldBlockRipgrep && command.startsWith('\'rg\' ')) {
       markRipgrepStarted();
       return 'sleep 10';
@@ -276,6 +278,7 @@ void test('bounds and cancels sandboxed grep', async (t: TestContext) => {
     }, undefined);
     const limitedText = limited.content.find(entry => entry.type === 'text')?.text ?? '';
     t.assert.strictEqual(limitedText.matchAll(/:\d+:/gv).toArray().length, 2);
+    t.assert.ok(commands.includes('\'head\' \'-n\' \'2\''));
     t.assert.match(limitedText, /\[truncated\]/v);
     t.assert.doesNotMatch(limitedText, new RegExp('x'.repeat(600), 'v'));
 
