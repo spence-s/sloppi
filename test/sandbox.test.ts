@@ -118,6 +118,57 @@ void test('runs commands directly on the host while sandboxing is off', async (t
 });
 
 /**
+ Ensures every successful SRT wrapper is cleaned up across all command outcomes.
+ */
+void test('balances sandbox wrapper cleanup', async (t: TestContext) => {
+  const sandbox = new SandboxSessionManager(process.cwd(), new ConfigStore(process.cwd()));
+  sandbox.session = {
+    previousClaudeCodeTmpdir: undefined,
+    previousTmpdir: undefined,
+    scratchPath: process.cwd(),
+  };
+  let cleanupCount = 0;
+  let shouldFailPipeWrap = false;
+  t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => {
+    if (shouldFailPipeWrap && command === '\'cat\'') {
+      throw new Error('pipe wrap failed');
+    }
+
+    return command;
+  });
+  t.mock.method(SandboxManager, 'cleanupAfterCommand', () => {
+    cleanupCount++;
+  });
+
+  const success = await sandbox.run`printf success`;
+  t.assert.strictEqual(success.stdout, 'success');
+  t.assert.strictEqual(cleanupCount, 1);
+
+  const pipeline = await sandbox.run({cwd: process.cwd(), pipe: ['cat']})`printf pipeline`;
+  t.assert.strictEqual(pipeline.stdout, 'pipeline');
+  t.assert.strictEqual(cleanupCount, 3);
+
+  await t.assert.rejects(
+    sandbox.run({cwd: process.cwd(), timeout: 0.01})`sleep 1`,
+    /timeout:0\.01/v,
+  );
+  t.assert.strictEqual(cleanupCount, 4);
+
+  const controller = new AbortController();
+  const canceled = sandbox.run({cwd: process.cwd(), signal: controller.signal})`sleep 1`;
+  controller.abort();
+  await t.assert.rejects(canceled, /aborted/v);
+  t.assert.strictEqual(cleanupCount, 5);
+
+  shouldFailPipeWrap = true;
+  await t.assert.rejects(
+    sandbox.run({cwd: process.cwd(), pipe: ['cat']})`printf never-runs`,
+    /pipe wrap failed/v,
+  );
+  t.assert.strictEqual(cleanupCount, 6);
+});
+
+/**
  Verifies sandboxed commands stream output and honor Bash cancellation controls.
  */
 void test('streams, times out, and cancels sandboxed commands', async (t: TestContext) => {

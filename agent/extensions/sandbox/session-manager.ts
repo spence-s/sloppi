@@ -267,11 +267,30 @@ export class SandboxSessionManager {
         throw new Error('Sandbox session has not started.');
       }
 
-      const executable = this.isEnabled ? await SandboxManager.wrapWithSandbox(command) : command;
-      const pipeCommand = options.pipe?.map(argument => `'${String(argument).replaceAll('\'', '\'"\'"\'')}'`).join(' ');
-      const pipedExecutable = pipeCommand === undefined
-        ? undefined
-        : (this.isEnabled ? await SandboxManager.wrapWithSandbox(pipeCommand) : pipeCommand);
+      let wrappedCommandCount = 0;
+      let executable = command;
+      let pipedExecutable: string | undefined;
+      try {
+        if (this.isEnabled) {
+          executable = await SandboxManager.wrapWithSandbox(command);
+          wrappedCommandCount++;
+        }
+
+        const pipeCommand = options.pipe?.map(argument => `'${String(argument).replaceAll('\'', '\'"\'"\'')}'`).join(' ');
+        if (pipeCommand !== undefined) {
+          pipedExecutable = this.isEnabled ? await SandboxManager.wrapWithSandbox(pipeCommand) : pipeCommand;
+          if (this.isEnabled) {
+            wrappedCommandCount++;
+          }
+        }
+      } catch (error) {
+        for (let index = 0; index < wrappedCommandCount; index++) {
+          SandboxManager.cleanupAfterCommand();
+        }
+
+        throw error;
+      }
+
       let sandboxEnvironment: {env: Record<string, string>; extendEnv: false} | undefined;
       if (this.isEnabled && currentSession !== undefined) {
         const env: Record<string, string> = {
@@ -322,67 +341,73 @@ export class SandboxSessionManager {
           }
         };
 
-      const source = execa(executable, {
-        ...commandOptions,
-        ...(options.input !== undefined && {input: options.input}),
-        ...(transformStdout !== undefined && {stdout: transformStdout}),
-        buffer: !shouldStream && pipedExecutable === undefined,
-      });
-      const subprocess = pipedExecutable === undefined
-        ? source
-        : source.pipe(pipedExecutable, {...commandOptions, buffer: !shouldStream});
-      let pipedStderr = '';
-      if (pipedExecutable !== undefined) {
-        source.stderr?.on('data', data => {
-          pipedStderr += Buffer.from(data).toString();
+      try {
+        const source = execa(executable, {
+          ...commandOptions,
+          ...(options.input !== undefined && {input: options.input}),
+          ...(transformStdout !== undefined && {stdout: transformStdout}),
+          buffer: !shouldStream && pipedExecutable === undefined,
         });
+        const subprocess = pipedExecutable === undefined
+          ? source
+          : source.pipe(pipedExecutable, {...commandOptions, buffer: !shouldStream});
+        let pipedStderr = '';
+        if (pipedExecutable !== undefined) {
+          source.stderr?.on('data', data => {
+            pipedStderr += Buffer.from(data).toString();
+          });
+        }
+
+        /*
+         `onData` intentionally merges both streams for interactive commands such as bash, where Pi
+         should display output as it arrives regardless of its source.
+         */
+        if (options.onData !== undefined) {
+          source.stdout?.on('data', options.onData);
+          source.stderr?.on('data', options.onData);
+        }
+
+        /*
+         Structured tools need separate callbacks: grep parses stdout as JSON but must retain stderr
+         as plain diagnostic text. Optional chaining also tolerates commands without a piped stream.
+         */
+        if (options.onStdout !== undefined) {
+          source.stdout?.on('data', options.onStdout);
+        }
+
+        if (options.onStderr !== undefined) {
+          source.stderr?.on('data', options.onStderr);
+        }
+
+        // Waiting here resolves buffered commands and keeps streaming commands alive until termination.
+        const result = await subprocess;
+
+        const pipelineResults = [result, ...result.pipedFrom];
+        // Normalize Execa's cancellation state into the error contract used by sandboxed tools.
+        if (pipelineResults.some(entry => entry.isCanceled)) {
+          throw new Error('aborted');
+        }
+
+        // Keep timeout distinct from cancellation so the bash tool can report the configured duration.
+        if (pipelineResults.some(entry => entry.timedOut)) {
+          throw new Error(`timeout:${String(options.timeout)}`);
+        }
+
+        /*
+         Streaming commands have no buffered `stdout` or `stderr`, so Execa leaves them undefined.
+         Normalize both to strings to keep every `sandbox.run` caller on one simple result shape.
+         */
+        return {
+          ...result,
+          exitCode: pipelineResults.find(entry => entry.exitCode !== 0)?.exitCode ?? result.exitCode,
+          stderr: `${pipedStderr}${result.stderr ?? ''}`,
+          stdout: result.stdout ?? '',
+        };
+      } finally {
+        for (let index = 0; index < wrappedCommandCount; index++) {
+          SandboxManager.cleanupAfterCommand();
+        }
       }
-
-      /*
-       `onData` intentionally merges both streams for interactive commands such as bash, where Pi
-       should display output as it arrives regardless of its source.
-       */
-      if (options.onData !== undefined) {
-        source.stdout?.on('data', options.onData);
-        source.stderr?.on('data', options.onData);
-      }
-
-      /*
-       Structured tools need separate callbacks: grep parses stdout as JSON but must retain stderr
-       as plain diagnostic text. Optional chaining also tolerates commands without a piped stream.
-       */
-      if (options.onStdout !== undefined) {
-        source.stdout?.on('data', options.onStdout);
-      }
-
-      if (options.onStderr !== undefined) {
-        source.stderr?.on('data', options.onStderr);
-      }
-
-      // Waiting here resolves buffered commands and keeps streaming commands alive until termination.
-      const result = await subprocess;
-
-      const pipelineResults = [result, ...result.pipedFrom];
-      // Normalize Execa's cancellation state into the error contract used by sandboxed tools.
-      if (pipelineResults.some(entry => entry.isCanceled)) {
-        throw new Error('aborted');
-      }
-
-      // Keep timeout distinct from cancellation so the bash tool can report the configured duration.
-      if (pipelineResults.some(entry => entry.timedOut)) {
-        throw new Error(`timeout:${String(options.timeout)}`);
-      }
-
-      /*
-       Streaming commands have no buffered `stdout` or `stderr`, so Execa leaves them undefined.
-       Normalize both to strings to keep every `sandbox.run` caller on one simple result shape.
-       */
-      return {
-        ...result,
-        exitCode: pipelineResults.find(entry => entry.exitCode !== 0)?.exitCode ?? result.exitCode,
-        stderr: `${pipedStderr}${result.stderr ?? ''}`,
-        stdout: result.stdout ?? '',
-      };
     };
 
     return 'cwd' in stringsOrOptions
