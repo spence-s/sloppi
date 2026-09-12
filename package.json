@@ -34,7 +34,8 @@
     "test": "node --test test/**/*",
     "test:coverage": "node --test --experimental-test-coverage test/**/*",
     "test:watch": "node --test --watch test/**/*",
-    "update": "ncu -i"
+    "update": "ncu -i && npm run update:playwright",
+    "update:playwright": "npm install --save-exact @playwright/cli@latest playwright@$(npm view @playwright/cli@latest dependencies.playwright)"
   },
   "prettier": {
     "plugins": [

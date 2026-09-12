@@ -1,0 +1,7 @@
+{
+  "reject": [
+    "typescript",
+    "playwright",
+    "@playwright/cli"
+  ]
+}
