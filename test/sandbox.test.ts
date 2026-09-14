@@ -282,9 +282,11 @@ void test('lists 500 entries with one sandbox wrapper', async (t: TestContext) =
     }
 
     t.assert.strictEqual(wrapperCount, 1);
+    t.assert.strictEqual(output.text.split('\n\n[', 1)[0]?.split('\n', 501).length, 500);
     t.assert.match(output.text, /000-directory\//v);
     t.assert.match(output.text, /000-directory-link\n/v);
     t.assert.match(output.text, /000-broken-link/v);
+    t.assert.doesNotMatch(output.text, /file-497/v);
     t.assert.deepStrictEqual(result.details, {entryLimitReached: 500});
   } finally {
     sandbox.session = undefined;

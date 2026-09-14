@@ -362,17 +362,22 @@ export class SandboxTools {
   get lsExecute(): LsExecute {
     const {cwd, sandbox} = this;
     return async (_toolCallId, {path, limit}, signal) => {
-      let requestedPath = path === undefined || path.length === 0 ? '.' : path.replace(/^@/v, '');
-      if (requestedPath === '~') {
-        requestedPath = homedir();
-      } else if (requestedPath.startsWith('~/')) {
-        requestedPath = resolve(homedir(), requestedPath.slice(2));
-      }
-
+      const requestedPath = (path === undefined || path.length === 0 ? '.' : path)
+        .replace(/^@/v, '')
+        .replace(/^~(?=\/|$)/v, () => homedir());
       const directory = resolve(cwd, requestedPath);
+      const effectiveLimit = Math.max(0, Math.floor(limit ?? 500));
+      let entryCount = 0;
       let result;
       try {
-        result = await sandbox.run({cwd, signal})`ls -1Ap -- ${`${directory}/`}`;
+        result = await sandbox.run({
+          cwd,
+          signal,
+          transformStdout(entry) {
+            entryCount++;
+            return entryCount <= effectiveLimit ? entry : undefined;
+          },
+        })`ls -1Ap -- ${`${directory}/`}`;
       } catch (error) {
         if (signal?.aborted === true) {
           throw new Error('Operation aborted', {cause: error});
@@ -385,18 +390,14 @@ export class SandboxTools {
         throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot list ${directory}`);
       }
 
-      const allEntries = result.stdout.length === 0 ? [] : result.stdout.split('\n');
-      const effectiveLimit = limit ?? 500;
-      const hasReachedEntryLimit = allEntries.length > effectiveLimit;
-      const entries = allEntries.slice(0, effectiveLimit);
-      if (entries.length === 0) {
+      if (result.stdout.length === 0) {
         return {content: [{type: 'text' as const, text: '(empty directory)'}], details: undefined};
       }
 
-      const truncation = truncateHead(entries.join('\n'), {maxLines: Number.MAX_SAFE_INTEGER});
+      const truncation = truncateHead(result.stdout, {maxLines: Number.MAX_SAFE_INTEGER});
       const details: LsToolDetails = {};
       const notices: string[] = [];
-      if (hasReachedEntryLimit) {
+      if (entryCount > effectiveLimit) {
         details.entryLimitReached = effectiveLimit;
         notices.push(`${String(effectiveLimit)} entries limit reached. Use limit=${String(effectiveLimit * 2)} for more`);
       }
