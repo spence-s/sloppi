@@ -120,7 +120,7 @@ void describe('ask-mode', () => {
       },
     } as unknown as Parameters<typeof askMode>[0]);
 
-    t.assert.deepStrictEqual(commands, ['ask']);
+    t.assert.deepStrictEqual(commands, ['ask', 'implement']);
     t.assert.deepStrictEqual(events, [
       'before_agent_start',
       'tool_call',
@@ -244,5 +244,19 @@ void describe('ask-mode', () => {
       'Explain this code',
       'Now edit it',
     ]);
+  });
+
+  void test('implement switches to agent mode before starting implementation', async (t: TestContext) => {
+    const harness = createHarness(['read', 'bash', 'edit', 'write']);
+
+    await harness.getCommand('ask').handler('on', harness.ctx);
+    await harness.getCommand('implement').handler(undefined, harness.ctx);
+
+    t.assert.deepStrictEqual(harness.getActiveTools(), ['read', 'bash', 'edit', 'write']);
+    t.assert.strictEqual(harness.getStatus(), '[muted]󰚩 [dim]agent');
+    t.assert.deepStrictEqual(harness.getSentMessages(), [{
+      activeTools: ['read', 'bash', 'edit', 'write'],
+      text: 'Start implementation.',
+    }]);
   });
 });

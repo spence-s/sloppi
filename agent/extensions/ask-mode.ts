@@ -161,6 +161,21 @@ export default function askMode(pi: ExtensionAPI): void {
     },
   });
 
+  /**
+  This provides a direct handoff from discussion to implementation.
+  */
+  pi.registerCommand('implement', {
+    description: 'Switch to agent mode and start implementation',
+    async handler(_args, ctx) {
+      setAskMode(false, ctx, false);
+      if (ctx.isIdle()) {
+        pi.sendUserMessage('Start implementation.');
+      } else {
+        pi.sendUserMessage('Start implementation.', {deliverAs: 'followUp'});
+      }
+    },
+  });
+
   pi.on('before_agent_start', async () => ({
     message: {
       customType: 'ask-mode-context',

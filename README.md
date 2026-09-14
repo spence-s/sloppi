@@ -61,7 +61,7 @@ pi install npm:pi-web-access
 
 ## Extensions
 
-- `ask-mode.ts` — `/ask on|off|toggle|status` controls modes; `/ask <prompt>` toggles modes before submitting the prompt.
+- `ask-mode.ts` — `/ask on|off|toggle|status` controls modes; `/ask <prompt>` toggles modes before submitting the prompt; `/implement` switches to agent mode and starts implementation.
 - `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input; `/commit model` selects its model.
 - `permissions/` — applies regex-based ask or deny rules to shell commands; `/permissions` edits project rules.
 - `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox on|off|toggle|status` controls it for the current session, while `/sandbox` manages its access. Its `research_scout` tool runs isolated scout, planner, reviewer, or user-defined profiles with only read, grep, find, and list access. Select the default model with `/sandbox global` → `Research agents` → `Default model`.

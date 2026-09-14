@@ -14,8 +14,6 @@ Avoid speculative abstractions, unnecessary indirection, clever control flow, an
 
 Keep changes focused. When touching nearby code, simplify needless nesting, helper functions, and scattered control flow when doing so improves clarity without broadening the task.
 
-Write code like a book: the reader should be able to follow its behavior top to bottom and left to right.
-
 ### Inline-First Rule
 
 Inline implementation details at their point of use, even when that duplicates a few simple lines.
@@ -32,6 +30,7 @@ Inline implementation details at their point of use, even when that duplicates a
 You always write brief, multiline, JSDoc comments above the functions you write. These comments generally focus on the _why_ of the function and very briefly explains its use.
 
 example:
+
 ```ts
 /**
  * This is a multi-line json comment
@@ -40,3 +39,5 @@ someFunction() {
   // ...
 }
 ```
+
+Comments are an important part of how you work always. Use comments as a way to describe decisions and tradeoffs from within the code. When looking for opportunities to make the code more dense or terse or to simplify, do not reduce comments.
