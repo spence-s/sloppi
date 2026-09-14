@@ -247,6 +247,52 @@ void test('streams, times out, and cancels sandboxed commands', async (t: TestCo
 });
 
 /**
+ Verifies ls uses one sandboxed system command and preserves its entry limit.
+ */
+void test('lists 500 entries with one sandbox wrapper', async (t: TestContext) => {
+  const directory = await mkdtemp(join(process.cwd(), '.sloppi-ls-test-'));
+  const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory));
+  sandbox.session = {
+    previousClaudeCodeTmpdir: undefined,
+    previousTmpdir: undefined,
+    scratchPath: directory,
+  };
+  let wrapperCount = 0;
+  t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => {
+    wrapperCount++;
+    return command;
+  });
+
+  try {
+    const target = join(directory, '000-directory');
+    await mkdir(target);
+    await symlink(target, join(directory, '000-directory-link'));
+    await symlink(join(directory, 'missing'), join(directory, '000-broken-link'));
+    await Promise.all(Array.from({length: 498}, async (_, index) =>
+      writeFile(join(directory, `file-${String(index).padStart(3, '0')}`), '')));
+
+    const result = await new SandboxTools({} as ExtensionAPI, directory, sandbox).ls.execute(
+      'ls-test',
+      {path: directory, limit: 500},
+    );
+    const output = result.content[0];
+    t.assert.strictEqual(output?.type, 'text');
+    if (output?.type !== 'text') {
+      throw new Error('ls did not return text');
+    }
+
+    t.assert.strictEqual(wrapperCount, 1);
+    t.assert.match(output.text, /000-directory\//v);
+    t.assert.match(output.text, /000-directory-link\n/v);
+    t.assert.match(output.text, /000-broken-link/v);
+    t.assert.deepStrictEqual(result.details, {entryLimitReached: 500});
+  } finally {
+    sandbox.session = undefined;
+    await rm(directory, {force: true, recursive: true});
+  }
+});
+
+/**
  Verifies sandboxed find preserves Pi glob semantics and repository ignores.
  */
 void test('matches brace globs with sandboxed find', async (t: TestContext) => {

@@ -1,5 +1,6 @@
 import {Buffer} from 'node:buffer';
 import {realpathSync} from 'node:fs';
+import {homedir} from 'node:os';
 import {
   basename,
   isAbsolute,
@@ -23,7 +24,7 @@ import {
   type ExtensionAPI,
   type FindOperations,
   type GrepToolDetails,
-  type LsOperations,
+  type LsToolDetails,
   type ReadOperations,
   type WriteOperations,
 } from '@earendil-works/pi-coding-agent';
@@ -31,6 +32,7 @@ import type {SandboxSessionManager} from './session-manager.ts';
 
 // Reuse Pi's exact execute signature so this replacement cannot drift from the tool it overrides.
 type GrepExecute = ReturnType<typeof createGrepTool>['execute'];
+type LsExecute = ReturnType<typeof createLsTool>['execute'];
 
 /**
  Describes only the part of an `rg --json` event used below.
@@ -354,30 +356,61 @@ export class SandboxTools {
     };
   }
 
-  get lsOperations(): LsOperations {
-    const {sandbox} = this;
-    return {
-      async exists(path) {
-        const result = await sandbox.run`test -e ${path}`;
-        return result.exitCode === 0;
-      },
-      async stat(path) {
-        const exists = await sandbox.run`test -e ${path}`;
-        if (exists.exitCode !== 0) {
-          throw new Error(`Path not found: ${path}`);
+  /**
+   Lists a directory in one sandbox instead of spawning one sandbox per child stat.
+   */
+  get lsExecute(): LsExecute {
+    const {cwd, sandbox} = this;
+    return async (_toolCallId, {path, limit}, signal) => {
+      let requestedPath = path === undefined || path.length === 0 ? '.' : path.replace(/^@/v, '');
+      if (requestedPath === '~') {
+        requestedPath = homedir();
+      } else if (requestedPath.startsWith('~/')) {
+        requestedPath = resolve(homedir(), requestedPath.slice(2));
+      }
+
+      const directory = resolve(cwd, requestedPath);
+      let result;
+      try {
+        result = await sandbox.run({cwd, signal})`ls -1Ap -- ${`${directory}/`}`;
+      } catch (error) {
+        if (signal?.aborted === true) {
+          throw new Error('Operation aborted', {cause: error});
         }
 
-        const directory = await sandbox.run`test -d ${path}`;
-        return {isDirectory: () => directory.exitCode === 0};
-      },
-      async readdir(path) {
-        const result = await sandbox.run`ls -1A -- ${path}`;
-        if (result.exitCode !== 0) {
-          throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot list ${path}`);
-        }
+        throw error;
+      }
 
-        return result.stdout.trim().split('\n').filter(Boolean);
-      },
+      if (result.exitCode !== 0) {
+        throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot list ${directory}`);
+      }
+
+      const allEntries = result.stdout.length === 0 ? [] : result.stdout.split('\n');
+      const effectiveLimit = limit ?? 500;
+      const hasReachedEntryLimit = allEntries.length > effectiveLimit;
+      const entries = allEntries.slice(0, effectiveLimit);
+      if (entries.length === 0) {
+        return {content: [{type: 'text' as const, text: '(empty directory)'}], details: undefined};
+      }
+
+      const truncation = truncateHead(entries.join('\n'), {maxLines: Number.MAX_SAFE_INTEGER});
+      const details: LsToolDetails = {};
+      const notices: string[] = [];
+      if (hasReachedEntryLimit) {
+        details.entryLimitReached = effectiveLimit;
+        notices.push(`${String(effectiveLimit)} entries limit reached. Use limit=${String(effectiveLimit * 2)} for more`);
+      }
+
+      if (truncation.truncated) {
+        details.truncation = truncation;
+        notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
+      }
+
+      const notice = notices.length > 0 ? `\n\n[${notices.join('. ')}]` : '';
+      return {
+        content: [{type: 'text' as const, text: `${truncation.content}${notice}`}],
+        details: notices.length > 0 ? details : undefined,
+      };
     };
   }
 
@@ -402,7 +435,7 @@ export class SandboxTools {
   }
 
   get ls(): ReturnType<typeof createLsTool> {
-    return createLsTool(this.cwd, {operations: this.lsOperations});
+    return {...createLsTool(this.cwd), execute: this.lsExecute};
   }
 
   // https://github.com/earendil-works/pi/issues/5354
