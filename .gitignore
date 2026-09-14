@@ -25,3 +25,5 @@ sandbox.json
 permissions.json
 web-search-cache
 pi-acp
+.playwright
+.playwright-cli
