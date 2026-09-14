@@ -22,6 +22,7 @@ import {
   Theme,
   type ExtensionAPI,
   type ExtensionCommandContext,
+  type LsToolDetails,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import {discoverResearchAgents} from '../agent/extensions/sandbox/agents.ts';
@@ -271,10 +272,8 @@ void test('lists 500 entries with one sandbox wrapper', async (t: TestContext) =
     await Promise.all(Array.from({length: 498}, async (_, index) =>
       writeFile(join(directory, `file-${String(index).padStart(3, '0')}`), '')));
 
-    const result = await new SandboxTools({} as ExtensionAPI, directory, sandbox).ls.execute(
-      'ls-test',
-      {path: directory, limit: 500},
-    );
+    const tools = new SandboxTools({} as ExtensionAPI, directory, sandbox);
+    const result = await tools.ls.execute('ls-test', {path: directory, limit: 500});
     const output = result.content[0];
     t.assert.strictEqual(output?.type, 'text');
     if (output?.type !== 'text') {
@@ -288,6 +287,18 @@ void test('lists 500 entries with one sandbox wrapper', async (t: TestContext) =
     t.assert.match(output.text, /000-broken-link/v);
     t.assert.doesNotMatch(output.text, /file-497/v);
     t.assert.deepStrictEqual(result.details, {entryLimitReached: 500});
+
+    const byteDirectory = join(directory, 'large-names');
+    await mkdir(byteDirectory);
+    await Promise.all(Array.from({length: 260}, async (_, index) =>
+      writeFile(join(byteDirectory, `${String(index).padStart(3, '0')}-${'x'.repeat(196)}`), '')));
+    const byteResult = await tools.ls.execute('ls-byte-test', {path: byteDirectory, limit: 500});
+    const byteDetails = byteResult.details as LsToolDetails | undefined;
+    t.assert.strictEqual(wrapperCount, 2);
+    t.assert.strictEqual(byteDetails?.entryLimitReached, undefined);
+    t.assert.strictEqual(byteDetails?.truncation?.truncatedBy, 'bytes');
+    t.assert.strictEqual(byteDetails?.truncation?.totalLines, 260);
+    t.assert.ok((byteDetails?.truncation?.outputBytes ?? Infinity) <= 50 * 1024);
   } finally {
     sandbox.session = undefined;
     await rm(directory, {force: true, recursive: true});

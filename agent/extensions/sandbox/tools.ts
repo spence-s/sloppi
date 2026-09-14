@@ -368,6 +368,10 @@ export class SandboxTools {
       const directory = resolve(cwd, requestedPath);
       const effectiveLimit = Math.max(0, Math.floor(limit ?? 500));
       let entryCount = 0;
+      let totalBytes = 0;
+      let outputBytes = 0;
+      let outputLines = 0;
+      let hasReachedByteLimit = false;
       let result;
       try {
         result = await sandbox.run({
@@ -375,7 +379,21 @@ export class SandboxTools {
           signal,
           transformStdout(entry) {
             entryCount++;
-            return entryCount <= effectiveLimit ? entry : undefined;
+            if (entryCount > effectiveLimit) {
+              return undefined;
+            }
+
+            const entryBytes = Buffer.byteLength(entry);
+            totalBytes += entryBytes + (entryCount > 1 ? 1 : 0);
+            const nextOutputBytes = outputBytes + entryBytes + (outputLines > 0 ? 1 : 0);
+            if (hasReachedByteLimit || nextOutputBytes > DEFAULT_MAX_BYTES) {
+              hasReachedByteLimit = true;
+              return undefined;
+            }
+
+            outputBytes = nextOutputBytes;
+            outputLines++;
+            return entry;
           },
         })`ls -1Ap -- ${`${directory}/`}`;
       } catch (error) {
@@ -390,11 +408,10 @@ export class SandboxTools {
         throw new Error(result.stderr.trim().length > 0 ? result.stderr.trim() : `Cannot list ${directory}`);
       }
 
-      if (result.stdout.length === 0) {
+      if (entryCount === 0 || effectiveLimit === 0) {
         return {content: [{type: 'text' as const, text: '(empty directory)'}], details: undefined};
       }
 
-      const truncation = truncateHead(result.stdout, {maxLines: Number.MAX_SAFE_INTEGER});
       const details: LsToolDetails = {};
       const notices: string[] = [];
       if (entryCount > effectiveLimit) {
@@ -402,14 +419,26 @@ export class SandboxTools {
         notices.push(`${String(effectiveLimit)} entries limit reached. Use limit=${String(effectiveLimit * 2)} for more`);
       }
 
-      if (truncation.truncated) {
-        details.truncation = truncation;
+      if (hasReachedByteLimit) {
+        details.truncation = {
+          content: result.stdout,
+          truncated: true,
+          truncatedBy: 'bytes',
+          totalLines: Math.min(entryCount, effectiveLimit),
+          totalBytes,
+          outputLines,
+          outputBytes,
+          lastLinePartial: false,
+          firstLineExceedsLimit: outputLines === 0,
+          maxLines: Number.MAX_SAFE_INTEGER,
+          maxBytes: DEFAULT_MAX_BYTES,
+        };
         notices.push(`${formatSize(DEFAULT_MAX_BYTES)} limit reached`);
       }
 
       const notice = notices.length > 0 ? `\n\n[${notices.join('. ')}]` : '';
       return {
-        content: [{type: 'text' as const, text: `${truncation.content}${notice}`}],
+        content: [{type: 'text' as const, text: `${result.stdout}${notice}`}],
         details: notices.length > 0 ? details : undefined,
       };
     };
