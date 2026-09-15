@@ -762,6 +762,7 @@ void test('adds and removes scoped filesystem and network rules', async (t: Test
   try {
     await configStore.updateFilesystem('global', ['allowRead', 'allowWrite'], 'add', '/shared');
     await configStore.updateFilesystem('project', 'denyWrite', 'add', '/shared/protected');
+    await configStore.updateFilesystem('project', 'allowRead', 'add', '/project/cache');
     await configStore.updateFilesystem(
       'project',
       ['allowRead', 'allowWrite', 'denyRead', 'denyWrite'],
@@ -781,11 +782,13 @@ void test('adds and removes scoped filesystem and network rules', async (t: Test
     };
     t.assert.deepStrictEqual(saved.filesystem.allowRead, ['/shared']);
     t.assert.deepStrictEqual(saved.filesystem.allowWrite, ['/shared']);
+    t.assert.deepStrictEqual(saved.projects['/project']?.filesystem.allowRead, ['cache', '/remove-me']);
     t.assert.deepStrictEqual(saved.network.allowedDomains, ['api.example.com:443']);
     t.assert.deepStrictEqual(saved.projects['/project']?.filesystem.denyWrite, ['/shared/protected', '/remove-me']);
     t.assert.strictEqual(saved.projects['/project']?.network.deniedDomainReasons['blocked.example.com'], 'Use the approved API.');
 
     await configStore.updateFilesystem('global', ['allowRead', 'allowWrite'], 'remove', '/shared');
+    await configStore.updateFilesystem('project', 'allowRead', 'remove', '/project/cache');
     await configStore.updateFilesystem(
       'project',
       ['allowRead', 'allowWrite', 'denyRead', 'denyWrite'],

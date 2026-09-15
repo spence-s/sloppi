@@ -253,17 +253,28 @@ export class SandboxCommand {
       ...(globalFilesystem?.allowWrite ?? []),
       ...(globalFilesystem?.denyRead ?? []),
       ...(globalFilesystem?.denyWrite ?? []),
-    ]);
+    ].map(path => resolve(projectRoot, path)));
     const projectPaths = new Set([
       ...(projectFilesystem?.allowRead ?? []),
       ...(projectFilesystem?.allowWrite ?? []),
       ...(projectFilesystem?.denyRead ?? []),
       ...(projectFilesystem?.denyWrite ?? []),
+    ].map(path => resolve(projectRoot, path)));
+    const readable = new Set([
+      systemRoot,
+      projectRoot,
+      ...(runtimeFilesystem?.allowRead ?? effectiveFilesystem?.allowRead ?? []).map(path => resolve(projectRoot, path)),
     ]);
-    const readable = new Set([systemRoot, projectRoot, ...(runtimeFilesystem?.allowRead ?? effectiveFilesystem?.allowRead ?? [])]);
-    const writable = new Set([projectRoot, ...(runtimeFilesystem?.allowWrite ?? effectiveFilesystem?.allowWrite ?? [])]);
-    const hidden = new Set([home, ...(runtimeFilesystem?.denyRead ?? effectiveFilesystem?.denyRead ?? [])]);
-    const readOnly = new Set(runtimeFilesystem?.denyWrite ?? effectiveFilesystem?.denyWrite);
+    const writable = new Set([
+      projectRoot,
+      ...(runtimeFilesystem?.allowWrite ?? effectiveFilesystem?.allowWrite ?? []).map(path => resolve(projectRoot, path)),
+    ]);
+    const hidden = new Set([
+      home,
+      ...(runtimeFilesystem?.denyRead ?? effectiveFilesystem?.denyRead ?? []).map(path => resolve(projectRoot, path)),
+    ]);
+    const readOnlyEntries = runtimeFilesystem?.denyWrite ?? effectiveFilesystem?.denyWrite ?? [];
+    const readOnly = new Set(readOnlyEntries.map(path => resolve(projectRoot, path)));
     const allPaths = readable.union(writable).union(hidden).union(readOnly).union(globalPaths).union(projectPaths);
     const paths = [
       systemRoot,

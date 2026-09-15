@@ -1,6 +1,13 @@
 import {mkdir, readFile, writeFile} from 'node:fs/promises';
 import {homedir} from 'node:os';
-import {dirname, join, resolve} from 'node:path';
+import {
+  dirname,
+  isAbsolute,
+  join,
+  relative,
+  resolve,
+  sep,
+} from 'node:path';
 import process from 'node:process';
 import {
   type SandboxRuntimeConfig,
@@ -165,7 +172,7 @@ export class ConfigStore {
     return merge(globalConfig, projectConfig);
   }
 
-  /** Adds or removes one filesystem rule in the selected scope. */
+  /** Stores project descendants relatively while keeping external filesystem rules absolute. */
   async updateFilesystem(
     scope: ConfigScope,
     permission: FilesystemPermission | readonly FilesystemPermission[],
@@ -186,12 +193,20 @@ export class ConfigStore {
     }
 
     const filesystem = validation.data;
+    const absolutePath = resolve(this.cwd, path);
+    const projectRelativePath = relative(this.cwd, absolutePath);
+    const storedPath = projectRelativePath !== ''
+      && projectRelativePath !== '..'
+      && !projectRelativePath.startsWith(`..${sep}`)
+      && !isAbsolute(projectRelativePath)
+      ? projectRelativePath
+      : absolutePath;
     const permissions = typeof permission === 'string' ? [permission] : permission;
     for (const key of permissions) {
       const entries = filesystem[key] ?? [];
       filesystem[key] = action === 'add'
-        ? [...new Set([...entries, path])]
-        : entries.filter(entry => entry !== path);
+        ? [...new Set([...entries, storedPath])]
+        : entries.filter(entry => resolve(this.cwd, entry) !== absolutePath);
     }
 
     scopedConfig.filesystem = filesystem;
