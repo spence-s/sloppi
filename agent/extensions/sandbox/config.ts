@@ -6,7 +6,6 @@ import {
   type SandboxRuntimeConfig,
   FilesystemConfigSchema,
   NetworkConfigSchema,
-  SandboxRuntimeConfigSchema,
 } from '@anthropic-ai/sandbox-runtime';
 import {merge} from 'object-deep-merge';
 import {z} from 'zod';
@@ -90,6 +89,7 @@ export type Config = PartialWithUndefined<SandboxRuntimeConfig> & {
   [key: string]: unknown;
 };
 export type ConfigScope = 'global' | 'project';
+export type FilesystemAccess = 'readWrite' | 'readOnly' | 'none';
 export type FilesystemPermission = 'allowRead' | 'allowWrite' | 'denyRead' | 'denyWrite';
 export type ListAction = 'add' | 'remove';
 export type NetworkPermission = 'allow' | 'deny';
@@ -164,6 +164,45 @@ export class ConfigStore {
     const {projects: _projects, sandbox: _sandbox, ...globalConfig} = this.config;
     const {sandbox: _projectSandbox, ...projectConfig} = this.getScopedConfig('project');
     return merge(globalConfig, projectConfig);
+  }
+
+  /** Replaces conflicting rules for a path with one user-facing access level. */
+  async setFilesystemAccess(scope: ConfigScope, path: string, access: FilesystemAccess): Promise<void> {
+    await this.reload();
+    const scopedConfig = this.getScopedConfig(scope);
+    const validation = FilesystemConfigSchema.safeParse({
+      ...scopedConfig.filesystem,
+      allowRead: scopedConfig.filesystem?.allowRead ?? [],
+      allowWrite: scopedConfig.filesystem?.allowWrite ?? [],
+      denyRead: scopedConfig.filesystem?.denyRead ?? [],
+      denyWrite: scopedConfig.filesystem?.denyWrite ?? [],
+    });
+    if (!validation.success) {
+      throw new Error(`Invalid filesystem configuration: ${validation.error.message}`);
+    }
+
+    const filesystem = validation.data;
+    filesystem.allowRead = (filesystem.allowRead ?? []).filter(entry => entry !== path);
+    filesystem.allowWrite = (filesystem.allowWrite ?? []).filter(entry => entry !== path);
+    filesystem.denyRead = (filesystem.denyRead ?? []).filter(entry => entry !== path);
+    filesystem.denyWrite = (filesystem.denyWrite ?? []).filter(entry => entry !== path);
+
+    if (access !== 'none') {
+      filesystem.allowRead.push(path);
+    }
+
+    if (access === 'readWrite') {
+      filesystem.allowWrite.push(path);
+    } else {
+      filesystem.denyWrite.push(path);
+    }
+
+    if (access === 'none') {
+      filesystem.denyRead.push(path);
+    }
+
+    scopedConfig.filesystem = filesystem;
+    await this.save();
   }
 
   /** Adds or removes one filesystem rule in the selected scope. */
@@ -252,43 +291,6 @@ export class ConfigStore {
     const scopedConfig = this.getScopedConfig(scope);
     const {projects: _projects, sandbox: _sandbox, ...srtConfig} = scopedConfig;
     return srtConfig;
-  }
-
-  /** Replaces a scope's SRT settings after validating the resulting effective policy. */
-  async replaceSrtConfig(scope: ConfigScope, replacement: Config): Promise<void> {
-    await this.reload();
-    const previous = this.getScopedConfig(scope);
-    const sandboxConfig = previous.sandbox;
-    const next = sandboxConfig === undefined ? replacement : {...replacement, sandbox: sandboxConfig};
-
-    if (scope === 'global') {
-      next.projects = this.config.projects;
-      this.config = next;
-    } else {
-      this.config.projects ??= {};
-      this.config.projects[this.cwd] = next;
-    }
-
-    const validation = SandboxRuntimeConfigSchema.safeParse(merge({
-      network: {allowedDomains: [], deniedDomains: []},
-      filesystem: {
-        allowRead: [],
-        allowWrite: [],
-        denyRead: [],
-        denyWrite: [],
-      },
-    }, this.getEffectiveConfig()));
-    if (!validation.success) {
-      if (scope === 'global') {
-        this.config = previous;
-      } else if (this.config.projects !== undefined) {
-        this.config.projects[this.cwd] = previous;
-      }
-
-      throw new Error(`Invalid SRT configuration: ${validation.error.message}`);
-    }
-
-    await this.save();
   }
 
   /** Removes all settings stored in one scope. */

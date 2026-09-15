@@ -749,21 +749,44 @@ void test('adds and removes scoped filesystem and network rules', async (t: Test
   }
 });
 
-void test('validates advanced SRT edits and resets one scope', async (t: TestContext) => {
+/**
+ Verifies each friendly access level replaces conflicting settings for the same path.
+ */
+void test('sets one filesystem access level per location', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-config-test-'));
   const configPath = join(directory, 'sandbox.json');
   const configStore = new ConfigStore('/project', configPath);
 
   try {
-    await configStore.replaceSrtConfig('project', {
-      network: {allowedDomains: [], deniedDomains: ['blocked.example.com']},
-    });
-    await t.assert.rejects(
-      configStore.replaceSrtConfig('project', {network: {allowedDomains: ['*'], deniedDomains: []}}),
-      /Invalid SRT configuration/v,
-    );
-    t.assert.deepStrictEqual(configStore.getEffectiveConfig().network?.deniedDomains, ['blocked.example.com']);
+    await configStore.setFilesystemAccess('project', '/shared', 'readOnly');
+    let {filesystem} = configStore.getScopedSrtConfig('project');
+    t.assert.deepStrictEqual(filesystem?.allowRead, ['/shared']);
+    t.assert.deepStrictEqual(filesystem?.denyWrite, ['/shared']);
 
+    await configStore.setFilesystemAccess('project', '/shared', 'readWrite');
+    filesystem = configStore.getScopedSrtConfig('project').filesystem;
+    t.assert.deepStrictEqual(filesystem?.allowRead, ['/shared']);
+    t.assert.deepStrictEqual(filesystem?.allowWrite, ['/shared']);
+    t.assert.deepStrictEqual(filesystem?.denyWrite, []);
+
+    await configStore.setFilesystemAccess('project', '/shared', 'none');
+    filesystem = configStore.getScopedSrtConfig('project').filesystem;
+    t.assert.deepStrictEqual(filesystem?.allowRead, []);
+    t.assert.deepStrictEqual(filesystem?.allowWrite, []);
+    t.assert.deepStrictEqual(filesystem?.denyRead, ['/shared']);
+    t.assert.deepStrictEqual(filesystem?.denyWrite, ['/shared']);
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
+});
+
+void test('resets one configuration scope', async (t: TestContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-config-test-'));
+  const configPath = join(directory, 'sandbox.json');
+  const configStore = new ConfigStore('/project', configPath);
+
+  try {
+    await configStore.updateDomain('project', 'deny', 'add', 'blocked.example.com');
     await configStore.resetScope('project');
     const saved = JSON.parse(await readFile(configPath, 'utf8')) as {projects?: Record<string, unknown>};
     t.assert.strictEqual(saved.projects?.['/project'], undefined);
@@ -1134,8 +1157,14 @@ void test('/sandbox mutates projects by default and global configuration only wh
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-command-test-'));
   const configPath = join(directory, 'sandbox.json');
   const configStore = new ConfigStore('/project', configPath);
-  const selections = ['Filesystem', 'Add rule', 'Allow read', 'Filesystem', 'Add rule', 'Allow write'];
-  const inputs = ['/project-read', '/global-write'];
+  const selections: Array<string | undefined> = [
+    'Ask when a website is blocked — Use global setting (On)',
+    'Off',
+    undefined,
+    'Ask when a website is blocked — On',
+    'Off',
+    undefined,
+  ];
   const notifications: string[] = [];
   let handler: Handler | undefined;
   let restarts = 0;
@@ -1152,7 +1181,6 @@ void test('/sandbox mutates projects by default and global configuration only wh
 
   const ctx = {
     ui: {
-      input: async () => inputs.shift(),
       notify(message: string) {
         notifications.push(message);
       },
@@ -1170,13 +1198,13 @@ void test('/sandbox mutates projects by default and global configuration only wh
     await handler('show', ctx);
 
     const saved = JSON.parse(await readFile(configPath, 'utf8')) as {
-      filesystem: {allowWrite: string[]};
-      projects: Record<string, {filesystem: {allowRead: string[]}}>;
+      sandbox: {promptOnNetworkDeny: boolean};
+      projects: Record<string, {sandbox: {promptOnNetworkDeny: boolean}}>;
     };
-    t.assert.deepStrictEqual(saved.projects['/project']?.filesystem.allowRead, ['/project-read']);
-    t.assert.deepStrictEqual(saved.filesystem.allowWrite, ['/global-write']);
+    t.assert.strictEqual(saved.projects['/project']?.sandbox.promptOnNetworkDeny, false);
+    t.assert.strictEqual(saved.sandbox.promptOnNetworkDeny, false);
     t.assert.strictEqual(restarts, 2);
-    t.assert.match(notifications.at(-1) ?? '', /Use \/sandbox or \/sandbox global/v);
+    t.assert.match(notifications.at(-1) ?? '', /Use \/sandbox/v);
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
@@ -1190,13 +1218,16 @@ void test('/sandbox configures research agents globally or per project', async (
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-command-test-'));
   const configPath = join(directory, 'sandbox.json');
   const configStore = new ConfigStore('/project', configPath);
-  const selections = [
-    'Research agents',
+  const selections: Array<string | undefined> = [
+    'Research agents — Off',
     'Turn on',
-    'Research agents',
+    undefined,
+    'Research agents — Use global setting (On)',
     'Turn off',
-    'Research agents',
+    undefined,
+    'Research agents — Off',
     'Use global setting',
+    undefined,
   ];
   const notifications: string[] = [];
   let activeTools = ['read'];
@@ -1242,51 +1273,6 @@ void test('/sandbox configures research agents globally or per project', async (
     t.assert.strictEqual(saved.sandbox.researchAgentsEnabled, true);
     t.assert.strictEqual(saved.projects['/project']?.sandbox.researchAgentsEnabled, undefined);
     t.assert.match(notifications.at(-1) ?? '', /use the global setting and are on/v);
-  } finally {
-    await rm(directory, {force: true, recursive: true});
-  }
-});
-
-void test('/sandbox does not remove inherited global rules from project scope', async (t: TestContext) => {
-  type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
-  const directory = await mkdtemp(join(tmpdir(), 'sloppi-command-test-'));
-  const configPath = join(directory, 'sandbox.json');
-  const configStore = new ConfigStore('/project', configPath);
-  await writeFile(configPath, `${JSON.stringify({filesystem: {allowRead: ['/global-read']}})}\n`);
-  const notifications: string[] = [];
-  let handler: Handler | undefined;
-
-  new SandboxCommand(configStore, {
-    async restartSession() {
-      throw new Error('Inherited rules must not restart the sandbox.');
-    },
-  } as unknown as SandboxSessionManager).register({
-    registerCommand(_name: string, options: {handler: Handler}) {
-      handler = options.handler;
-    },
-  } as unknown as ExtensionAPI);
-
-  const selections = ['Filesystem', 'Remove rule', 'Allow read'];
-  const ctx = {
-    ui: {
-      notify(message: string) {
-        notifications.push(message);
-      },
-      select: async (title: string, options: string[]) => title === 'Remove effective filesystem rule'
-        ? options.find(option => option.includes('/global-read'))
-        : selections.shift(),
-    },
-  } as unknown as ExtensionCommandContext;
-
-  try {
-    if (handler === undefined) {
-      throw new Error('/sandbox handler was not registered');
-    }
-
-    await handler('', ctx);
-    const saved = JSON.parse(await readFile(configPath, 'utf8')) as {filesystem: {allowRead: string[]}};
-    t.assert.deepStrictEqual(saved.filesystem.allowRead, ['/global-read']);
-    t.assert.match(notifications.at(-1) ?? '', /Use \/sandbox global/v);
   } finally {
     await rm(directory, {force: true, recursive: true});
   }

@@ -1,22 +1,35 @@
-import type {
-  ExtensionAPI,
-  ExtensionCommandContext,
+import {
+  getSelectListTheme,
+  getSettingsListTheme,
+  type ExtensionAPI,
+  type ExtensionCommandContext,
 } from '@earendil-works/pi-coding-agent';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
+import {
+  Container,
+  Input,
+  type SettingItem,
+  SettingsList,
+  SelectList,
+  Text,
+} from '@earendil-works/pi-tui';
 import type {
-  Config,
   ConfigScope,
   ConfigStore,
-  FilesystemPermission,
+  FilesystemAccess,
   NetworkPermission,
 } from './config.ts';
 import type {PlaywrightBridge} from './playwright.ts';
 import type {SandboxSessionManager} from './session-manager.ts';
 
-type RuleSelection = {
+type FilesystemAction = {
+  access: FilesystemAccess;
+  path: string;
+};
+
+type NetworkRuleSelection = {
   effectiveEntries: string[];
   globalEntries: Set<string>;
-  kind: 'filesystem' | 'network';
   projectEntries: Set<string>;
   scope: ConfigScope;
 };
@@ -70,15 +83,41 @@ export class SandboxCommand {
     ctx.ui.notify(message, 'info');
   }
 
+  /** Shows effective access without exposing the underlying SRT configuration format. */
   async show(ctx: ExtensionCommandContext): Promise<void> {
     if (!this.sandbox.isEnabled) {
-      ctx.ui.notify('Sandbox is off; tools currently have unrestricted host access.', 'warning');
+      ctx.ui.notify('Sandbox is off. Tools currently have unrestricted access to the host.', 'warning');
       return;
     }
 
     await this.config.reload();
-    await this.sandbox.restartSession();
-    ctx.ui.notify(JSON.stringify(SandboxManager.getConfig(), undefined, 2), 'info');
+    const runtime = SandboxManager.getConfig();
+    const readable = runtime?.filesystem?.allowRead ?? [];
+    const writable = runtime?.filesystem?.allowWrite ?? [];
+    const hidden = runtime?.filesystem?.denyRead ?? [];
+    const readOnly = runtime?.filesystem?.denyWrite ?? [];
+    const allowed = runtime?.network?.allowedDomains ?? [];
+    const blocked = runtime?.network?.deniedDomains ?? [];
+    const lines = [
+      'Effective sandbox access',
+      '',
+      'Session',
+      '  Protection: On',
+      '',
+      'Files and folders',
+      `  Readable: ${readable.length === 0 ? 'No additional locations' : readable.join(', ')}`,
+      `  Writable: ${writable.length === 0 ? 'No locations' : writable.join(', ')}`,
+      `  Hidden: ${hidden.length === 0 ? 'None' : hidden.join(', ')}`,
+      `  Read-only: ${readOnly.length === 0 ? 'None' : readOnly.join(', ')}`,
+      '',
+      'Websites and services',
+      `  Allowed: ${allowed.length === 0 ? 'None' : allowed.join(', ')}`,
+      `  Blocked: ${blocked.length === 0 ? 'None' : blocked.join(', ')}`,
+      `  Ask when blocked: ${this.config.shouldPrompt() ? 'On' : 'Off'}`,
+      '',
+      `Research agents: ${this.config.areResearchAgentsEnabled() ? 'On' : 'Off'}`,
+    ];
+    ctx.ui.notify(lines.join('\n'), 'info');
   }
 
   /** Lets the user configure scoped delegation or its global default model. */
@@ -138,44 +177,9 @@ export class SandboxCommand {
     ctx.ui.notify(`Research Scout will use ${model.provider}/${model.id}.`, 'info');
   }
 
-  async edit(ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
-    await this.config.reload();
-    const edited = await ctx.ui.editor(
-      `Edit ${scope} SRT configuration`,
-      JSON.stringify(this.config.getScopedSrtConfig(scope), undefined, 2),
-    );
-    if (edited === undefined) {
-      return;
-    }
-
-    const parsed = JSON.parse(edited) as unknown;
-    if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
-      throw new Error('SRT configuration must be a JSON object.');
-    }
-
-    const replacement: Config = Object.fromEntries(Object.entries(parsed));
-    if ('projects' in replacement || 'sandbox' in replacement) {
-      throw new Error('projects and sandbox are reserved Sloppi configuration keys.');
-    }
-
-    const isIsolationWeakened = replacement.allowAppleEvents === true
-      || replacement.enableWeakerNestedSandbox === true
-      || replacement.enableWeakerNetworkIsolation === true
-      || replacement.filesystem?.disabled === true
-      || replacement.network?.allowAllUnixSockets === true;
-    if (isIsolationWeakened && !await ctx.ui.confirm(
-      'Weaken sandbox isolation?',
-      'This configuration enables an unrestricted or weaker SRT option.',
-    )) {
-      return;
-    }
-
-    await this.config.replaceSrtConfig(scope, replacement);
-    await this.finish(ctx, `Updated ${scope} SRT configuration.`);
-  }
-
-  async selectRuleToRemove(ctx: ExtensionCommandContext, selection: RuleSelection): Promise<string | undefined> {
-    const {effectiveEntries, globalEntries, kind, projectEntries, scope} = selection;
+  /** Prevents project menus from deleting inherited website settings. */
+  async selectNetworkRuleToRemove(ctx: ExtensionCommandContext, selection: NetworkRuleSelection): Promise<string | undefined> {
+    const {effectiveEntries, globalEntries, projectEntries, scope} = selection;
     const choices = effectiveEntries.map(entry => {
       const sources = [
         projectEntries.has(entry) ? 'project' : '',
@@ -184,11 +188,11 @@ export class SandboxCommand {
       return `${entry} [${sources.length === 0 ? 'Sloppi default' : sources.join(', ')}]`;
     });
     if (choices.length === 0) {
-      ctx.ui.notify(`No matching effective ${kind} rules.`, 'info');
+      ctx.ui.notify('No matching website or service settings.', 'info');
       return undefined;
     }
 
-    const choice = await ctx.ui.select(`Remove effective ${kind} rule`, choices);
+    const choice = await ctx.ui.select('Choose a website or service setting to remove', choices);
     if (choice === undefined) {
       return undefined;
     }
@@ -210,110 +214,188 @@ export class SandboxCommand {
     return undefined;
   }
 
+  /** Shows configured locations as editable rows and adds new locations read-only. */
   async manageFilesystem(ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
-    const action = await ctx.ui.select('Filesystem', ['Add rule', 'Remove rule']);
-    if (action === undefined) {
+    if (ctx.mode !== 'tui') {
+      ctx.ui.notify('File and folder settings require interactive TUI mode.', 'error');
       return;
     }
 
-    const permission = await ctx.ui.select([
-      'Permission',
-      'Project and global path lists combine.',
-      'Read: allowed by default; allow re-opens a denied parent, but a more-specific deny stays denied.',
-      'Write: denied by default; allow opens a path, and deny exceptions win.',
-    ].join('\n'), [
-      'Allow read',
-      'Allow write',
-      'Allow read and write',
-      'Deny read',
-      'Deny write',
-    ]);
-    if (permission === undefined) {
-      return;
-    }
+    await this.config.reload();
+    const {filesystem} = this.config.getScopedSrtConfig(scope);
+    const readable = new Set(filesystem?.allowRead);
+    const writable = new Set(filesystem?.allowWrite);
+    const hidden = new Set(filesystem?.denyRead);
+    const readOnly = new Set(filesystem?.denyWrite);
+    const paths = [...readable.union(writable).union(hidden).union(readOnly)].toSorted((a, b) => a.localeCompare(b));
+    const result = await ctx.ui.custom<FilesystemAction | undefined>((tui, theme, _keybindings, done) => {
+      let activeInput: Input | undefined;
+      let isFocused = false;
+      const items: SettingItem[] = paths.map(path => {
+        let currentValue = 'Read only';
+        if (hidden.has(path)) {
+          currentValue = 'No access';
+        } else if (writable.has(path) && !readOnly.has(path)) {
+          currentValue = 'Read and change';
+        }
 
-    let permissions: FilesystemPermission[];
-    switch (permission) {
-      case 'Allow read and write': {
-        permissions = ['allowRead', 'allowWrite'];
-        break;
-      }
+        return {
+          id: path,
+          label: path,
+          currentValue,
+          description: 'Select this location to change what Pi can do there.',
+          submenu() {
+            activeInput = undefined;
+            const choices: Array<{value: FilesystemAccess; label: string; description: string}> = [
+              {value: 'readWrite', label: 'Read and change', description: 'Pi can view, create, edit, and delete files.'},
+              {value: 'readOnly', label: 'Read only', description: 'Pi can view files but cannot change them.'},
+              {value: 'none', label: 'No access', description: 'Pi cannot view or change files.'},
+            ];
+            const selectList = new SelectList(choices, choices.length, getSelectListTheme());
+            selectList.setSelectedIndex(Math.max(0, choices.findIndex(choice => choice.label === currentValue)));
+            selectList.onSelect = choice => {
+              const access: FilesystemAccess = choice.value === 'readWrite'
+                ? 'readWrite'
+                : (choice.value === 'none' ? 'none' : 'readOnly');
 
-      case 'Allow read': {
-        permissions = ['allowRead'];
-        break;
-      }
+              done({path, access});
+            };
 
-      case 'Allow write': {
-        permissions = ['allowWrite'];
-        break;
-      }
+            selectList.onCancel = () => {
+              done(undefined);
+            };
 
-      case 'Deny read': {
-        permissions = ['denyRead'];
-        break;
-      }
-
-      default: {
-        permissions = ['denyWrite'];
-      }
-    }
-
-    let path: string | undefined;
-    if (action === 'Add rule') {
-      path = await ctx.ui.input('SRT filesystem path or pattern');
-    } else {
-      await this.config.reload();
-      const globalConfig = this.config.getScopedSrtConfig('global');
-      const projectConfig = this.config.getScopedSrtConfig('project');
-      const effectiveConfig = this.config.getEffectiveConfig();
-      const runtimeConfig = SandboxManager.getConfig();
-      const globalEntries = new Set(permissions.flatMap(key => globalConfig.filesystem?.[key] ?? []));
-      const projectEntries = new Set(permissions.flatMap(key => projectConfig.filesystem?.[key] ?? []));
-      const effectiveEntries = [...new Set(permissions.flatMap(key => [
-        ...(effectiveConfig.filesystem?.[key] ?? []),
-        ...(runtimeConfig?.filesystem?.[key] ?? []),
-      ]))];
-      path = await this.selectRuleToRemove(ctx, {
-        effectiveEntries,
-        globalEntries,
-        kind: 'filesystem',
-        projectEntries,
-        scope,
+            return selectList;
+          },
+        };
       });
-    }
+      items.push({
+        id: 'add',
+        label: 'Add a location…',
+        currentValue: 'Read only',
+        description: 'Enter an absolute file or folder path. New locations are read-only.',
+        submenu() {
+          const input = new Input({prompt: 'Location: ', placeholder: '/Users/me/Documents'});
+          const error = new Text('', 0, 0);
+          activeInput = input;
+          input.focused = isFocused;
+          input.onSubmit = value => {
+            const path = value.trim();
+            if (!path.startsWith('/')) {
+              error.setText(theme.fg('error', 'Enter an absolute path beginning with /.'));
+              tui.requestRender();
+              return;
+            }
 
-    if (path === undefined || path.trim().length === 0) {
+            done({path, access: 'readOnly'});
+          };
+
+          input.onEscape = () => {
+            done(undefined);
+          };
+
+          const inputContainer = new Container();
+          const inputTitle = theme.fg('accent', theme.bold('Add a read-only location'));
+          inputContainer.addChild(new Text(inputTitle, 0, 0));
+          inputContainer.addChild(input);
+          inputContainer.addChild(error);
+
+          return {
+            get focused() {
+              return input.focused;
+            },
+            set focused(value: boolean) {
+              input.focused = value;
+            },
+            render(width: number) {
+              return inputContainer.render(width);
+            },
+            handleInput(data: string) {
+              input.handleInput(data);
+            },
+            handleMouse(event) {
+              return inputContainer.handleMouse(event);
+            },
+            invalidate() {
+              inputContainer.invalidate();
+            },
+          };
+        },
+      });
+
+      const container = new Container();
+      const scopeLabel = scope === 'project' ? 'This project' : 'Global defaults';
+      const title = theme.fg('accent', theme.bold(`Files and folders — ${scopeLabel}`));
+      const description = theme.fg('muted', 'Select a location to change its access.');
+      container.addChild(new Text(title, 0, 0));
+      container.addChild(new Text(description, 0, 1));
+      const settingsList = new SettingsList(
+        items,
+        Math.min(items.length + 2, 15),
+        getSettingsListTheme(),
+        (_id, _newValue) => undefined,
+        () => {
+          done(undefined);
+        },
+      );
+      container.addChild(settingsList);
+
+      return {
+        get focused() {
+          return isFocused;
+        },
+        set focused(value: boolean) {
+          isFocused = value;
+          if (activeInput !== undefined) {
+            activeInput.focused = value;
+          }
+        },
+        render(width: number) {
+          return container.render(width);
+        },
+        handleInput(data: string) {
+          settingsList.handleInput(data);
+          tui.requestRender();
+        },
+        handleMouse(event) {
+          return settingsList.handleMouse(event);
+        },
+        invalidate() {
+          container.invalidate();
+        },
+      };
+    });
+    if (result === undefined) {
       return;
     }
 
-    const listAction = action === 'Add rule' ? 'add' : 'remove';
-    await this.config.updateFilesystem(scope, permissions, listAction, path.trim());
-    await this.finish(ctx, `${listAction === 'add' ? 'Added' : 'Removed'} ${path.trim()} in ${scope} filesystem rules.`);
+    await this.config.setFilesystemAccess(scope, result.path, result.access);
+    await this.finish(ctx, `${result.path} is now ${result.access === 'readWrite' ? 'readable and writable' : (result.access === 'readOnly' ? 'read-only' : 'blocked')}.`);
+    return this.manageFilesystem(ctx, scope);
   }
 
+  /** Adds or removes network access without exposing SRT field names. */
   async manageNetwork(ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
-    const action = await ctx.ui.select('Network', ['Add rule', 'Remove rule']);
+    const action = await ctx.ui.select('Websites and services', ['Add destination', 'Remove destination']);
     if (action === undefined) {
       return;
     }
 
-    const permissionChoice = await ctx.ui.select([
-      'Rule',
-      'Project and global domain lists combine.',
-      'Network is denied by default; allow opens a domain, and deny is checked first and wins.',
-    ].join('\n'), ['Allow domain', 'Deny domain']);
+    const permissionChoice = await ctx.ui.select(
+      'What should happen?',
+      ['Allow connections', 'Block connections'],
+    );
     if (permissionChoice === undefined) {
       return;
     }
 
-    const permission: NetworkPermission = permissionChoice === 'Allow domain' ? 'allow' : 'deny';
+    const permission: NetworkPermission = permissionChoice === 'Allow connections' ? 'allow' : 'deny';
     let domain: string | undefined;
     let reason: string | undefined;
-    if (action === 'Add rule') {
-      domain = await ctx.ui.input('SRT domain pattern (for example, api.example.com:443)');
+    if (action === 'Add destination') {
+      domain = await ctx.ui.input('Website or service (for example, api.example.com:443)');
       if (permission === 'deny' && domain !== undefined && domain.trim().length > 0) {
-        reason = await ctx.ui.input('Optional denial reason shown to the model');
+        reason = await ctx.ui.input('What should Pi tell the model when this is blocked? (optional)');
       }
     } else {
       await this.config.reload();
@@ -328,10 +410,9 @@ export class SandboxCommand {
         ...(effectiveConfig.network?.[key] ?? []),
         ...(runtimeConfig?.network?.[key] ?? []),
       ])];
-      domain = await this.selectRuleToRemove(ctx, {
+      domain = await this.selectNetworkRuleToRemove(ctx, {
         effectiveEntries,
         globalEntries,
-        kind: 'network',
         projectEntries,
         scope,
       });
@@ -342,7 +423,7 @@ export class SandboxCommand {
     }
 
     const normalizedReason = reason?.trim();
-    const listAction = action === 'Add rule' ? 'add' : 'remove';
+    const listAction = action === 'Add destination' ? 'add' : 'remove';
     await this.config.updateDomain(
       scope,
       permission,
@@ -353,9 +434,99 @@ export class SandboxCommand {
     await this.finish(ctx, `${listAction === 'add' ? 'Added' : 'Removed'} ${domain.trim()} in ${scope} network rules.`);
   }
 
+  /** Keeps the settings browser open until Escape is pressed at its top level. */
+  async manage(pi: ExtensionAPI, ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
+    await this.config.reload();
+    const scopeLabel = scope === 'project' ? 'This project' : 'Global defaults';
+    const scopedConfig = this.config.getScopedConfig(scope);
+    const scopedPrompting = scopedConfig.sandbox?.promptOnNetworkDeny;
+    const promptingValue = scope === 'project' && scopedPrompting === undefined
+      ? `Use global setting (${this.config.shouldPrompt() ? 'On' : 'Off'})`
+      : ((scopedPrompting ?? true) ? 'On' : 'Off');
+    const scopedResearch = this.config.getResearchAgentsSetting(scope);
+    const researchValue = scope === 'project' && scopedResearch === undefined
+      ? `Use global setting (${this.config.areResearchAgentsEnabled() ? 'On' : 'Off'})`
+      : ((scopedResearch ?? false) ? 'On' : 'Off');
+    const toggleAction = this.sandbox.isEnabled ? 'Turn off session protection' : 'Turn on session protection';
+    const promptingAction = `Ask when a website is blocked — ${promptingValue}`;
+    const researchAction = `Research agents — ${researchValue}`;
+    const action = await ctx.ui.select(`Sandbox — ${scopeLabel}`, [
+      toggleAction,
+      'View effective access',
+      'Files and folders',
+      'Websites and services',
+      promptingAction,
+      researchAction,
+      scope === 'project' ? 'Manage global defaults' : 'Manage this project',
+      `Reset ${scopeLabel.toLowerCase()}…`,
+    ]);
+    if (action === undefined) {
+      return;
+    }
+
+    switch (action) {
+      case 'Turn off session protection':
+      case 'Turn on session protection': {
+        await this.setEnabled(ctx, !this.sandbox.isEnabled);
+        break;
+      }
+
+      case 'View effective access': {
+        await this.show(ctx);
+        break;
+      }
+
+      case 'Files and folders': {
+        await this.manageFilesystem(ctx, scope);
+        break;
+      }
+
+      case 'Websites and services': {
+        await this.manageNetwork(ctx, scope);
+        break;
+      }
+
+      case promptingAction: {
+        const prompting = await ctx.ui.select('Ask when a website is blocked?', ['On', 'Off']);
+        if (prompting !== undefined) {
+          await this.config.setPrompting(scope, prompting === 'On');
+          await this.finish(ctx, `Blocked-website prompts are ${prompting.toLowerCase()} for ${scopeLabel.toLowerCase()}.`);
+        }
+
+        break;
+      }
+
+      case researchAction: {
+        await this.manageResearchAgents(pi, ctx, scope);
+        break;
+      }
+
+      case 'Manage global defaults': {
+        return this.manage(pi, ctx, 'global');
+      }
+
+      case 'Manage this project': {
+        return this.manage(pi, ctx, 'project');
+      }
+
+      default: {
+        if (action.startsWith('Reset ') && await ctx.ui.confirm(
+          `Reset ${scopeLabel.toLowerCase()}?`,
+          `Remove every sandbox setting stored for ${scopeLabel.toLowerCase()}?`,
+        )) {
+          await this.config.resetScope(scope);
+          await this.finish(ctx, `Reset sandbox settings for ${scopeLabel.toLowerCase()}.`);
+        }
+      }
+    }
+
+    return this.manage(pi, ctx, scope);
+  }
+
+  /** Registers the interactive settings command and its non-interactive shortcuts. */
   register(pi: ExtensionAPI): void {
     pi.registerCommand('sandbox', {
-      description: 'Toggle sandboxing or manage project access; use /sandbox global for global access.',
+      description: 'Manage sandbox protection and access in plain language.',
       handler: async (rawArguments, ctx) => {
         const argument = rawArguments.trim();
         try {
@@ -371,81 +542,11 @@ export class SandboxCommand {
           }
 
           if (argument !== '' && argument !== 'global') {
-            ctx.ui.notify('Use /sandbox or /sandbox global; runtime controls are on, off, toggle, and status.', 'error');
+            ctx.ui.notify('Use /sandbox. Optional shortcuts are global, on, off, toggle, and status.', 'error');
             return;
           }
 
-          const scope: ConfigScope = argument === 'global' ? 'global' : 'project';
-          const toggleAction = this.sandbox.isEnabled ? 'Turn off for this session' : 'Turn on for this session';
-          const action = await ctx.ui.select(`Sandbox (${scope})`, [
-            toggleAction,
-            'View access',
-            'Filesystem',
-            'Network',
-            'Advanced SRT options',
-            'Network-deny prompts',
-            'Research agents',
-            'Reset configuration',
-          ]);
-          switch (action) {
-            case 'Turn off for this session':
-            case 'Turn on for this session': {
-              await this.setEnabled(ctx, !this.sandbox.isEnabled);
-              break;
-            }
-
-            case 'View access': {
-              await this.show(ctx);
-              break;
-            }
-
-            case 'Filesystem': {
-              await this.manageFilesystem(ctx, scope);
-              break;
-            }
-
-            case 'Network': {
-              await this.manageNetwork(ctx, scope);
-              break;
-            }
-
-            case 'Advanced SRT options': {
-              await this.edit(ctx, scope);
-              break;
-            }
-
-            case 'Network-deny prompts': {
-              const prompting = await ctx.ui.select('Prompt when a website is blocked?', ['On', 'Off']);
-              if (prompting !== undefined) {
-                await this.config.setPrompting(scope, prompting === 'On');
-                await this.finish(ctx, `Sandbox network-deny prompts are ${prompting.toLowerCase()} in ${scope} scope.`);
-              }
-
-              break;
-            }
-
-            case 'Research agents': {
-              await this.manageResearchAgents(pi, ctx, scope);
-              break;
-            }
-
-            case 'Reset configuration': {
-              if (await ctx.ui.confirm('Reset sandbox configuration?', `Remove every rule stored in ${scope} scope?`)) {
-                await this.config.resetScope(scope);
-                await this.finish(ctx, `Reset ${scope} sandbox configuration.`);
-              }
-
-              break;
-            }
-
-            case undefined: {
-              break;
-            }
-
-            default: {
-              break;
-            }
-          }
+          await this.manage(pi, ctx, argument === 'global' ? 'global' : 'project');
         } catch (error) {
           ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
         }
