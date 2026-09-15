@@ -762,6 +762,12 @@ void test('adds and removes scoped filesystem and network rules', async (t: Test
   try {
     await configStore.updateFilesystem('global', ['allowRead', 'allowWrite'], 'add', '/shared');
     await configStore.updateFilesystem('project', 'denyWrite', 'add', '/shared/protected');
+    await configStore.updateFilesystem(
+      'project',
+      ['allowRead', 'allowWrite', 'denyRead', 'denyWrite'],
+      'add',
+      '/remove-me',
+    );
     await configStore.updateDomain('global', 'allow', 'add', 'api.example.com:443');
     await configStore.updateDomain('project', 'deny', 'add', 'blocked.example.com', 'Use the approved API.');
 
@@ -769,56 +775,33 @@ void test('adds and removes scoped filesystem and network rules', async (t: Test
       filesystem: {allowRead: string[]; allowWrite: string[]};
       network: {allowedDomains: string[]};
       projects: Record<string, {
-        filesystem: {denyWrite: string[]};
+        filesystem: {allowRead: string[]; allowWrite: string[]; denyRead: string[]; denyWrite: string[]};
         network: {deniedDomains: string[]; deniedDomainReasons: Record<string, string>};
       }>;
     };
     t.assert.deepStrictEqual(saved.filesystem.allowRead, ['/shared']);
     t.assert.deepStrictEqual(saved.filesystem.allowWrite, ['/shared']);
     t.assert.deepStrictEqual(saved.network.allowedDomains, ['api.example.com:443']);
-    t.assert.deepStrictEqual(saved.projects['/project']?.filesystem.denyWrite, ['/shared/protected']);
+    t.assert.deepStrictEqual(saved.projects['/project']?.filesystem.denyWrite, ['/shared/protected', '/remove-me']);
     t.assert.strictEqual(saved.projects['/project']?.network.deniedDomainReasons['blocked.example.com'], 'Use the approved API.');
 
     await configStore.updateFilesystem('global', ['allowRead', 'allowWrite'], 'remove', '/shared');
+    await configStore.updateFilesystem(
+      'project',
+      ['allowRead', 'allowWrite', 'denyRead', 'denyWrite'],
+      'remove',
+      '/remove-me',
+    );
     await configStore.updateDomain('project', 'deny', 'remove', 'blocked.example.com');
     saved = JSON.parse(await readFile(configPath, 'utf8')) as typeof saved;
     t.assert.deepStrictEqual(saved.filesystem.allowRead, []);
     t.assert.deepStrictEqual(saved.filesystem.allowWrite, []);
+    t.assert.deepStrictEqual(saved.projects['/project']?.filesystem.allowRead, []);
+    t.assert.deepStrictEqual(saved.projects['/project']?.filesystem.allowWrite, []);
+    t.assert.deepStrictEqual(saved.projects['/project']?.filesystem.denyRead, []);
+    t.assert.deepStrictEqual(saved.projects['/project']?.filesystem.denyWrite, ['/shared/protected']);
     t.assert.deepStrictEqual(saved.projects['/project']?.network.deniedDomains, []);
     t.assert.deepStrictEqual(saved.projects['/project']?.network.deniedDomainReasons, {});
-  } finally {
-    await rm(directory, {force: true, recursive: true});
-  }
-});
-
-/**
- Verifies each friendly access level replaces conflicting settings for the same path.
- */
-void test('sets one filesystem access level per location', async (t: TestContext) => {
-  const directory = await mkdtemp(join(tmpdir(), 'sloppi-config-test-'));
-  const configPath = join(directory, 'sandbox.json');
-  const configStore = new ConfigStore('/project', configPath);
-
-  try {
-    await configStore.setFilesystemAccess('project', '/shared', 'readWrite');
-    let {filesystem} = configStore.getScopedSrtConfig('project');
-    t.assert.deepStrictEqual(filesystem?.allowRead, ['/shared']);
-    t.assert.deepStrictEqual(filesystem?.allowWrite, ['/shared']);
-    t.assert.deepStrictEqual(filesystem?.denyWrite, []);
-
-    await configStore.setFilesystemAccess('project', '/shared', 'readOnly');
-    filesystem = configStore.getScopedSrtConfig('project').filesystem;
-    t.assert.deepStrictEqual(filesystem?.allowRead, ['/shared']);
-    t.assert.deepStrictEqual(filesystem?.allowWrite, []);
-    t.assert.deepStrictEqual(filesystem?.denyRead, []);
-    t.assert.deepStrictEqual(filesystem?.denyWrite, ['/shared']);
-
-    await configStore.setFilesystemAccess('project', '/shared', 'none');
-    filesystem = configStore.getScopedSrtConfig('project').filesystem;
-    t.assert.deepStrictEqual(filesystem?.allowRead, []);
-    t.assert.deepStrictEqual(filesystem?.allowWrite, []);
-    t.assert.deepStrictEqual(filesystem?.denyRead, []);
-    t.assert.deepStrictEqual(filesystem?.denyWrite, []);
   } finally {
     await rm(directory, {force: true, recursive: true});
   }

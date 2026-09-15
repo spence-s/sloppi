@@ -1,4 +1,3 @@
-import {readdir} from 'node:fs/promises';
 import {homedir} from 'node:os';
 import {parse, resolve} from 'node:path';
 import {
@@ -9,10 +8,10 @@ import {
 } from '@earendil-works/pi-coding-agent';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {
+  CombinedAutocompleteProvider,
   Container,
-  Input,
-  Key,
-  matchesKey,
+  Editor,
+  getKeybindings,
   type SettingItem,
   SettingsList,
   SelectList,
@@ -23,16 +22,16 @@ import {
 import type {
   ConfigScope,
   ConfigStore,
-  FilesystemAccess,
+  FilesystemPermission,
   NetworkPermission,
 } from './config.ts';
 import type {PlaywrightBridge} from './playwright.ts';
 import type {SandboxSessionManager} from './session-manager.ts';
 
-type FilesystemAction = {
-  access: FilesystemAccess;
-  path: string;
-};
+type FilesystemAccess = 'readWrite' | 'readOnly' | 'none';
+type FilesystemAction =
+  | {action: 'set'; access: FilesystemAccess; path: string}
+  | {action: 'remove'; path: string};
 
 type NetworkRuleSelection = {
   effectiveEntries: string[];
@@ -142,7 +141,8 @@ export class SandboxCommand {
   async manageResearchAgents(pi: ExtensionAPI, ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
     await this.config.load();
     const scopedSetting = this.config.getResearchAgentsSetting(scope);
-    const action = await ctx.ui.select('Research agents', scope === 'global'
+    const scopeLabel = scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
+    const action = await ctx.ui.select(`Research agents — ${scopeLabel}`, scope === 'global'
       ? [scopedSetting === true ? 'Turn off' : 'Turn on', 'Default model']
       : ['Turn on', 'Turn off', 'Use global setting']);
     if (action === undefined) {
@@ -173,7 +173,7 @@ export class SandboxCommand {
     const models = ctx.modelRegistry.getAvailable();
     const choices = models.map(model => `${model.provider}/${model.id}`);
     const selection = await ctx.ui.select(
-      `Research Scout model${current === undefined ? '' : ` (${current.provider}/${current.id})`}`,
+      `Research Scout model — 󰖟 GLOBAL${current === undefined ? '' : ` (${current.provider}/${current.id})`}`,
       [...choices, 'Clear model'],
     );
     if (selection === undefined) {
@@ -210,7 +210,8 @@ export class SandboxCommand {
       return undefined;
     }
 
-    const choice = await ctx.ui.select('Choose a website or service setting to remove', choices);
+    const scopeLabel = selection.scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
+    const choice = await ctx.ui.select(`Remove website or service access — ${scopeLabel}`, choices);
     if (choice === undefined) {
       return undefined;
     }
@@ -232,7 +233,7 @@ export class SandboxCommand {
     return undefined;
   }
 
-  /** Shows configured locations as editable rows and adds new locations read-only. */
+  /** Shows effective locations while allowing scoped rules to be added or removed directly. */
   async manageFilesystem(ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
     if (ctx.mode !== 'tui') {
       ctx.ui.notify('File and folder settings require interactive TUI mode.', 'error');
@@ -273,8 +274,8 @@ export class SandboxCommand {
         .toSorted((a, b) => a.localeCompare(b)),
     ];
     const editablePaths = scope === 'global' ? globalPaths : projectPaths;
-    const result = await ctx.ui.custom<FilesystemAction | undefined>((tui, theme, _keybindings, done) => {
-      let activeInput: Input | undefined;
+    const result = await ctx.ui.custom<FilesystemAction | undefined>((tui, theme, keybindings, done) => {
+      let activeInput: Editor | undefined;
       let isFocused = false;
       const pathItems: SettingItem[] = paths.map(path => {
         let accessLabel = 'Read only';
@@ -360,19 +361,28 @@ export class SandboxCommand {
 
         item.submenu = () => {
           activeInput = undefined;
-          const choices: Array<{value: FilesystemAccess; label: string; description: string}> = [
+          const choices: Array<{value: FilesystemAccess | 'remove'; label: string; description: string}> = [
             {value: 'readWrite', label: 'Read/Write', description: 'Pi can view, create, edit, and delete files.'},
             {value: 'readOnly', label: 'Read only', description: 'Pi can view files but cannot change them.'},
             {value: 'none', label: 'No access', description: 'Pi cannot view or change files.'},
+            {
+              value: 'remove',
+              label: 'Remove location',
+              description: `Remove this path from ${scope === 'global' ? 'global' : 'project'} filesystem rules.`,
+            },
           ];
           const selectList = new SelectList(choices, choices.length, getSelectListTheme());
           selectList.setSelectedIndex(Math.max(0, choices.findIndex(choice => choice.label === accessLabel)));
           selectList.onSelect = choice => {
+            if (choice.value === 'remove') {
+              done({action: 'remove', path});
+              return;
+            }
+
             const access: FilesystemAccess = choice.value === 'readWrite'
               ? 'readWrite'
               : (choice.value === 'none' ? 'none' : 'readOnly');
-
-            done({path, access});
+            done({action: 'set', path, access});
           };
 
           selectList.onCancel = () => {
@@ -422,59 +432,31 @@ export class SandboxCommand {
       let isAddingLocation = false;
       let isChoosingLocationAccess = false;
       let pendingLocation = '';
-      let locationSuggestions: string[] = [];
-      let suggestionRequest = 0;
-      const locationInput = new Input({
-        prompt: '  Location: ',
-        placeholder: './path or /absolute/path',
-        placeholderStyle: text => theme.fg('dim', text),
-      });
+      const locationInput = new Editor(tui, {
+        borderColor: text => theme.fg('borderMuted', text),
+        selectList: getSelectListTheme(),
+      }, {autocompleteMaxVisible: 6});
+      locationInput.setAutocompleteProvider(new CombinedAutocompleteProvider([], projectRoot));
       const locationError = new Text('', 0, 0);
-
-      /** Refreshes path completions without letting stale directory reads replace newer input. */
-      const refreshLocationSuggestions = async (): Promise<void> => {
-        const request = ++suggestionRequest;
-        const value = locationInput.getValue();
-        const slash = value.lastIndexOf('/');
-        const directoryPrefix = slash === -1 ? '' : value.slice(0, slash + 1);
-        const namePrefix = value.slice(slash + 1);
-        const directory = resolve(projectRoot, directoryPrefix);
-
-        try {
-          const entries = await readdir(directory, {withFileTypes: true});
-          if (request !== suggestionRequest) {
-            return;
-          }
-
-          locationSuggestions = entries
-            .filter(entry => entry.name.toLowerCase().startsWith(namePrefix.toLowerCase()))
-            .filter(entry => namePrefix.startsWith('.') || !entry.name.startsWith('.'))
-            .toSorted((a, b) => {
-              const directoryOrder = Number(b.isDirectory()) - Number(a.isDirectory());
-              return directoryOrder === 0 ? a.name.localeCompare(b.name) : directoryOrder;
-            })
-            .slice(0, 6)
-            .map(entry => `${directoryPrefix}${entry.name}${entry.isDirectory() ? '/' : ''}`);
-        } catch {
-          if (request === suggestionRequest) {
-            locationSuggestions = [];
-          }
-        }
-
-        tui.requestRender();
-      };
-
       const locationInputContainer = new Container();
+      locationInputContainer.addChild(new Text(theme.fg('muted', '  Location (Tab to browse):'), 0, 0));
       locationInputContainer.addChild(locationInput);
       locationInputContainer.addChild(locationError);
       locationInput.onSubmit = value => {
-        if (value.trim().length === 0) {
+        let enteredPath = value.trim();
+        if (enteredPath.startsWith('"') && enteredPath.endsWith('"')) {
+          enteredPath = enteredPath.slice(1, -1);
+        }
+
+        if (enteredPath.length === 0) {
           locationError.setText(theme.fg('error', '  Enter a file or folder path.'));
           tui.requestRender();
           return;
         }
 
-        const path = resolve(projectRoot, value.trim());
+        const path = enteredPath === '~'
+          ? home
+          : resolve(enteredPath.startsWith('~/') ? home : projectRoot, enteredPath.startsWith('~/') ? enteredPath.slice(2) : enteredPath);
         if ([systemRoot, projectRoot, home].includes(path)) {
           locationError.setText(theme.fg('error', '  Built-in project and home folder access cannot be changed.'));
           tui.requestRender();
@@ -488,16 +470,6 @@ export class SandboxCommand {
         tui.requestRender();
       };
 
-      locationInput.onEscape = () => {
-        isAddingLocation = false;
-        isChoosingLocationAccess = false;
-        locationSuggestions = [];
-        activeInput = undefined;
-        locationInput.setValue('');
-        locationError.setText('');
-        tui.requestRender();
-      };
-
       const locationAccessChoices: Array<{value: FilesystemAccess; label: string; description: string}> = [
         {value: 'readOnly', label: 'Read only', description: 'Pi can view files but cannot change them.'},
         {value: 'readWrite', label: 'Read/Write', description: 'Pi can view, create, edit, and delete files.'},
@@ -505,7 +477,7 @@ export class SandboxCommand {
       const locationAccessList = new SelectList(locationAccessChoices, locationAccessChoices.length, getSelectListTheme());
       locationAccessList.onSelect = choice => {
         const access: FilesystemAccess = choice.value === 'readWrite' ? 'readWrite' : 'readOnly';
-        done({path: pendingLocation, access});
+        done({action: 'set', path: pendingLocation, access});
       };
 
       locationAccessList.onCancel = () => {
@@ -527,25 +499,18 @@ export class SandboxCommand {
             return [...lines, '', ...locationAccessTitle.render(width), ...locationAccessList.render(width)];
           }
 
-          if (locationSuggestions.length === 0) {
-            return lines;
-          }
-
-          return [
-            ...lines,
-            ...locationSuggestions.map(suggestion => theme.fg('dim', `    ${suggestion}`)),
-            theme.fg('dim', '    Tab to complete'),
-          ];
+          return lines;
         },
         handleInput(data: string) {
           if (isChoosingLocationAccess) {
             locationAccessList.handleInput(data);
-          } else if (isAddingLocation && matchesKey(data, Key.tab) && locationSuggestions[0] !== undefined) {
-            locationInput.setValue(locationSuggestions[0]);
-            void refreshLocationSuggestions();
+          } else if (keybindings.matches(data, 'tui.select.cancel')) {
+            isAddingLocation = false;
+            activeInput = undefined;
+            locationInput.setText('');
+            locationError.setText('');
           } else if (isAddingLocation) {
             locationInput.handleInput(data);
-            void refreshLocationSuggestions();
           }
         },
         invalidate() {
@@ -555,7 +520,7 @@ export class SandboxCommand {
       };
 
       const container = new Container();
-      const scopeLabel = scope === 'project' ? 'This project' : 'Global defaults';
+      const scopeLabel = scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
       const title = theme.fg('accent', theme.bold(`Files and folders — ${scopeLabel}`));
       const description = theme.fg('muted', 'Every effective location is shown. Dimmed rows cannot be changed in this scope.');
       const labelWidth = Math.min(36, Math.max(...items.map(item => visibleWidth(item.label))));
@@ -576,7 +541,6 @@ export class SandboxCommand {
             activeInput = locationInput;
             locationInput.focused = isFocused;
             locationError.setText('');
-            void refreshLocationSuggestions();
             tui.requestRender();
             return;
           }
@@ -622,7 +586,7 @@ export class SandboxCommand {
           tui.requestRender();
         },
         handleMouse(event) {
-          return activeInput === undefined ? settingsList.handleMouse(event) : undefined;
+          return activeInput === undefined ? settingsList.handleMouse(event) : activeInput.handleMouse(event);
         },
         invalidate() {
           container.invalidate();
@@ -633,19 +597,28 @@ export class SandboxCommand {
       return;
     }
 
-    await this.config.setFilesystemAccess(scope, result.path, result.access);
-    await this.finish(
-      ctx,
-      result.access === 'none'
-        ? `${result.path} returned to its default no-access state and was removed from ${scope === 'global' ? 'global defaults' : 'this project'} settings.`
-        : `${result.path} is now ${result.access === 'readWrite' ? 'readable and writable' : 'read-only'}.`,
-    );
+    const permissions: FilesystemPermission[] = ['allowRead', 'allowWrite', 'denyRead', 'denyWrite'];
+    await this.config.updateFilesystem(scope, permissions, 'remove', result.path);
+    if (result.action === 'remove') {
+      await this.finish(ctx, `Removed ${result.path} from ${scope === 'global' ? 'global' : 'project'} filesystem rules.`);
+    } else {
+      const nextPermissions: FilesystemPermission[] = result.access === 'readWrite'
+        ? ['allowRead', 'allowWrite']
+        : (result.access === 'readOnly' ? ['allowRead', 'denyWrite'] : ['denyRead', 'denyWrite']);
+      await this.config.updateFilesystem(scope, nextPermissions, 'add', result.path);
+      const accessLabel = result.access === 'readWrite'
+        ? 'readable and writable'
+        : (result.access === 'readOnly' ? 'read-only' : 'blocked');
+      await this.finish(ctx, `${result.path} is now ${accessLabel}.`);
+    }
+
     return this.manageFilesystem(ctx, scope);
   }
 
   /** Adds or removes network access without exposing SRT field names. */
   async manageNetwork(ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
-    const action = await ctx.ui.select('Websites and services', ['Add destination', 'Remove destination']);
+    const scopeLabel = scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
+    const action = await ctx.ui.select(`Websites and services — ${scopeLabel}`, ['Add destination', 'Remove destination']);
     if (action === undefined) {
       return;
     }
@@ -705,8 +678,15 @@ export class SandboxCommand {
 
   /** Keeps the settings browser open until Escape is pressed at its top level. */
   async manage(pi: ExtensionAPI, ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
+    const keybindings = getKeybindings();
+    keybindings.setUserBindings({
+      ...keybindings.getUserBindings(),
+      'tui.select.up': [...new Set([...keybindings.getKeys('tui.select.up'), 'k' as const])],
+      'tui.select.down': [...new Set([...keybindings.getKeys('tui.select.down'), 'j' as const])],
+    });
     await this.config.reload();
-    const scopeLabel = scope === 'project' ? 'This project' : 'Global defaults';
+    const scopeName = scope === 'project' ? 'This project' : 'Global defaults';
+    const scopeLabel = scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
     const scopedConfig = this.config.getScopedConfig(scope);
     const scopedPrompting = scopedConfig.sandbox?.promptOnNetworkDeny;
     const promptingValue = scope === 'project' && scopedPrompting === undefined
@@ -727,9 +707,9 @@ export class SandboxCommand {
       'Websites and services',
       promptingAction,
       researchAction,
-      scope === 'project' ? 'Manage global defaults' : 'Manage this project',
-      `Reset ${scopeLabel.toLowerCase()}…`,
       toggleAction,
+      '',
+      scope === 'project' ? '← Manage global settings' : '← Manage local settings',
     ]);
     if (action === undefined) {
       return;
@@ -753,10 +733,10 @@ export class SandboxCommand {
       }
 
       case promptingAction: {
-        const prompting = await ctx.ui.select('Ask when a website is blocked?', ['On', 'Off']);
+        const prompting = await ctx.ui.select(`Ask when a website is blocked? — ${scopeLabel}`, ['On', 'Off']);
         if (prompting !== undefined) {
           await this.config.setPrompting(scope, prompting === 'On');
-          await this.finish(ctx, `Blocked-website prompts are ${prompting.toLowerCase()} for ${scopeLabel.toLowerCase()}.`);
+          await this.finish(ctx, `Blocked-website prompts are ${prompting.toLowerCase()} for ${scopeName.toLowerCase()}.`);
         }
 
         break;
@@ -767,22 +747,16 @@ export class SandboxCommand {
         break;
       }
 
-      case 'Manage global defaults': {
+      case '← Manage global settings': {
         return this.manage(pi, ctx, 'global');
       }
 
-      case 'Manage this project': {
+      case '← Manage local settings': {
         return this.manage(pi, ctx, 'project');
       }
 
       default: {
-        if (action.startsWith('Reset ') && await ctx.ui.confirm(
-          `Reset ${scopeLabel.toLowerCase()}?`,
-          `Remove every sandbox setting stored for ${scopeLabel.toLowerCase()}?`,
-        )) {
-          await this.config.resetScope(scope);
-          await this.finish(ctx, `Reset sandbox settings for ${scopeLabel.toLowerCase()}.`);
-        }
+        break;
       }
     }
 

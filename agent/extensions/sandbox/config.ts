@@ -89,7 +89,6 @@ export type Config = PartialWithUndefined<SandboxRuntimeConfig> & {
   [key: string]: unknown;
 };
 export type ConfigScope = 'global' | 'project';
-export type FilesystemAccess = 'readWrite' | 'readOnly' | 'none';
 export type FilesystemPermission = 'allowRead' | 'allowWrite' | 'denyRead' | 'denyWrite';
 export type ListAction = 'add' | 'remove';
 export type NetworkPermission = 'allow' | 'deny';
@@ -164,41 +163,6 @@ export class ConfigStore {
     const {projects: _projects, sandbox: _sandbox, ...globalConfig} = this.config;
     const {sandbox: _projectSandbox, ...projectConfig} = this.getScopedConfig('project');
     return merge(globalConfig, projectConfig);
-  }
-
-  /** Removes an entry when it returns to the default no-access state; otherwise writes one access level. */
-  async setFilesystemAccess(scope: ConfigScope, path: string, access: FilesystemAccess): Promise<void> {
-    await this.reload();
-    const scopedConfig = this.getScopedConfig(scope);
-    const validation = FilesystemConfigSchema.safeParse({
-      ...scopedConfig.filesystem,
-      allowRead: scopedConfig.filesystem?.allowRead ?? [],
-      allowWrite: scopedConfig.filesystem?.allowWrite ?? [],
-      denyRead: scopedConfig.filesystem?.denyRead ?? [],
-      denyWrite: scopedConfig.filesystem?.denyWrite ?? [],
-    });
-    if (!validation.success) {
-      throw new Error(`Invalid filesystem configuration: ${validation.error.message}`);
-    }
-
-    const filesystem = validation.data;
-    filesystem.allowRead = (filesystem.allowRead ?? []).filter(entry => entry !== path);
-    filesystem.allowWrite = (filesystem.allowWrite ?? []).filter(entry => entry !== path);
-    filesystem.denyRead = (filesystem.denyRead ?? []).filter(entry => entry !== path);
-    filesystem.denyWrite = (filesystem.denyWrite ?? []).filter(entry => entry !== path);
-
-    if (access !== 'none') {
-      filesystem.allowRead.push(path);
-    }
-
-    if (access === 'readWrite') {
-      filesystem.allowWrite.push(path);
-    } else if (access === 'readOnly') {
-      filesystem.denyWrite.push(path);
-    }
-
-    scopedConfig.filesystem = filesystem;
-    await this.save();
   }
 
   /** Adds or removes one filesystem rule in the selected scope. */
