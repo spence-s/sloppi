@@ -10,7 +10,12 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
-import {dirname, join, resolve} from 'node:path';
+import {
+  dirname,
+  join,
+  parse,
+  resolve,
+} from 'node:path';
 import process from 'node:process';
 import {test, type TestContext} from 'node:test';
 import {setTimeout as delay} from 'node:timers/promises';
@@ -590,6 +595,43 @@ void test('isolates reads and temporary Unix sockets', async (t: TestContext) =>
 });
 
 /**
+ Verifies configuration cannot hide the project or expose the whole home folder.
+ */
+void test('keeps built-in project and home access fixed', async (t: TestContext) => {
+  const directory = realpathSync(process.cwd());
+  const home = homedir();
+  const {root} = parse(directory);
+  const configStore = new ConfigStore(directory);
+  configStore.config = {
+    filesystem: {
+      allowRead: [home],
+      allowWrite: [home, root],
+      denyRead: [directory, root],
+      denyWrite: [directory, root],
+    },
+  };
+  configStore.hasLoaded = true;
+  const sandbox = new SandboxSessionManager(directory, configStore);
+
+  try {
+    await sandbox.startSession();
+    const {filesystem} = SandboxManager.getConfig() ?? {};
+    t.assert.ok(filesystem?.allowRead?.includes(directory));
+    t.assert.ok(filesystem?.allowWrite?.includes(directory));
+    t.assert.ok(filesystem?.denyRead?.includes(home));
+    t.assert.ok(!filesystem?.denyRead?.includes(root));
+    t.assert.ok(!filesystem?.denyRead?.includes(directory));
+    t.assert.ok(!filesystem?.denyWrite?.includes(root));
+    t.assert.ok(!filesystem?.denyWrite?.includes(directory));
+    t.assert.ok(!filesystem?.allowWrite?.includes(root));
+    t.assert.ok(!filesystem?.allowRead?.includes(home));
+    t.assert.ok(!filesystem?.allowWrite?.includes(home));
+  } finally {
+    await sandbox.stopSession();
+  }
+});
+
+/**
  Verifies that opting into host configuration changes lookup behavior without changing filesystem policy.
  */
 void test('uses the host home when HOME is explicitly exposed', async (t: TestContext) => {
@@ -758,23 +800,25 @@ void test('sets one filesystem access level per location', async (t: TestContext
   const configStore = new ConfigStore('/project', configPath);
 
   try {
-    await configStore.setFilesystemAccess('project', '/shared', 'readOnly');
-    let {filesystem} = configStore.getScopedSrtConfig('project');
-    t.assert.deepStrictEqual(filesystem?.allowRead, ['/shared']);
-    t.assert.deepStrictEqual(filesystem?.denyWrite, ['/shared']);
-
     await configStore.setFilesystemAccess('project', '/shared', 'readWrite');
-    filesystem = configStore.getScopedSrtConfig('project').filesystem;
+    let {filesystem} = configStore.getScopedSrtConfig('project');
     t.assert.deepStrictEqual(filesystem?.allowRead, ['/shared']);
     t.assert.deepStrictEqual(filesystem?.allowWrite, ['/shared']);
     t.assert.deepStrictEqual(filesystem?.denyWrite, []);
+
+    await configStore.setFilesystemAccess('project', '/shared', 'readOnly');
+    filesystem = configStore.getScopedSrtConfig('project').filesystem;
+    t.assert.deepStrictEqual(filesystem?.allowRead, ['/shared']);
+    t.assert.deepStrictEqual(filesystem?.allowWrite, []);
+    t.assert.deepStrictEqual(filesystem?.denyRead, []);
+    t.assert.deepStrictEqual(filesystem?.denyWrite, ['/shared']);
 
     await configStore.setFilesystemAccess('project', '/shared', 'none');
     filesystem = configStore.getScopedSrtConfig('project').filesystem;
     t.assert.deepStrictEqual(filesystem?.allowRead, []);
     t.assert.deepStrictEqual(filesystem?.allowWrite, []);
-    t.assert.deepStrictEqual(filesystem?.denyRead, ['/shared']);
-    t.assert.deepStrictEqual(filesystem?.denyWrite, ['/shared']);
+    t.assert.deepStrictEqual(filesystem?.denyRead, []);
+    t.assert.deepStrictEqual(filesystem?.denyWrite, []);
   } finally {
     await rm(directory, {force: true, recursive: true});
   }

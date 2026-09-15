@@ -166,7 +166,7 @@ export class ConfigStore {
     return merge(globalConfig, projectConfig);
   }
 
-  /** Replaces conflicting rules for a path with one user-facing access level. */
+  /** Removes an entry when it returns to the default no-access state; otherwise writes one access level. */
   async setFilesystemAccess(scope: ConfigScope, path: string, access: FilesystemAccess): Promise<void> {
     await this.reload();
     const scopedConfig = this.getScopedConfig(scope);
@@ -193,12 +193,8 @@ export class ConfigStore {
 
     if (access === 'readWrite') {
       filesystem.allowWrite.push(path);
-    } else {
+    } else if (access === 'readOnly') {
       filesystem.denyWrite.push(path);
-    }
-
-    if (access === 'none') {
-      filesystem.denyRead.push(path);
     }
 
     scopedConfig.filesystem = filesystem;

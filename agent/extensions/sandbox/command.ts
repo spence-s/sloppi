@@ -1,3 +1,6 @@
+import {readdir} from 'node:fs/promises';
+import {homedir} from 'node:os';
+import {parse, resolve} from 'node:path';
 import {
   getSelectListTheme,
   getSettingsListTheme,
@@ -8,10 +11,14 @@ import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {
   Container,
   Input,
+  Key,
+  matchesKey,
   type SettingItem,
   SettingsList,
   SelectList,
   Text,
+  truncateToWidth,
+  visibleWidth,
 } from '@earendil-works/pi-tui';
 import type {
   ConfigScope,
@@ -63,8 +70,8 @@ export class SandboxCommand {
     }
 
     if (!isEnabled && !await ctx.ui.confirm(
-      'Turn off the sandbox?',
-      'All tool calls will execute directly on the host with your user permissions for this session.',
+      'Turn off session protection?',
+      'Are you sure? All tool calls will execute directly on the host with your user permissions for this session.',
     )) {
       return;
     }
@@ -105,14 +112,25 @@ export class SandboxCommand {
       '  Protection: On',
       '',
       'Files and folders',
-      `  Readable: ${readable.length === 0 ? 'No additional locations' : readable.join(', ')}`,
-      `  Writable: ${writable.length === 0 ? 'No locations' : writable.join(', ')}`,
-      `  Hidden: ${hidden.length === 0 ? 'None' : hidden.join(', ')}`,
-      `  Read-only: ${readOnly.length === 0 ? 'None' : readOnly.join(', ')}`,
+      '  Readable:',
+      ...(readable.length === 0 ? ['    No additional locations'] : readable.map(path => `    ${path}`)),
+      '',
+      '  Writable:',
+      ...(writable.length === 0 ? ['    None'] : writable.map(path => `    ${path}`)),
+      '',
+      '  Hidden:',
+      ...(hidden.length === 0 ? ['    None'] : hidden.map(path => `    ${path}`)),
+      '',
+      '  Read-only:',
+      ...(readOnly.length === 0 ? ['    None'] : readOnly.map(path => `    ${path}`)),
       '',
       'Websites and services',
-      `  Allowed: ${allowed.length === 0 ? 'None' : allowed.join(', ')}`,
-      `  Blocked: ${blocked.length === 0 ? 'None' : blocked.join(', ')}`,
+      '  Allowed:',
+      ...(allowed.length === 0 ? ['    None'] : allowed.map(destination => `    ${destination}`)),
+      '',
+      '  Blocked:',
+      ...(blocked.length === 0 ? ['    None'] : blocked.map(destination => `    ${destination}`)),
+      '',
       `  Ask when blocked: ${this.config.shouldPrompt() ? 'On' : 'Off'}`,
       '',
       `Research agents: ${this.config.areResearchAgentsEnabled() ? 'On' : 'Off'}`,
@@ -222,123 +240,364 @@ export class SandboxCommand {
     }
 
     await this.config.reload();
-    const {filesystem} = this.config.getScopedSrtConfig(scope);
-    const readable = new Set(filesystem?.allowRead);
-    const writable = new Set(filesystem?.allowWrite);
-    const hidden = new Set(filesystem?.denyRead);
-    const readOnly = new Set(filesystem?.denyWrite);
-    const paths = [...readable.union(writable).union(hidden).union(readOnly)].toSorted((a, b) => a.localeCompare(b));
+    const projectRoot = this.config.cwd;
+    const systemRoot = parse(projectRoot).root;
+    const home = homedir();
+    const globalFilesystem = this.config.getScopedSrtConfig('global').filesystem;
+    const projectFilesystem = this.config.getScopedSrtConfig('project').filesystem;
+    const effectiveFilesystem = this.config.getEffectiveConfig().filesystem;
+    const runtimeFilesystem = SandboxManager.getConfig()?.filesystem;
+    const globalPaths = new Set([
+      ...(globalFilesystem?.allowRead ?? []),
+      ...(globalFilesystem?.allowWrite ?? []),
+      ...(globalFilesystem?.denyRead ?? []),
+      ...(globalFilesystem?.denyWrite ?? []),
+    ]);
+    const projectPaths = new Set([
+      ...(projectFilesystem?.allowRead ?? []),
+      ...(projectFilesystem?.allowWrite ?? []),
+      ...(projectFilesystem?.denyRead ?? []),
+      ...(projectFilesystem?.denyWrite ?? []),
+    ]);
+    const readable = new Set([systemRoot, projectRoot, ...(runtimeFilesystem?.allowRead ?? effectiveFilesystem?.allowRead ?? [])]);
+    const writable = new Set([projectRoot, ...(runtimeFilesystem?.allowWrite ?? effectiveFilesystem?.allowWrite ?? [])]);
+    const hidden = new Set([home, ...(runtimeFilesystem?.denyRead ?? effectiveFilesystem?.denyRead ?? [])]);
+    const readOnly = new Set(runtimeFilesystem?.denyWrite ?? effectiveFilesystem?.denyWrite);
+    const allPaths = readable.union(writable).union(hidden).union(readOnly).union(globalPaths).union(projectPaths);
+    const paths = [
+      systemRoot,
+      ...(home === systemRoot ? [] : [home]),
+      ...([systemRoot, home].includes(projectRoot) ? [] : [projectRoot]),
+      ...[...allPaths]
+        .filter(path => path !== systemRoot && path !== projectRoot && path !== home)
+        .toSorted((a, b) => a.localeCompare(b)),
+    ];
+    const editablePaths = scope === 'global' ? globalPaths : projectPaths;
     const result = await ctx.ui.custom<FilesystemAction | undefined>((tui, theme, _keybindings, done) => {
       let activeInput: Input | undefined;
       let isFocused = false;
-      const items: SettingItem[] = paths.map(path => {
-        let currentValue = 'Read only';
-        if (hidden.has(path)) {
-          currentValue = 'No access';
-        } else if (writable.has(path) && !readOnly.has(path)) {
-          currentValue = 'Read and change';
+      const pathItems: SettingItem[] = paths.map(path => {
+        let accessLabel = 'Read only';
+        switch (path) {
+          case projectRoot: {
+            accessLabel = 'Read/Write';
+            break;
+          }
+
+          case systemRoot: {
+            break;
+          }
+
+          case home: {
+            accessLabel = 'No access';
+            break;
+          }
+
+          default: {
+            if (hidden.has(path)) {
+              accessLabel = 'No access';
+            } else if (writable.has(path) && !readOnly.has(path)) {
+              accessLabel = 'Read/Write';
+            }
+          }
         }
 
-        return {
-          id: path,
-          label: path,
-          currentValue,
-          description: 'Select this location to change what Pi can do there.',
-          submenu() {
-            activeInput = undefined;
-            const choices: Array<{value: FilesystemAccess; label: string; description: string}> = [
-              {value: 'readWrite', label: 'Read and change', description: 'Pi can view, create, edit, and delete files.'},
-              {value: 'readOnly', label: 'Read only', description: 'Pi can view files but cannot change them.'},
-              {value: 'none', label: 'No access', description: 'Pi cannot view or change files.'},
-            ];
-            const selectList = new SelectList(choices, choices.length, getSelectListTheme());
-            selectList.setSelectedIndex(Math.max(0, choices.findIndex(choice => choice.label === currentValue)));
-            selectList.onSelect = choice => {
-              const access: FilesystemAccess = choice.value === 'readWrite'
-                ? 'readWrite'
-                : (choice.value === 'none' ? 'none' : 'readOnly');
+        const isFixed = [systemRoot, projectRoot, home].includes(path);
+        const isEditable = editablePaths.has(path) && !isFixed;
+        const sources = [
+          globalPaths.has(path) ? 'global defaults' : '',
+          projectPaths.has(path) ? 'this project' : '',
+        ].filter(Boolean);
+        const fixedSourceNote = sources.length === 0
+          ? ''
+          : ` A stored ${sources.join(' and ')} setting also references this location, but built-in access wins.`;
+        let description = sources.length === 0 ? 'Built into the sandbox.' : `Configured by ${sources.join(' and ')}.`;
+        let label = path;
+        switch (path) {
+          case systemRoot: {
+            label = `Filesystem root (${path})`;
+            description = `The filesystem is always available for reading. More specific locations below may be restricted.${fixedSourceNote}`;
+            break;
+          }
 
-              done({path, access});
-            };
+          case projectRoot: {
+            label = `Project folder (${path})`;
+            description = `The project folder is always available for reading and changes.${fixedSourceNote}`;
+            break;
+          }
 
-            selectList.onCancel = () => {
-              done(undefined);
-            };
+          case home: {
+            label = `Home folder (${path})`;
+            description = `Your home folder is blocked. Locations listed below it are explicit exceptions.${fixedSourceNote}`;
+            break;
+          }
 
-            return selectList;
-          },
-        };
-      });
-      items.push({
-        id: 'add',
-        label: 'Add a location…',
-        currentValue: 'Read only',
-        description: 'Enter an absolute file or folder path. New locations are read-only.',
-        submenu() {
-          const input = new Input({prompt: 'Location: ', placeholder: '/Users/me/Documents'});
-          const error = new Text('', 0, 0);
-          activeInput = input;
-          input.focused = isFocused;
-          input.onSubmit = value => {
-            const path = value.trim();
-            if (!path.startsWith('/')) {
-              error.setText(theme.fg('error', 'Enter an absolute path beginning with /.'));
-              tui.requestRender();
-              return;
+          default: {
+            if (sources.length > 0 && !editablePaths.has(path)) {
+              description += scope === 'project'
+                ? ' Change it under Global defaults.'
+                : ' Change it under This project.';
             }
+          }
+        }
 
-            done({path, access: 'readOnly'});
+        const sourceLabels = [
+          isFixed || sources.length === 0 ? 'Built in' : '',
+          globalPaths.has(path) ? 'Global' : '',
+          projectPaths.has(path) ? 'Local' : '',
+        ].filter(Boolean);
+        const currentValue = `${accessLabel.padEnd(16)}${sourceLabels.join(' + ')}`;
+        const shortLabel = truncateToWidth(label, 36, '…');
+        const item: SettingItem = {
+          id: path,
+          label: isEditable ? shortLabel : theme.fg('dim', shortLabel),
+          currentValue: isEditable ? currentValue : theme.fg('dim', currentValue),
+          description: `${description} Full path: ${path}`,
+        };
+        if (!isEditable) {
+          return item;
+        }
+
+        item.submenu = () => {
+          activeInput = undefined;
+          const choices: Array<{value: FilesystemAccess; label: string; description: string}> = [
+            {value: 'readWrite', label: 'Read/Write', description: 'Pi can view, create, edit, and delete files.'},
+            {value: 'readOnly', label: 'Read only', description: 'Pi can view files but cannot change them.'},
+            {value: 'none', label: 'No access', description: 'Pi cannot view or change files.'},
+          ];
+          const selectList = new SelectList(choices, choices.length, getSelectListTheme());
+          selectList.setSelectedIndex(Math.max(0, choices.findIndex(choice => choice.label === accessLabel)));
+          selectList.onSelect = choice => {
+            const access: FilesystemAccess = choice.value === 'readWrite'
+              ? 'readWrite'
+              : (choice.value === 'none' ? 'none' : 'readOnly');
+
+            done({path, access});
           };
 
-          input.onEscape = () => {
+          selectList.onCancel = () => {
             done(undefined);
           };
 
-          const inputContainer = new Container();
-          const inputTitle = theme.fg('accent', theme.bold('Add a read-only location'));
-          inputContainer.addChild(new Text(inputTitle, 0, 0));
-          inputContainer.addChild(input);
-          inputContainer.addChild(error);
+          return selectList;
+        };
 
-          return {
-            get focused() {
-              return input.focused;
-            },
-            set focused(value: boolean) {
-              input.focused = value;
-            },
-            render(width: number) {
-              return inputContainer.render(width);
-            },
-            handleInput(data: string) {
-              input.handleInput(data);
-            },
-            handleMouse(event) {
-              return inputContainer.handleMouse(event);
-            },
-            invalidate() {
-              inputContainer.invalidate();
-            },
-          };
-        },
+        return item;
       });
+      const builtInItems = pathItems.filter(item => {
+        const path = item.id;
+        return path !== projectRoot
+          && (path === systemRoot || path === home || (!globalPaths.has(path) && !projectPaths.has(path)));
+      });
+      const globalItems = pathItems.filter(item => globalPaths.has(item.id) && !builtInItems.includes(item) && item.id !== projectRoot);
+      const projectItem = pathItems.find(item => item.id === projectRoot);
+      const localItems = pathItems.filter(item => projectPaths.has(item.id) && !builtInItems.includes(item) && !globalItems.includes(item) && item.id !== projectRoot);
+      const showBuiltIns = theme.fg('dim', `${'Show'.padEnd(16)}Built in`);
+      const hideBuiltIns = theme.fg('dim', `${'Hide'.padEnd(16)}Built in`);
+      const items: SettingItem[] = [
+        {
+          id: 'built-in',
+          label: theme.fg('dim', `Built-in locations (${builtInItems.length})…`),
+          currentValue: showBuiltIns,
+          values: [showBuiltIns, hideBuiltIns],
+          description: 'Show or hide the fixed locations required by the sandbox.',
+        },
+        ...globalItems,
+        ...(projectItem === undefined ? [] : [projectItem]),
+        ...localItems,
+        {
+          id: 'location-spacer',
+          label: '',
+          currentValue: '',
+        },
+        {
+          id: 'add',
+          label: 'Add a location…',
+          currentValue: `${'Read only'.padEnd(16)}${scope === 'global' ? 'Global' : 'Local'}`,
+          values: [`${'Read only'.padEnd(16)}${scope === 'global' ? 'Global' : 'Local'}`],
+          description: 'Enter an absolute path or a path relative to this project. New locations are read-only.',
+        },
+      ];
+
+      let isAddingLocation = false;
+      let isChoosingLocationAccess = false;
+      let pendingLocation = '';
+      let locationSuggestions: string[] = [];
+      let suggestionRequest = 0;
+      const locationInput = new Input({
+        prompt: '  Location: ',
+        placeholder: './path or /absolute/path',
+        placeholderStyle: text => theme.fg('dim', text),
+      });
+      const locationError = new Text('', 0, 0);
+
+      /** Refreshes path completions without letting stale directory reads replace newer input. */
+      const refreshLocationSuggestions = async (): Promise<void> => {
+        const request = ++suggestionRequest;
+        const value = locationInput.getValue();
+        const slash = value.lastIndexOf('/');
+        const directoryPrefix = slash === -1 ? '' : value.slice(0, slash + 1);
+        const namePrefix = value.slice(slash + 1);
+        const directory = resolve(projectRoot, directoryPrefix);
+
+        try {
+          const entries = await readdir(directory, {withFileTypes: true});
+          if (request !== suggestionRequest) {
+            return;
+          }
+
+          locationSuggestions = entries
+            .filter(entry => entry.name.toLowerCase().startsWith(namePrefix.toLowerCase()))
+            .filter(entry => namePrefix.startsWith('.') || !entry.name.startsWith('.'))
+            .toSorted((a, b) => {
+              const directoryOrder = Number(b.isDirectory()) - Number(a.isDirectory());
+              return directoryOrder === 0 ? a.name.localeCompare(b.name) : directoryOrder;
+            })
+            .slice(0, 6)
+            .map(entry => `${directoryPrefix}${entry.name}${entry.isDirectory() ? '/' : ''}`);
+        } catch {
+          if (request === suggestionRequest) {
+            locationSuggestions = [];
+          }
+        }
+
+        tui.requestRender();
+      };
+
+      const locationInputContainer = new Container();
+      locationInputContainer.addChild(locationInput);
+      locationInputContainer.addChild(locationError);
+      locationInput.onSubmit = value => {
+        if (value.trim().length === 0) {
+          locationError.setText(theme.fg('error', '  Enter a file or folder path.'));
+          tui.requestRender();
+          return;
+        }
+
+        const path = resolve(projectRoot, value.trim());
+        if ([systemRoot, projectRoot, home].includes(path)) {
+          locationError.setText(theme.fg('error', '  Built-in project and home folder access cannot be changed.'));
+          tui.requestRender();
+          return;
+        }
+
+        pendingLocation = path;
+        locationError.setText('');
+        isChoosingLocationAccess = true;
+        activeInput = undefined;
+        tui.requestRender();
+      };
+
+      locationInput.onEscape = () => {
+        isAddingLocation = false;
+        isChoosingLocationAccess = false;
+        locationSuggestions = [];
+        activeInput = undefined;
+        locationInput.setValue('');
+        locationError.setText('');
+        tui.requestRender();
+      };
+
+      const locationAccessChoices: Array<{value: FilesystemAccess; label: string; description: string}> = [
+        {value: 'readOnly', label: 'Read only', description: 'Pi can view files but cannot change them.'},
+        {value: 'readWrite', label: 'Read/Write', description: 'Pi can view, create, edit, and delete files.'},
+      ];
+      const locationAccessList = new SelectList(locationAccessChoices, locationAccessChoices.length, getSelectListTheme());
+      locationAccessList.onSelect = choice => {
+        const access: FilesystemAccess = choice.value === 'readWrite' ? 'readWrite' : 'readOnly';
+        done({path: pendingLocation, access});
+      };
+
+      locationAccessList.onCancel = () => {
+        isChoosingLocationAccess = false;
+        activeInput = locationInput;
+        locationInput.focused = isFocused;
+        tui.requestRender();
+      };
+
+      const locationAccessTitle = new Text(theme.fg('dim', '  Access for this location:'), 0, 0);
+      const inlineLocationInput = {
+        render(width: number) {
+          if (!isAddingLocation) {
+            return [];
+          }
+
+          const lines = locationInputContainer.render(width);
+          if (isChoosingLocationAccess) {
+            return [...lines, '', ...locationAccessTitle.render(width), ...locationAccessList.render(width)];
+          }
+
+          if (locationSuggestions.length === 0) {
+            return lines;
+          }
+
+          return [
+            ...lines,
+            ...locationSuggestions.map(suggestion => theme.fg('dim', `    ${suggestion}`)),
+            theme.fg('dim', '    Tab to complete'),
+          ];
+        },
+        handleInput(data: string) {
+          if (isChoosingLocationAccess) {
+            locationAccessList.handleInput(data);
+          } else if (isAddingLocation && matchesKey(data, Key.tab) && locationSuggestions[0] !== undefined) {
+            locationInput.setValue(locationSuggestions[0]);
+            void refreshLocationSuggestions();
+          } else if (isAddingLocation) {
+            locationInput.handleInput(data);
+            void refreshLocationSuggestions();
+          }
+        },
+        invalidate() {
+          locationInputContainer.invalidate();
+          locationAccessList.invalidate();
+        },
+      };
 
       const container = new Container();
       const scopeLabel = scope === 'project' ? 'This project' : 'Global defaults';
       const title = theme.fg('accent', theme.bold(`Files and folders — ${scopeLabel}`));
-      const description = theme.fg('muted', 'Select a location to change its access.');
+      const description = theme.fg('muted', 'Every effective location is shown. Dimmed rows cannot be changed in this scope.');
+      const labelWidth = Math.min(36, Math.max(...items.map(item => visibleWidth(item.label))));
+      const tableHeader = `  ${'Location'.padEnd(labelWidth)}  ${'Access'.padEnd(16)}Source`;
       container.addChild(new Text(title, 0, 0));
       container.addChild(new Text(description, 0, 1));
+      container.addChild(new Text(theme.fg('dim', tableHeader), 0, 0));
       const settingsList = new SettingsList(
         items,
-        Math.min(items.length + 2, 15),
+        15,
         getSettingsListTheme(),
-        (_id, _newValue) => undefined,
+        (id, newValue) => {
+          if (id === 'add') {
+            isAddingLocation = true;
+            isChoosingLocationAccess = false;
+            pendingLocation = '';
+            locationAccessList.setSelectedIndex(0);
+            activeInput = locationInput;
+            locationInput.focused = isFocused;
+            locationError.setText('');
+            void refreshLocationSuggestions();
+            tui.requestRender();
+            return;
+          }
+
+          if (id !== 'built-in') {
+            return;
+          }
+
+          if (newValue === hideBuiltIns) {
+            items.splice(1, 0, ...builtInItems);
+            return;
+          }
+
+          items.splice(1, builtInItems.length);
+        },
         () => {
           done(undefined);
         },
       );
       container.addChild(settingsList);
+      container.addChild(inlineLocationInput);
 
       return {
         get focused() {
@@ -354,11 +613,16 @@ export class SandboxCommand {
           return container.render(width);
         },
         handleInput(data: string) {
-          settingsList.handleInput(data);
+          if (isAddingLocation) {
+            inlineLocationInput.handleInput(data);
+          } else {
+            settingsList.handleInput(data);
+          }
+
           tui.requestRender();
         },
         handleMouse(event) {
-          return settingsList.handleMouse(event);
+          return activeInput === undefined ? settingsList.handleMouse(event) : undefined;
         },
         invalidate() {
           container.invalidate();
@@ -370,7 +634,12 @@ export class SandboxCommand {
     }
 
     await this.config.setFilesystemAccess(scope, result.path, result.access);
-    await this.finish(ctx, `${result.path} is now ${result.access === 'readWrite' ? 'readable and writable' : (result.access === 'readOnly' ? 'read-only' : 'blocked')}.`);
+    await this.finish(
+      ctx,
+      result.access === 'none'
+        ? `${result.path} returned to its default no-access state and was removed from ${scope === 'global' ? 'global defaults' : 'this project'} settings.`
+        : `${result.path} is now ${result.access === 'readWrite' ? 'readable and writable' : 'read-only'}.`,
+    );
     return this.manageFilesystem(ctx, scope);
   }
 
@@ -450,15 +719,17 @@ export class SandboxCommand {
     const toggleAction = this.sandbox.isEnabled ? 'Turn off session protection' : 'Turn on session protection';
     const promptingAction = `Ask when a website is blocked — ${promptingValue}`;
     const researchAction = `Research agents — ${researchValue}`;
-    const action = await ctx.ui.select(`Sandbox — ${scopeLabel}`, [
-      toggleAction,
-      'View effective access',
+    const statusIcon = this.sandbox.isEnabled ? '󰕥' : '󰒲';
+    const statusLabel = this.sandbox.isEnabled ? 'On' : 'Off';
+    const title = `${statusIcon} Sandbox: ${statusLabel} — ${scopeLabel}`;
+    const action = await ctx.ui.select(title, [
       'Files and folders',
       'Websites and services',
       promptingAction,
       researchAction,
       scope === 'project' ? 'Manage global defaults' : 'Manage this project',
       `Reset ${scopeLabel.toLowerCase()}…`,
+      toggleAction,
     ]);
     if (action === undefined) {
       return;
@@ -468,11 +739,6 @@ export class SandboxCommand {
       case 'Turn off session protection':
       case 'Turn on session protection': {
         await this.setEnabled(ctx, !this.sandbox.isEnabled);
-        break;
-      }
-
-      case 'View effective access': {
-        await this.show(ctx);
         break;
       }
 

@@ -1,7 +1,12 @@
 import {Buffer} from 'node:buffer';
 import {mkdtemp, rm, realpath} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
-import {dirname, join, resolve} from 'node:path';
+import {
+  dirname,
+  join,
+  parse,
+  resolve,
+} from 'node:path';
 import process from 'node:process';
 import {execa} from 'execa';
 import {
@@ -139,6 +144,7 @@ export class SandboxSessionManager {
      so we allow the real paths of those as well.
      */
     const homeDirectory = homedir();
+    const systemRoot = parse(this.cwd).root;
     const piAgentPath = process.env.PI_CODING_AGENT_DIR ?? join(homeDirectory, '.pi', 'agent');
     const agentsSkillPath = join(homeDirectory, '.agents', 'skills');
     const globalPiSkillPaths = ['skills', 'git', 'npm'].map(directory => resolve(piAgentPath, directory));
@@ -173,6 +179,21 @@ export class SandboxSessionManager {
     }
 
     const parsedRuntimeConfig = runtimeConfigValidation.data;
+    // The workspace must remain usable while the rest of the home folder stays private.
+    const {filesystem} = parsedRuntimeConfig;
+    filesystem.allowRead = [...new Set([
+      ...(filesystem.allowRead ?? []).filter(path => path !== homeDirectory || path === this.cwd),
+      this.cwd,
+    ])];
+    filesystem.allowWrite = [...new Set([
+      ...(filesystem.allowWrite ?? []).filter(path => path !== homeDirectory && path !== systemRoot),
+      this.cwd,
+    ])];
+    filesystem.denyRead = [...new Set([
+      ...(filesystem.denyRead ?? []).filter(path => path !== systemRoot && path !== this.cwd),
+      ...([systemRoot, this.cwd].includes(homeDirectory) ? [] : [homeDirectory]),
+    ])];
+    filesystem.denyWrite = (filesystem.denyWrite ?? []).filter(path => path !== systemRoot && path !== this.cwd);
     if (requestPolicies.length > 0) {
       const excludedDomains = parsedRuntimeConfig.network.tlsTerminate?.excludeDomains ?? [];
       const excludedDestination = requestPolicies.find(policy =>
