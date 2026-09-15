@@ -84,7 +84,8 @@ export class SandboxCommand {
     ctx.ui.notify(`Sandbox is ${isEnabled ? 'on' : 'off'} for this session.`, isEnabled ? 'info' : 'warning');
   }
 
-  async finish(ctx: ExtensionCommandContext, message: string): Promise<void> {
+  /** Restarts SRT so a saved setting is active before reporting success. */
+  async restartSessionAndNotify(ctx: ExtensionCommandContext, message: string): Promise<void> {
     await this.sandbox.restartSession();
     ctx.ui.notify(message, 'info');
   }
@@ -122,11 +123,10 @@ export class SandboxCommand {
   async manageResearchScoutModel(ctx: ExtensionCommandContext): Promise<void> {
     await this.config.load();
     const current = this.config.getResearchScoutModel();
-    const models = ctx.modelRegistry.getAvailable();
-    const choices = models.map(model => `${model.provider}/${model.id}`);
+    const models = new Map(ctx.modelRegistry.getAvailable().map(model => [`${model.provider}/${model.id}`, model]));
     const selection = await ctx.ui.select(
       `Research Scout model — 󰖟 GLOBAL${current === undefined ? '' : ` (${current.provider}/${current.id})`}`,
-      [...choices, 'Clear model'],
+      [...models.keys(), 'Clear model'],
     );
     if (selection === undefined) {
       return;
@@ -138,7 +138,7 @@ export class SandboxCommand {
       return;
     }
 
-    const model = models[choices.indexOf(selection)];
+    const model = models.get(selection);
     if (model === undefined) {
       throw new Error('Selected Research Scout model is unavailable.');
     }
@@ -150,25 +150,25 @@ export class SandboxCommand {
   /** Prevents project menus from deleting inherited website settings. */
   async selectNetworkRuleToRemove(ctx: ExtensionCommandContext, selection: NetworkRuleSelection): Promise<string | undefined> {
     const {effectiveEntries, globalEntries, projectEntries, scope} = selection;
-    const choices = effectiveEntries.map(entry => {
+    const entries = new Map(effectiveEntries.map(entry => {
       const sources = [
         projectEntries.has(entry) ? 'project' : '',
         globalEntries.has(entry) ? 'global' : '',
       ].filter(Boolean);
-      return `${entry} [${sources.length === 0 ? 'Sloppi default' : sources.join(', ')}]`;
-    });
-    if (choices.length === 0) {
+      return [`${entry} [${sources.length === 0 ? 'Sloppi default' : sources.join(', ')}]`, entry];
+    }));
+    if (entries.size === 0) {
       ctx.ui.notify('No matching website or service settings.', 'info');
       return undefined;
     }
 
     const scopeLabel = selection.scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
-    const choice = await ctx.ui.select(`Remove website or service access — ${scopeLabel}`, choices);
+    const choice = await ctx.ui.select(`Remove website or service access — ${scopeLabel}`, entries.keys().toArray());
     if (choice === undefined) {
       return undefined;
     }
 
-    const entry = effectiveEntries[choices.indexOf(choice)];
+    const entry = entries.get(choice);
     const scopedEntries = scope === 'global' ? globalEntries : projectEntries;
     if (entry !== undefined && scopedEntries.has(entry)) {
       return entry;
@@ -344,17 +344,18 @@ export class SandboxCommand {
         return path !== projectRoot
           && (path === systemRoot || path === home || (!globalPaths.has(path) && !projectPaths.has(path)));
       });
-      const globalItems = pathItems.filter(item => globalPaths.has(item.id) && !builtInItems.includes(item) && item.id !== projectRoot);
+      const builtInPaths = new Set(builtInItems.map(item => item.id));
+      const globalItems = pathItems.filter(item => globalPaths.has(item.id) && !builtInPaths.has(item.id) && item.id !== projectRoot);
       const projectItem = pathItems.find(item => item.id === projectRoot);
-      const localItems = pathItems.filter(item => projectPaths.has(item.id) && !builtInItems.includes(item) && !globalItems.includes(item) && item.id !== projectRoot);
-      const showBuiltIns = theme.fg('dim', `${'Show'.padEnd(16)}Built in`);
-      const hideBuiltIns = theme.fg('dim', `${'Hide'.padEnd(16)}Built in`);
+      const localItems = pathItems.filter(item => projectPaths.has(item.id) && !builtInPaths.has(item.id) && !globalPaths.has(item.id) && item.id !== projectRoot);
+      const builtInsHidden = theme.fg('dim', `${'Show'.padEnd(16)}Built in`);
+      const builtInsShown = theme.fg('dim', `${'Hide'.padEnd(16)}Built in`);
       const items: SettingItem[] = [
         {
           id: 'built-in',
           label: theme.fg('dim', `Built-in locations (${builtInItems.length})…`),
-          currentValue: showBuiltIns,
-          values: [showBuiltIns, hideBuiltIns],
+          currentValue: builtInsHidden,
+          values: [builtInsHidden, builtInsShown],
           description: 'Show or hide the fixed locations required by the sandbox.',
         },
         ...globalItems,
@@ -488,7 +489,7 @@ export class SandboxCommand {
             return;
           }
 
-          if (newValue === hideBuiltIns) {
+          if (newValue === builtInsShown) {
             items.splice(1, 0, ...builtInItems);
             return;
           }
@@ -543,16 +544,16 @@ export class SandboxCommand {
     const permissions: FilesystemPermission[] = ['allowRead', 'allowWrite', 'denyRead', 'denyWrite'];
     await this.config.updateFilesystem(scope, permissions, 'remove', result.path);
     if (result.action === 'remove') {
-      await this.finish(ctx, `Removed ${result.path} from ${scope === 'global' ? 'global' : 'project'} filesystem rules.`);
+      await this.restartSessionAndNotify(ctx, `Removed ${result.path} from ${scope === 'global' ? 'global' : 'project'} filesystem rules.`);
     } else {
-      const nextPermissions: FilesystemPermission[] = result.access === 'readWrite'
-        ? ['allowRead', 'allowWrite']
-        : (result.access === 'readOnly' ? ['allowRead', 'denyWrite'] : ['denyRead', 'denyWrite']);
-      await this.config.updateFilesystem(scope, nextPermissions, 'add', result.path);
-      const accessLabel = result.access === 'readWrite'
-        ? 'readable and writable'
-        : (result.access === 'readOnly' ? 'read-only' : 'blocked');
-      await this.finish(ctx, `${result.path} is now ${accessLabel}.`);
+      const access = {
+        readWrite: {permissions: ['allowRead', 'allowWrite'], label: 'readable and writable'},
+        readOnly: {permissions: ['allowRead', 'denyWrite'], label: 'read-only'},
+        none: {permissions: ['denyRead', 'denyWrite'], label: 'blocked'},
+      } as const;
+      const setting = access[result.access];
+      await this.config.updateFilesystem(scope, setting.permissions, 'add', result.path);
+      await this.restartSessionAndNotify(ctx, `${result.path} is now ${setting.label}.`);
     }
 
     return this.manageFilesystem(ctx, scope);
@@ -617,7 +618,7 @@ export class SandboxCommand {
       normalizedDomain,
       normalizedReason === undefined || normalizedReason.length === 0 ? undefined : normalizedReason,
     );
-    await this.finish(ctx, `${listAction === 'add' ? 'Added' : 'Removed'} ${normalizedDomain} in ${scope} network rules.`);
+    await this.restartSessionAndNotify(ctx, `${listAction === 'add' ? 'Added' : 'Removed'} ${normalizedDomain} in ${scope} network rules.`);
   }
 
   /** Keeps the settings browser open until Escape is pressed at its top level. */
@@ -683,7 +684,7 @@ export class SandboxCommand {
           const prompting = await ctx.ui.select(`Ask when a website is blocked? — ${scopeLabel}`, ['On', 'Off']);
           if (prompting !== undefined) {
             await this.config.setPrompting(activeScope, prompting === 'On');
-            await this.finish(ctx, `Blocked-website prompts are ${prompting.toLowerCase()} for ${scopeName.toLowerCase()}.`);
+            await this.restartSessionAndNotify(ctx, `Blocked-website prompts are ${prompting.toLowerCase()} for ${scopeName.toLowerCase()}.`);
           }
 
           break;
