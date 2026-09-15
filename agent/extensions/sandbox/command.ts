@@ -89,54 +89,6 @@ export class SandboxCommand {
     ctx.ui.notify(message, 'info');
   }
 
-  /** Shows effective access without exposing the underlying SRT configuration format. */
-  async show(ctx: ExtensionCommandContext): Promise<void> {
-    if (!this.sandbox.isEnabled) {
-      ctx.ui.notify('Sandbox is off. Tools currently have unrestricted access to the host.', 'warning');
-      return;
-    }
-
-    await this.config.reload();
-    const runtime = SandboxManager.getConfig();
-    const readable = runtime?.filesystem?.allowRead ?? [];
-    const writable = runtime?.filesystem?.allowWrite ?? [];
-    const hidden = runtime?.filesystem?.denyRead ?? [];
-    const readOnly = runtime?.filesystem?.denyWrite ?? [];
-    const allowed = runtime?.network?.allowedDomains ?? [];
-    const blocked = runtime?.network?.deniedDomains ?? [];
-    const lines = [
-      'Effective sandbox access',
-      '',
-      'Session',
-      '  Protection: On',
-      '',
-      'Files and folders',
-      '  Readable:',
-      ...(readable.length === 0 ? ['    No additional locations'] : readable.map(path => `    ${path}`)),
-      '',
-      '  Writable:',
-      ...(writable.length === 0 ? ['    None'] : writable.map(path => `    ${path}`)),
-      '',
-      '  Hidden:',
-      ...(hidden.length === 0 ? ['    None'] : hidden.map(path => `    ${path}`)),
-      '',
-      '  Read-only:',
-      ...(readOnly.length === 0 ? ['    None'] : readOnly.map(path => `    ${path}`)),
-      '',
-      'Websites and services',
-      '  Allowed:',
-      ...(allowed.length === 0 ? ['    None'] : allowed.map(destination => `    ${destination}`)),
-      '',
-      '  Blocked:',
-      ...(blocked.length === 0 ? ['    None'] : blocked.map(destination => `    ${destination}`)),
-      '',
-      `  Ask when blocked: ${this.config.shouldPrompt() ? 'On' : 'Off'}`,
-      '',
-      `Research agents: ${this.config.areResearchAgentsEnabled() ? 'On' : 'Off'}`,
-    ];
-    ctx.ui.notify(lines.join('\n'), 'info');
-  }
-
   /** Lets the user configure scoped delegation or its global default model. */
   async manageResearchAgents(pi: ExtensionAPI, ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
     await this.config.load();
@@ -286,34 +238,8 @@ export class SandboxCommand {
     ];
     const editablePaths = scope === 'global' ? globalPaths : projectPaths;
     const result = await ctx.ui.custom<FilesystemAction | undefined>((tui, theme, keybindings, done) => {
-      let activeInput: Editor | undefined;
       let isFocused = false;
       const pathItems: SettingItem[] = paths.map(path => {
-        let accessLabel = 'Read only';
-        switch (path) {
-          case projectRoot: {
-            accessLabel = 'Read/Write';
-            break;
-          }
-
-          case systemRoot: {
-            break;
-          }
-
-          case home: {
-            accessLabel = 'No access';
-            break;
-          }
-
-          default: {
-            if (hidden.has(path)) {
-              accessLabel = 'No access';
-            } else if (writable.has(path) && !readOnly.has(path)) {
-              accessLabel = 'Read/Write';
-            }
-          }
-        }
-
         const isFixed = [systemRoot, projectRoot, home].includes(path);
         const isEditable = editablePaths.has(path) && !isFixed;
         const sources = [
@@ -323,6 +249,7 @@ export class SandboxCommand {
         const fixedSourceNote = sources.length === 0
           ? ''
           : ` A stored ${sources.join(' and ')} setting also references this location, but built-in access wins.`;
+        let accessLabel = 'Read only';
         let description = sources.length === 0 ? 'Built into the sandbox.' : `Configured by ${sources.join(' and ')}.`;
         let label = path;
         switch (path) {
@@ -333,18 +260,26 @@ export class SandboxCommand {
           }
 
           case projectRoot: {
+            accessLabel = 'Read/Write';
             label = `Project folder (${path})`;
             description = `The project folder is always available for reading and changes.${fixedSourceNote}`;
             break;
           }
 
           case home: {
+            accessLabel = 'No access';
             label = `Home folder (${path})`;
             description = `Your home folder is blocked. Locations listed below it are explicit exceptions.${fixedSourceNote}`;
             break;
           }
 
           default: {
+            if (hidden.has(path)) {
+              accessLabel = 'No access';
+            } else if (writable.has(path) && !readOnly.has(path)) {
+              accessLabel = 'Read/Write';
+            }
+
             if (sources.length > 0 && !editablePaths.has(path)) {
               description += scope === 'project'
                 ? ' Change it under Global defaults.'
@@ -371,7 +306,6 @@ export class SandboxCommand {
         }
 
         item.submenu = () => {
-          activeInput = undefined;
           const choices: Array<{value: FilesystemAccess | 'remove'; label: string; description: string}> = [
             {value: 'readWrite', label: 'Read/Write', description: 'Pi can view, create, edit, and delete files.'},
             {value: 'readOnly', label: 'Read only', description: 'Pi can view files but cannot change them.'},
@@ -440,8 +374,7 @@ export class SandboxCommand {
         },
       ];
 
-      let isAddingLocation = false;
-      let isChoosingLocationAccess = false;
+      let locationMode: 'closed' | 'path' | 'access' = 'closed';
       let pendingLocation = '';
       const locationInput = new Editor(tui, {
         borderColor: text => theme.fg('borderMuted', text),
@@ -467,7 +400,9 @@ export class SandboxCommand {
 
         const path = enteredPath === '~'
           ? home
-          : resolve(enteredPath.startsWith('~/') ? home : projectRoot, enteredPath.startsWith('~/') ? enteredPath.slice(2) : enteredPath);
+          : (enteredPath.startsWith('~/')
+            ? resolve(home, enteredPath.slice(2))
+            : resolve(projectRoot, enteredPath));
         if ([systemRoot, projectRoot, home].includes(path)) {
           locationError.setText(theme.fg('error', '  Built-in project and home folder access cannot be changed.'));
           tui.requestRender();
@@ -476,8 +411,7 @@ export class SandboxCommand {
 
         pendingLocation = path;
         locationError.setText('');
-        isChoosingLocationAccess = true;
-        activeInput = undefined;
+        locationMode = 'access';
         tui.requestRender();
       };
 
@@ -492,8 +426,7 @@ export class SandboxCommand {
       };
 
       locationAccessList.onCancel = () => {
-        isChoosingLocationAccess = false;
-        activeInput = locationInput;
+        locationMode = 'path';
         locationInput.focused = isFocused;
         tui.requestRender();
       };
@@ -501,26 +434,23 @@ export class SandboxCommand {
       const locationAccessTitle = new Text(theme.fg('dim', '  Access for this location:'), 0, 0);
       const inlineLocationInput = {
         render(width: number) {
-          if (!isAddingLocation) {
+          if (locationMode === 'closed') {
             return [];
           }
 
           const lines = locationInputContainer.render(width);
-          if (isChoosingLocationAccess) {
-            return [...lines, '', ...locationAccessTitle.render(width), ...locationAccessList.render(width)];
-          }
-
-          return lines;
+          return locationMode === 'access'
+            ? [...lines, '', ...locationAccessTitle.render(width), ...locationAccessList.render(width)]
+            : lines;
         },
         handleInput(data: string) {
-          if (isChoosingLocationAccess) {
+          if (locationMode === 'access') {
             locationAccessList.handleInput(data);
           } else if (keybindings.matches(data, 'tui.select.cancel')) {
-            isAddingLocation = false;
-            activeInput = undefined;
+            locationMode = 'closed';
             locationInput.setText('');
             locationError.setText('');
-          } else if (isAddingLocation) {
+          } else {
             locationInput.handleInput(data);
           }
         },
@@ -545,11 +475,9 @@ export class SandboxCommand {
         getSettingsListTheme(),
         (id, newValue) => {
           if (id === 'add') {
-            isAddingLocation = true;
-            isChoosingLocationAccess = false;
+            locationMode = 'path';
             pendingLocation = '';
             locationAccessList.setSelectedIndex(0);
-            activeInput = locationInput;
             locationInput.focused = isFocused;
             locationError.setText('');
             tui.requestRender();
@@ -580,24 +508,28 @@ export class SandboxCommand {
         },
         set focused(value: boolean) {
           isFocused = value;
-          if (activeInput !== undefined) {
-            activeInput.focused = value;
-          }
+          locationInput.focused = value && locationMode === 'path';
         },
         render(width: number) {
           return container.render(width);
         },
         handleInput(data: string) {
-          if (isAddingLocation) {
-            inlineLocationInput.handleInput(data);
-          } else {
+          if (locationMode === 'closed') {
             settingsList.handleInput(data);
+          } else {
+            inlineLocationInput.handleInput(data);
           }
 
           tui.requestRender();
         },
         handleMouse(event) {
-          return activeInput === undefined ? settingsList.handleMouse(event) : activeInput.handleMouse(event);
+          if (locationMode === 'path') {
+            return locationInput.handleMouse(event);
+          }
+
+          return locationMode === 'access'
+            ? locationAccessList.handleMouse(event)
+            : settingsList.handleMouse(event);
         },
         invalidate() {
           container.invalidate();
@@ -671,7 +603,8 @@ export class SandboxCommand {
       });
     }
 
-    if (domain === undefined || domain.trim().length === 0) {
+    const normalizedDomain = domain?.trim();
+    if (normalizedDomain === undefined || normalizedDomain.length === 0) {
       return;
     }
 
@@ -681,10 +614,10 @@ export class SandboxCommand {
       scope,
       permission,
       listAction,
-      domain.trim(),
+      normalizedDomain,
       normalizedReason === undefined || normalizedReason.length === 0 ? undefined : normalizedReason,
     );
-    await this.finish(ctx, `${listAction === 'add' ? 'Added' : 'Removed'} ${domain.trim()} in ${scope} network rules.`);
+    await this.finish(ctx, `${listAction === 'add' ? 'Added' : 'Removed'} ${normalizedDomain} in ${scope} network rules.`);
   }
 
   /** Keeps the settings browser open until Escape is pressed at its top level. */
@@ -695,83 +628,88 @@ export class SandboxCommand {
       'tui.select.up': [...new Set([...keybindings.getKeys('tui.select.up'), 'k' as const])],
       'tui.select.down': [...new Set([...keybindings.getKeys('tui.select.down'), 'j' as const])],
     });
-    await this.config.reload();
-    const scopeName = scope === 'project' ? 'This project' : 'Global defaults';
-    const scopeLabel = scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
-    const scopedConfig = this.config.getScopedConfig(scope);
-    const scopedPrompting = scopedConfig.sandbox?.promptOnNetworkDeny;
-    const promptingValue = scope === 'project' && scopedPrompting === undefined
-      ? `Use global setting (${this.config.shouldPrompt() ? 'On' : 'Off'})`
-      : ((scopedPrompting ?? true) ? 'On' : 'Off');
-    const scopedResearch = this.config.getResearchAgentsSetting(scope);
-    const researchValue = scope === 'project' && scopedResearch === undefined
-      ? `Use global setting (${this.config.areResearchAgentsEnabled() ? 'On' : 'Off'})`
-      : ((scopedResearch ?? false) ? 'On' : 'Off');
-    const toggleAction = this.sandbox.isEnabled ? 'Turn off session protection' : 'Turn on session protection';
-    const promptingAction = `Ask when a website is blocked — ${promptingValue}`;
-    const researchAction = `Research agents — ${researchValue}`;
-    const statusIcon = this.sandbox.isEnabled ? '󰕥' : '󰒲';
-    const statusLabel = this.sandbox.isEnabled ? 'On' : 'Off';
-    const title = `${statusIcon} Sandbox: ${statusLabel} — ${scopeLabel}`;
-    const action = await ctx.ui.select(title, [
-      'Files and folders',
-      'Websites and services',
-      promptingAction,
-      researchAction,
-      toggleAction,
-      '',
-      scope === 'project' ? '← Manage global settings' : '← Manage local settings',
-    ]);
-    if (action === undefined) {
-      return;
-    }
-
-    switch (action) {
-      case 'Turn off session protection':
-      case 'Turn on session protection': {
-        await this.setEnabled(ctx, !this.sandbox.isEnabled);
-        break;
+    let activeScope = scope;
+    /* eslint-disable no-await-in-loop, unicorn/no-break-in-nested-loop -- Each menu must finish before the next reflects its changes. */
+    while (true) {
+      await this.config.reload();
+      const scopeName = activeScope === 'project' ? 'This project' : 'Global defaults';
+      const scopeLabel = activeScope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
+      const scopedConfig = this.config.getScopedConfig(activeScope);
+      const scopedPrompting = scopedConfig.sandbox?.promptOnNetworkDeny;
+      const promptingValue = activeScope === 'project' && scopedPrompting === undefined
+        ? `Use global setting (${this.config.shouldPrompt() ? 'On' : 'Off'})`
+        : ((scopedPrompting ?? true) ? 'On' : 'Off');
+      const scopedResearch = this.config.getResearchAgentsSetting(activeScope);
+      const researchValue = activeScope === 'project' && scopedResearch === undefined
+        ? `Use global setting (${this.config.areResearchAgentsEnabled() ? 'On' : 'Off'})`
+        : ((scopedResearch ?? false) ? 'On' : 'Off');
+      const toggleAction = this.sandbox.isEnabled ? 'Turn off session protection' : 'Turn on session protection';
+      const promptingAction = `Ask when a website is blocked — ${promptingValue}`;
+      const researchAction = `Research agents — ${researchValue}`;
+      const statusIcon = this.sandbox.isEnabled ? '󰕥' : '󰒲';
+      const statusLabel = this.sandbox.isEnabled ? 'On' : 'Off';
+      const title = `${statusIcon} Sandbox: ${statusLabel} — ${scopeLabel}`;
+      const action = await ctx.ui.select(title, [
+        'Files and folders',
+        'Websites and services',
+        promptingAction,
+        researchAction,
+        toggleAction,
+        '',
+        activeScope === 'project' ? '← Manage global settings' : '← Manage local settings',
+      ]);
+      if (action === undefined) {
+        return;
       }
 
-      case 'Files and folders': {
-        await this.manageFilesystem(ctx, scope);
-        break;
-      }
-
-      case 'Websites and services': {
-        await this.manageNetwork(ctx, scope);
-        break;
-      }
-
-      case promptingAction: {
-        const prompting = await ctx.ui.select(`Ask when a website is blocked? — ${scopeLabel}`, ['On', 'Off']);
-        if (prompting !== undefined) {
-          await this.config.setPrompting(scope, prompting === 'On');
-          await this.finish(ctx, `Blocked-website prompts are ${prompting.toLowerCase()} for ${scopeName.toLowerCase()}.`);
+      switch (action) {
+        case 'Turn off session protection':
+        case 'Turn on session protection': {
+          await this.setEnabled(ctx, !this.sandbox.isEnabled);
+          break;
         }
 
-        break;
-      }
+        case 'Files and folders': {
+          await this.manageFilesystem(ctx, activeScope);
+          break;
+        }
 
-      case researchAction: {
-        await this.manageResearchAgents(pi, ctx, scope);
-        break;
-      }
+        case 'Websites and services': {
+          await this.manageNetwork(ctx, activeScope);
+          break;
+        }
 
-      case '← Manage global settings': {
-        return this.manage(pi, ctx, 'global');
-      }
+        case promptingAction: {
+          const prompting = await ctx.ui.select(`Ask when a website is blocked? — ${scopeLabel}`, ['On', 'Off']);
+          if (prompting !== undefined) {
+            await this.config.setPrompting(activeScope, prompting === 'On');
+            await this.finish(ctx, `Blocked-website prompts are ${prompting.toLowerCase()} for ${scopeName.toLowerCase()}.`);
+          }
 
-      case '← Manage local settings': {
-        return this.manage(pi, ctx, 'project');
-      }
+          break;
+        }
 
-      default: {
-        break;
+        case researchAction: {
+          await this.manageResearchAgents(pi, ctx, activeScope);
+          break;
+        }
+
+        case '← Manage global settings': {
+          activeScope = 'global';
+          break;
+        }
+
+        case '← Manage local settings': {
+          activeScope = 'project';
+          break;
+        }
+
+        default: {
+          break;
+        }
       }
     }
-
-    return this.manage(pi, ctx, scope);
+    /* eslint-enable no-await-in-loop, unicorn/no-break-in-nested-loop */
   }
 
   /** Registers the interactive settings command and its non-interactive shortcuts. */
