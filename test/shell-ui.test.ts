@@ -111,7 +111,18 @@ void describe('shell UI', () => {
       scopedModels: [],
       sessionManager: {
         getBranch: () => [
-          {type: 'message', message: {role: 'assistant', usage: {cost: {total: 0.123}}}},
+          {
+            type: 'message',
+            message: {
+              role: 'assistant',
+              usage: {
+                input: 2000,
+                cacheRead: 8000,
+                cacheWrite: 1000,
+                cost: {total: 0.123},
+              },
+            },
+          },
           {type: 'compaction', usage: {cost: {total: 0.004}}},
         ],
         getCwd: () => '/repo',
@@ -195,7 +206,7 @@ void describe('shell UI', () => {
     t.assert.match(lines[0] ?? '', /repo.* {2} main !1/v);
     t.assert.match(lines[0] ?? '', /─/v);
     t.assert.match(lines[0] ?? '', /no model.*off$/v);
-    t.assert.match(lines[1] ?? '', /sandbox status.*agent.*third-party status.*ponytail status.*25\.0%.*50K\/200K.*\$0\.127.*󰆏 1$/v);
+    t.assert.match(lines[1] ?? '', /sandbox status.*agent.*third-party status.*ponytail status.*25\.0%.*50K\/200K.*cache 73% R8K W1K.*\$0\.127.*󰆏 1$/v);
     t.assert.doesNotMatch(lines.join('\n'), /idle|busy|trusted|untrusted|[]/v);
 
     const contextColors = [10, 25, 45, 60].map(percent => {

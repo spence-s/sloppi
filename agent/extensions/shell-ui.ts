@@ -90,16 +90,27 @@ export function parseGitStatus(output: string): GitStatus {
 export default function shellUi(pi: ExtensionAPI): void {
   let gitStatus: GitStatus | undefined;
   let sessionCost = 0;
+  let sessionCacheRead = 0;
+  let sessionCacheWrite = 0;
+  let latestCacheReuse: number | undefined;
   let compactions = 0;
   let requestRender = (): void => undefined;
 
   const refreshStatus = async (ctx: ExtensionContext): Promise<void> => {
     sessionCost = 0;
+    sessionCacheRead = 0;
+    sessionCacheWrite = 0;
+    latestCacheReuse = undefined;
     compactions = 0;
 
     for (const entry of ctx.sessionManager.getBranch()) {
       if (entry.type === 'message' && entry.message.role === 'assistant') {
-        sessionCost += entry.message.usage.cost.total;
+        const {usage} = entry.message;
+        const requestInput = usage.input + usage.cacheRead + usage.cacheWrite;
+        sessionCost += usage.cost.total;
+        sessionCacheRead += usage.cacheRead;
+        sessionCacheWrite += usage.cacheWrite;
+        latestCacheReuse = requestInput === 0 ? undefined : usage.cacheRead / requestInput;
       } else if (entry.type === 'message' && entry.message.role === 'toolResult') {
         sessionCost += entry.message.usage?.cost.total ?? 0;
       } else if (entry.type === 'compaction') {
@@ -252,6 +263,7 @@ export default function shellUi(pi: ExtensionAPI): void {
             ? '󰧑 no model'
             : `󰧑 ${ctx.model.provider}/${ctx.model.id}`);
           const cost = theme.fg('muted', `$${sessionCost < 1 ? sessionCost.toFixed(3) : sessionCost.toFixed(2)}`);
+          const cache = theme.fg('muted', `cache ${latestCacheReuse === undefined ? '—' : `${(latestCacheReuse * 100).toFixed(0)}%`} R${compactNumber.format(sessionCacheRead)} W${compactNumber.format(sessionCacheWrite)}`);
           const thinking = theme.fg('syntaxKeyword', `󰔏 ${ctx.thinkingLevel ?? 'off'}`);
           const pending = ctx.hasPendingMessages() ? theme.fg('warning', '󰅖 queued') : '';
           const workspacePath = `${osIcon} ${theme.fg('mdHeading', `  ${cwd}`)}`;
@@ -284,7 +296,7 @@ export default function shellUi(pi: ExtensionAPI): void {
 
           return [
             renderRow(workspace, `${model}  ${thinking}`, true),
-            renderRow(status, `${context}  ${cost}  ${compaction}`),
+            renderRow(status, `${context}  ${cache}  ${cost}  ${compaction}`),
           ];
         },
       };
