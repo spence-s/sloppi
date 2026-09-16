@@ -1,5 +1,11 @@
 import {homedir} from 'node:os';
-import {parse, resolve} from 'node:path';
+import {
+  isAbsolute,
+  parse,
+  relative,
+  resolve,
+  sep,
+} from 'node:path';
 import {
   getSelectListTheme,
   getSettingsListTheme,
@@ -24,6 +30,19 @@ type FilesystemAccess = 'readWrite' | 'readOnly' | 'none';
 type FilesystemAction =
   | {action: 'set'; access: FilesystemAccess; path: string}
   | {action: 'remove'; path: string};
+
+/**
+ Returns a relative path only when the target is below the parent directory.
+ */
+const relativeDescendantPath = (parent: string, target: string): string | undefined => {
+  const relativePath = relative(parent, target);
+  return relativePath !== ''
+    && relativePath !== '..'
+    && !relativePath.startsWith(`..${sep}`)
+    && !isAbsolute(relativePath)
+    ? relativePath
+    : undefined;
+};
 
 export class SandboxFilesystemCommand {
   config: ConfigStore;
@@ -103,26 +122,36 @@ export class SandboxFilesystemCommand {
         const fixedSourceNote = sources.length === 0
           ? ''
           : ` A stored ${sources.join(' and ')} setting also references this location, but built-in access wins.`;
+        const projectRelativePath = relativeDescendantPath(projectRoot, path);
+        const homeRelativePath = relativeDescendantPath(home, path);
+        const displayPath = path === home
+          ? '~'
+          : (homeRelativePath === undefined ? path : `~/${homeRelativePath.split(sep).join('/')}`);
         let accessLabel = 'Read only';
         let description = sources.length === 0 ? 'Built into the sandbox.' : `Configured by ${sources.join(' and ')}.`;
-        let label = path;
+        let label = scope === 'project'
+          && projectPaths.has(path)
+          && !globalPaths.has(path)
+          && projectRelativePath !== undefined
+          ? projectRelativePath
+          : displayPath;
         switch (path) {
           case systemRoot: {
-            label = `Filesystem root (${path})`;
+            label = `Filesystem root (${displayPath})`;
             description = `The filesystem is always available for reading. More specific locations below may be restricted.${fixedSourceNote}`;
             break;
           }
 
           case projectRoot: {
             accessLabel = 'Read/Write';
-            label = `Project folder (${path})`;
+            label = `Project folder (${displayPath})`;
             description = `The project folder is always available for reading and changes.${fixedSourceNote}`;
             break;
           }
 
           case home: {
             accessLabel = 'No access';
-            label = `Home folder (${path})`;
+            label = `Home folder (${displayPath})`;
             description = `Your home folder is blocked. Locations listed below it are explicit exceptions.${fixedSourceNote}`;
             break;
           }
@@ -273,10 +302,13 @@ export class SandboxFilesystemCommand {
       const locationAccessChoices: Array<{value: FilesystemAccess; label: string; description: string}> = [
         {value: 'readOnly', label: 'Read only', description: 'Pi can view files but cannot change them.'},
         {value: 'readWrite', label: 'Read/Write', description: 'Pi can view, create, edit, and delete files.'},
+        {value: 'none', label: 'No access', description: 'Pi cannot view or change files.'},
       ];
       const locationAccessList = new SelectList(locationAccessChoices, locationAccessChoices.length, getSelectListTheme());
       locationAccessList.onSelect = choice => {
-        const access: FilesystemAccess = choice.value === 'readWrite' ? 'readWrite' : 'readOnly';
+        const access: FilesystemAccess = choice.value === 'readWrite'
+          ? 'readWrite'
+          : (choice.value === 'none' ? 'none' : 'readOnly');
         done({action: 'set', path: pendingLocation, access});
       };
 

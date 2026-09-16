@@ -31,6 +31,7 @@ import {
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import {discoverResearchAgents} from '../agent/extensions/sandbox/agents.ts';
+import {SandboxFilesystemCommand} from '../agent/extensions/sandbox/command/filesystem.ts';
 import {SandboxCommand} from '../agent/extensions/sandbox/command/index.ts';
 import {ConfigStore} from '../agent/extensions/sandbox/config.ts';
 import sandboxExtension, {Sandbox as SandboxExtension} from '../agent/extensions/sandbox/index.ts';
@@ -1127,6 +1128,73 @@ void test('reports approved network access to both the UI and the model', async 
     t.assert.strictEqual(restarts, 1);
     t.assert.strictEqual(notifications.at(-1), approvalMessage);
     t.assert.deepStrictEqual(result.content, [...event.content, {type: 'text', text: approvalMessage}]);
+  } finally {
+    await rm(directory, {force: true, recursive: true});
+  }
+});
+
+void test('shows local filesystem settings relative to the project', async (t: TestContext) => {
+  const directory = await mkdtemp(join(tmpdir(), 'sloppi-filesystem-command-test-'));
+  const configPath = join(directory, 'sandbox.json');
+  const home = homedir();
+  await writeFile(configPath, JSON.stringify({
+    filesystem: {allowRead: [join(home, 'global')]},
+    projects: {
+      '/project': {filesystem: {allowRead: ['cache', '/shared', join(home, 'local')]}},
+    },
+  }));
+  const command = new SandboxFilesystemCommand(
+    new ConfigStore('/project', configPath),
+    {} as SandboxSessionManager,
+  );
+  const renders: string[] = [];
+  const ctx = {
+    mode: 'tui',
+    ui: {
+      async custom<T>(factory: (
+        tui: {requestRender(): void},
+        theme: {bold(text: string): string; fg(color: string, text: string): string},
+        keybindings: {matches(data: string, binding: string): boolean},
+        done: (value: T) => void,
+      ) => {render(width: number): string[]}) {
+        const component = factory(
+          {requestRender: () => undefined},
+          {
+            bold: (text: string) => text,
+            fg: (_color: string, text: string) => text,
+          },
+          {matches: () => false},
+          () => undefined,
+        );
+        renders.push(component.render(160).join('\n'));
+        return undefined;
+      },
+      notify() {
+        return undefined;
+      },
+    },
+  } as unknown as ExtensionCommandContext;
+
+  try {
+    initTheme(undefined, false);
+    await command.manage(ctx, 'project');
+    await command.manage(ctx, 'global');
+
+    const localView = renders[0] ?? '';
+    t.assert.match(localView, /cache/v);
+    t.assert.match(localView, /\/shared/v);
+    t.assert.match(localView, /~\/local/v);
+    t.assert.match(localView, /~\/global/v);
+    t.assert.doesNotMatch(localView, /\/project\/cache/v);
+    t.assert.doesNotMatch(localView, /\.\.\/shared/v);
+    t.assert.match(localView, /Project folder \(\/project\)/v);
+
+    const globalView = renders[1] ?? '';
+    t.assert.match(globalView, /\/project\/cache/v);
+    t.assert.match(globalView, /\/shared/v);
+    t.assert.match(globalView, /~\/local/v);
+    t.assert.match(globalView, /~\/global/v);
+    t.assert.match(globalView, /Project folder \(\/project\)/v);
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
