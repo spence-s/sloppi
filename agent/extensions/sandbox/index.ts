@@ -2,7 +2,7 @@ import {realpathSync} from 'node:fs';
 import process from 'node:process';
 import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import {ConfigStore} from './config.ts';
-import {SandboxCommand} from './command.ts';
+import {SandboxCommand} from './command/index.ts';
 import {PlaywrightBridge} from './playwright.ts';
 import {SandboxSessionManager} from './session-manager.ts';
 import {SandboxSubagent} from './subagent.ts';

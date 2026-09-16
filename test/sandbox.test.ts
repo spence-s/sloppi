@@ -31,7 +31,7 @@ import {
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import {discoverResearchAgents} from '../agent/extensions/sandbox/agents.ts';
-import {SandboxCommand} from '../agent/extensions/sandbox/command.ts';
+import {SandboxCommand} from '../agent/extensions/sandbox/command/index.ts';
 import {ConfigStore} from '../agent/extensions/sandbox/config.ts';
 import sandboxExtension, {Sandbox as SandboxExtension} from '../agent/extensions/sandbox/index.ts';
 import {PlaywrightBridge} from '../agent/extensions/sandbox/playwright.ts';
