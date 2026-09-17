@@ -99,6 +99,13 @@ export type ConfigScope = 'global' | 'project';
 export type FilesystemPermission = 'allowRead' | 'allowWrite' | 'denyRead' | 'denyWrite';
 export type ListAction = 'add' | 'remove';
 export type NetworkPermission = 'allow' | 'deny';
+export type RequestPolicyAction = 'add' | 'remove' | 'replace';
+export type NetworkDestinationSetting = {
+  destination: string;
+  permission: NetworkPermission;
+  policy?: RequestPolicy;
+  previousDestination?: string;
+};
 
 export class ConfigStore {
   config: Config = {};
@@ -354,6 +361,127 @@ export class ConfigStore {
       ...requestPoliciesSchema.parse(this.config.sandbox?.requestPolicies ?? []),
       ...requestPoliciesSchema.parse(projectConfig.sandbox?.requestPolicies ?? []),
     ];
+  }
+
+  /**
+   Replaces one destination's connection rule and optional request policy atomically.
+   */
+  async setNetworkDestination(scope: ConfigScope, setting: NetworkDestinationSetting): Promise<void> {
+    const policy = setting.policy === undefined ? undefined : requestPolicySchema.parse(setting.policy);
+    if (policy !== undefined && policy.destination !== setting.destination) {
+      throw new Error('A request policy must match its network destination.');
+    }
+
+    await this.reload();
+    const scopedConfig = this.getScopedConfig(scope);
+    const networkValidation = NetworkConfigSchema.safeParse({
+      ...scopedConfig.network,
+      allowedDomains: scopedConfig.network?.allowedDomains ?? [],
+      deniedDomains: scopedConfig.network?.deniedDomains ?? [],
+    });
+    if (!networkValidation.success) {
+      throw new Error(`Invalid SRT network configuration: ${networkValidation.error.message}`);
+    }
+
+    const previousDestination = setting.previousDestination ?? setting.destination;
+    const network = networkValidation.data;
+    network.allowedDomains = network.allowedDomains.filter(entry => ![previousDestination, setting.destination].includes(entry));
+    network.deniedDomains = network.deniedDomains.filter(entry => ![previousDestination, setting.destination].includes(entry));
+    network[setting.permission === 'allow' ? 'allowedDomains' : 'deniedDomains'].push(setting.destination);
+    network.deniedDomainReasons = Object.fromEntries(Object.entries(network.deniedDomainReasons ?? {})
+      .filter(([domain]) => ![previousDestination, setting.destination].includes(domain)));
+    const sandboxConfig = scopedConfig.sandbox ?? {};
+    const policies = requestPoliciesSchema.parse(sandboxConfig.requestPolicies ?? [])
+      .filter(entry => ![previousDestination, setting.destination].includes(entry.destination));
+    if (setting.permission === 'allow' && policy !== undefined) {
+      policies.push(policy);
+    }
+
+    sandboxConfig.requestPolicies = policies;
+    scopedConfig.network = network;
+    scopedConfig.sandbox = sandboxConfig;
+    await this.save();
+  }
+
+  /**
+   Removes one destination and all of its request policies from a scope.
+   */
+  async removeNetworkDestination(scope: ConfigScope, destination: string): Promise<void> {
+    await this.reload();
+    const scopedConfig = this.getScopedConfig(scope);
+    const networkValidation = NetworkConfigSchema.safeParse({
+      ...scopedConfig.network,
+      allowedDomains: scopedConfig.network?.allowedDomains ?? [],
+      deniedDomains: scopedConfig.network?.deniedDomains ?? [],
+    });
+    if (!networkValidation.success) {
+      throw new Error(`Invalid SRT network configuration: ${networkValidation.error.message}`);
+    }
+
+    const network = networkValidation.data;
+    network.allowedDomains = network.allowedDomains.filter(entry => entry !== destination);
+    network.deniedDomains = network.deniedDomains.filter(entry => entry !== destination);
+    network.deniedDomainReasons = Object.fromEntries(Object.entries(network.deniedDomainReasons ?? {})
+      .filter(([domain]) => domain !== destination));
+    const sandboxConfig = scopedConfig.sandbox ?? {};
+    sandboxConfig.requestPolicies = requestPoliciesSchema.parse(sandboxConfig.requestPolicies ?? [])
+      .filter(policy => policy.destination !== destination);
+    scopedConfig.network = network;
+    scopedConfig.sandbox = sandboxConfig;
+    await this.save();
+  }
+
+  /**
+   Returns validated request policies stored directly in one configuration scope.
+   */
+  getScopedRequestPolicies(scope: ConfigScope): RequestPolicy[] {
+    return requestPoliciesSchema.parse(this.getScopedConfig(scope).sandbox?.requestPolicies ?? []);
+  }
+
+  /**
+   Validates one request policy for interactive editors before they persist it.
+   */
+  validateRequestPolicy(policy: unknown): RequestPolicy {
+    return requestPolicySchema.parse(policy);
+  }
+
+  /**
+   Mutates one scoped request policy while preserving unrelated concurrent configuration changes.
+   */
+  async updateRequestPolicy(
+    scope: ConfigScope,
+    action: RequestPolicyAction,
+    policy: RequestPolicy,
+    replacement?: RequestPolicy,
+  ): Promise<void> {
+    const validatedPolicy = requestPolicySchema.parse(policy);
+    const validatedReplacement = replacement === undefined ? undefined : requestPolicySchema.parse(replacement);
+    if (action === 'replace' && validatedReplacement === undefined) {
+      throw new Error('Replacing a request policy requires its replacement.');
+    }
+
+    await this.reload();
+    const scopedConfig = this.getScopedConfig(scope);
+    const sandboxConfig = scopedConfig.sandbox ?? {};
+    const policies = requestPoliciesSchema.parse(sandboxConfig.requestPolicies ?? []);
+    const serializedPolicy = JSON.stringify(validatedPolicy);
+    const index = policies.findIndex(candidate => JSON.stringify(candidate) === serializedPolicy);
+
+    if (action === 'add') {
+      if (index === -1) {
+        policies.push(validatedPolicy);
+      }
+    } else if (index !== -1) {
+      if (action === 'replace' && validatedReplacement !== undefined) {
+        policies[index] = validatedReplacement;
+      } else {
+        policies.splice(index, 1);
+      }
+    }
+
+    sandboxConfig.requestPolicies = policies;
+    scopedConfig.sandbox = sandboxConfig;
+    await this.save();
   }
 
   /** Returns host environment variable names explicitly exposed by global or project configuration. */

@@ -179,6 +179,11 @@ export class SandboxSessionManager {
     }
 
     const parsedRuntimeConfig = runtimeConfigValidation.data;
+    parsedRuntimeConfig.network.allowedDomains = [...new Set([
+      ...parsedRuntimeConfig.network.allowedDomains,
+      ...requestPolicies.map(policy => policy.destination),
+    ])];
+
     // The workspace must remain usable while the rest of the home folder stays private.
     const {filesystem} = parsedRuntimeConfig;
     filesystem.allowRead = [...new Set([

@@ -1,21 +1,49 @@
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
-import type {ExtensionCommandContext} from '@earendil-works/pi-coding-agent';
-import type {ConfigScope, ConfigStore, NetworkPermission} from '../config.ts';
+import {
+  getSelectListTheme,
+  getSettingsListTheme,
+  type ExtensionCommandContext,
+} from '@earendil-works/pi-coding-agent';
+import {
+  Container,
+  Input,
+  Key,
+  matchesKey,
+  type SettingItem,
+  SettingsList,
+  SelectList,
+  Text,
+  truncateToWidth,
+  visibleWidth,
+} from '@earendil-works/pi-tui';
+import type {
+  ConfigScope,
+  ConfigStore,
+  NetworkPermission,
+  RequestAllowRule,
+  RequestPolicy,
+} from '../config.ts';
 import type {SandboxSessionManager} from '../session-manager.ts';
 
-type NetworkRuleSelection = {
-  effectiveEntries: string[];
-  globalEntries: Set<string>;
-  projectEntries: Set<string>;
-  scope: ConfigScope;
+type NetworkDraft = {
+  access: NetworkPermission;
+  destination: string;
+  policy?: RequestPolicy;
+  previousDestination?: string;
 };
+
+type NetworkAction =
+  | {action: 'add'}
+  | {action: 'edit'; draft: NetworkDraft}
+  | {action: 'save'; draft: NetworkDraft}
+  | {action: 'remove'; destination: string};
 
 export class SandboxNetworkCommand {
   config: ConfigStore;
   sandbox: SandboxSessionManager;
 
   /**
-   Keeps scoped network rule workflows together.
+   Keeps scoped network and request-policy workflows together.
    */
   constructor(config: ConfigStore, sandbox: SandboxSessionManager) {
     this.config = config;
@@ -23,107 +51,403 @@ export class SandboxNetworkCommand {
   }
 
   /**
-   Prevents project menus from deleting inherited website settings.
+   Shows every effective destination and edits its access and request filters together.
    */
-  private async selectNetworkRuleToRemove(ctx: ExtensionCommandContext, selection: NetworkRuleSelection): Promise<string | undefined> {
-    const {effectiveEntries, globalEntries, projectEntries, scope} = selection;
-    const entries = new Map(effectiveEntries.map(entry => {
-      const sources = [
-        projectEntries.has(entry) ? 'project' : '',
-        globalEntries.has(entry) ? 'global' : '',
-      ].filter(Boolean);
-      return [`${entry} [${sources.length === 0 ? 'Sloppi default' : sources.join(', ')}]`, entry];
-    }));
-    if (entries.size === 0) {
-      ctx.ui.notify('No matching website or service settings.', 'info');
-      return undefined;
-    }
-
-    const scopeLabel = selection.scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
-    const choice = await ctx.ui.select(`Remove website or service access — ${scopeLabel}`, entries.keys().toArray());
-    if (choice === undefined) {
-      return undefined;
-    }
-
-    const entry = entries.get(choice);
-    const scopedEntries = scope === 'global' ? globalEntries : projectEntries;
-    if (entry !== undefined && scopedEntries.has(entry)) {
-      return entry;
-    }
-
-    const source = projectEntries.has(entry ?? '') ? 'project' : (globalEntries.has(entry ?? '') ? 'global' : 'Sloppi default');
-    const command = source === 'global' ? '/sandbox global' : '/sandbox';
-    ctx.ui.notify(
-      source === 'Sloppi default'
-        ? 'Sloppi default rules cannot be removed from configuration.'
-        : `That rule belongs to ${source} scope. Use ${command} to remove it.`,
-      'info',
-    );
-    return undefined;
-  }
-
-  /**
-   Adds or removes network access without exposing SRT field names.
-   */
-  async manage(ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
-    const scopeLabel = scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
-    const action = await ctx.ui.select(`Websites and services — ${scopeLabel}`, ['Add destination', 'Remove destination']);
-    if (action === undefined) {
+  async manage(ctx: ExtensionCommandContext, scope: ConfigScope, draft?: NetworkDraft): Promise<void> {
+    if (ctx.mode !== 'tui') {
+      ctx.ui.notify('Website and service settings require interactive TUI mode.', 'error');
       return;
     }
 
-    const permissionChoice = await ctx.ui.select(
-      'What should happen?',
-      ['Allow connections', 'Block connections'],
-    );
-    if (permissionChoice === undefined) {
-      return;
-    }
-
-    const permission: NetworkPermission = permissionChoice === 'Allow connections' ? 'allow' : 'deny';
-    let domain: string | undefined;
-    let reason: string | undefined;
-    if (action === 'Add destination') {
-      domain = await ctx.ui.input('Website or service (for example, api.example.com:443)');
-      if (permission === 'deny' && domain !== undefined && domain.trim().length > 0) {
-        reason = await ctx.ui.input('What should Pi tell the model when this is blocked? (optional)');
-      }
-    } else {
-      await this.config.reload();
-      const globalConfig = this.config.getScopedSrtConfig('global');
-      const projectConfig = this.config.getScopedSrtConfig('project');
-      const effectiveConfig = this.config.getEffectiveConfig();
-      const runtimeConfig = SandboxManager.getConfig();
-      const key = permission === 'allow' ? 'allowedDomains' : 'deniedDomains';
-      const globalEntries = new Set(globalConfig.network?.[key]);
-      const projectEntries = new Set(projectConfig.network?.[key]);
-      const effectiveEntries = [...new Set([
-        ...(effectiveConfig.network?.[key] ?? []),
-        ...(runtimeConfig?.network?.[key] ?? []),
-      ])];
-      domain = await this.selectNetworkRuleToRemove(ctx, {
-        effectiveEntries,
-        globalEntries,
-        projectEntries,
-        scope,
+    await this.config.reload();
+    const globalConfig = this.config.getScopedSrtConfig('global');
+    const projectConfig = this.config.getScopedSrtConfig('project');
+    const effectiveConfig = this.config.getEffectiveConfig();
+    const runtimeConfig = SandboxManager.getConfig();
+    const globalPolicies = this.config.getScopedRequestPolicies('global');
+    const projectPolicies = this.config.getScopedRequestPolicies('project');
+    const result = await ctx.ui.custom<NetworkAction | undefined>((tui, theme, keybindings, done) => {
+      let isFocused = false;
+      let isFormOpen = draft !== undefined;
+      let activeField = 0;
+      let formAccess: NetworkPermission = draft?.access ?? 'allow';
+      const initialRule = draft?.policy?.allow[0];
+      const fields = [
+        {
+          label: 'Destination',
+          hint: 'domain pattern; HTTPS port 443 is assumed',
+          value: draft?.destination?.endsWith(':443') === true ? draft.destination.slice(0, -4) : (draft?.destination ?? ''),
+        },
+        {label: 'Methods', hint: 'optional: GET, POST', value: initialRule?.methods?.join(', ') ?? ''},
+        {label: 'Exact paths', hint: 'optional: /health, /v1/jobs', value: initialRule?.paths?.join(', ') ?? ''},
+        {label: 'Path prefixes', hint: 'optional: /v1/jobs', value: initialRule?.pathPrefixes?.join(', ') ?? ''},
+        {
+          label: 'Required headers',
+          hint: 'optional: Name=value1|value2; Other=value',
+          value: Object.entries(initialRule?.headers ?? {})
+            .map(([name, entries]) => `${name}=${entries.join('|')}`).join('; '),
+        },
+      ];
+      const inputs = fields.map(field => {
+        const input = new Input({
+          prompt: `${field.label}: `,
+          placeholder: field.hint,
+          placeholderStyle: text => theme.fg('dim', text),
+        });
+        input.setValue(field.value);
+        return input;
       });
-    }
+      const formError = new Text('', 0, 0);
+      const save = () => {
+        const enteredDestination = inputs[0]?.getValue().trim() ?? '';
+        const destination = enteredDestination.endsWith(']') || !enteredDestination.includes(':')
+          ? `${enteredDestination}:443`
+          : enteredDestination;
+        let policy: RequestPolicy | undefined;
+        if (formAccess === 'allow') {
+          const methods = inputs[1]?.getValue().split(',').map(entry => entry.trim()).filter(Boolean) ?? [];
+          const paths = inputs[2]?.getValue().split(',').map(entry => entry.trim()).filter(Boolean) ?? [];
+          const pathPrefixes = inputs[3]?.getValue().split(',').map(entry => entry.trim()).filter(Boolean) ?? [];
+          const rule: RequestAllowRule = {};
+          if (methods.length > 0) {
+            rule.methods = methods;
+          }
 
-    const normalizedDomain = domain?.trim();
-    if (normalizedDomain === undefined || normalizedDomain.length === 0) {
+          if (paths.length > 0) {
+            rule.paths = paths;
+          }
+
+          if (pathPrefixes.length > 0) {
+            rule.pathPrefixes = pathPrefixes;
+          }
+
+          const headers: Record<string, string[]> = {};
+          const headerEntries = inputs[4]?.getValue().split(';').map(entry => entry.trim()).filter(Boolean) ?? [];
+          for (const header of headerEntries) {
+            const separator = header.indexOf('=');
+            const name = header.slice(0, separator).trim();
+            const acceptedValues = header.slice(separator + 1).split('|').map(entry => entry.trim()).filter(Boolean);
+            if (separator <= 0 || name.length === 0 || acceptedValues.length === 0) {
+              formError.setText(theme.fg('error', `Invalid header ${JSON.stringify(header)}. Use Name=value1|value2.`));
+              tui.requestRender();
+              return;
+            }
+
+            headers[name] = [...new Set([...(headers[name] ?? []), ...acceptedValues])];
+          }
+
+          if (Object.keys(headers).length > 0) {
+            rule.headers = headers;
+          }
+
+          if (Object.keys(rule).length > 0) {
+            try {
+              policy = this.config.validateRequestPolicy({destination, allow: [rule]});
+            } catch (caughtError) {
+              formError.setText(theme.fg('error', caughtError instanceof Error ? caughtError.message : String(caughtError)));
+              tui.requestRender();
+              return;
+            }
+          }
+        }
+
+        const savedDraft: NetworkDraft = {access: formAccess, destination};
+        if (policy !== undefined) {
+          savedDraft.policy = policy;
+        }
+
+        if (draft?.previousDestination !== undefined) {
+          savedDraft.previousDestination = draft.previousDestination;
+        }
+
+        done({action: 'save', draft: savedDraft});
+      };
+
+      for (const input of inputs) {
+        input.onSubmit = save;
+      }
+
+      const inlineForm = {
+        render(width: number) {
+          if (!isFormOpen) {
+            return [];
+          }
+
+          const heading = draft?.previousDestination === undefined ? 'Add network destination' : 'Edit network destination';
+          const lines = [
+            '',
+            theme.fg('accent', theme.bold(heading)),
+            ...inputs[0]!.render(width),
+            `${activeField === 1 ? '›' : ' '} Access: ${formAccess === 'allow' ? 'Allowed' : 'Blocked'} ${theme.fg('dim', '(Space to toggle)')}`,
+          ];
+          if (formAccess === 'allow') {
+            for (const input of inputs.slice(1)) {
+              lines.push(...input.render(width));
+            }
+          } else {
+            lines.push(theme.fg('dim', 'Request filters are unavailable while this destination is blocked.'));
+          }
+
+          lines.push(
+            ...formError.render(width),
+            theme.fg('dim', 'Tab/Shift+Tab fields · Space toggles access · Enter save · Esc cancel'),
+          );
+          return lines;
+        },
+        invalidate() {
+          for (const input of inputs) {
+            input.invalidate();
+          }
+
+          formError.invalidate();
+        },
+      };
+      const globalAllowed = new Set(globalConfig.network?.allowedDomains);
+      const globalDenied = new Set(globalConfig.network?.deniedDomains);
+      const projectAllowed = new Set(projectConfig.network?.allowedDomains);
+      const projectDenied = new Set(projectConfig.network?.deniedDomains);
+      const effectiveAllowed = new Set([
+        ...(effectiveConfig.network?.allowedDomains ?? []),
+        ...(runtimeConfig?.network?.allowedDomains ?? []),
+      ]);
+      const effectiveDenied = new Set([
+        ...(effectiveConfig.network?.deniedDomains ?? []),
+        ...(runtimeConfig?.network?.deniedDomains ?? []),
+      ]);
+      const destinations = new Set([
+        ...effectiveAllowed,
+        ...effectiveDenied,
+        ...globalPolicies.map(policy => policy.destination),
+        ...projectPolicies.map(policy => policy.destination),
+      ]);
+      const items: SettingItem[] = [];
+      for (const destination of [...destinations].toSorted((a, b) => a.localeCompare(b))) {
+        const destinationGlobalPolicies = globalPolicies.filter(policy => policy.destination === destination);
+        const destinationProjectPolicies = projectPolicies.filter(policy => policy.destination === destination);
+        const policies = [...destinationGlobalPolicies, ...destinationProjectPolicies];
+        const isBlocked = effectiveDenied.has(destination);
+        const isAllowed = effectiveAllowed.has(destination) || policies.length > 0;
+        let access = 'Unavailable';
+        if (isBlocked) {
+          access = 'Blocked';
+        } else if (policies.length > 0) {
+          access = 'Filtered';
+        } else if (isAllowed) {
+          access = 'Allowed';
+        }
+
+        let requestLabel = 'All';
+        if (isBlocked) {
+          requestLabel = '—';
+        } else if (policies.length > 0) {
+          requestLabel = `${policies.length} ${policies.length === 1 ? 'filter' : 'filters'}`;
+        }
+
+        const isGlobalOwner = globalAllowed.has(destination) || globalDenied.has(destination) || destinationGlobalPolicies.length > 0;
+        const isProjectOwner = projectAllowed.has(destination) || projectDenied.has(destination) || destinationProjectPolicies.length > 0;
+        const isEditable = scope === 'global' ? isGlobalOwner : isProjectOwner;
+        const sources = [
+          isGlobalOwner ? 'Global' : '',
+          isProjectOwner ? 'Local' : '',
+          !isGlobalOwner && !isProjectOwner ? 'Built in' : '',
+        ].filter(Boolean);
+        const currentValue = `${access.padEnd(12)}${requestLabel.padEnd(12)}${sources.join(' + ')}`;
+        const summaries = policies.flatMap(policy => policy.allow.map(rule => [
+          rule.methods?.join('/'),
+          ...(rule.paths ?? []).map(path => `=${path}`),
+          ...(rule.pathPrefixes ?? []).map(path => `${path}/**`),
+          ...Object.entries(rule.headers ?? {}).map(([name, values]) => `${name} (${values.length})`),
+        ].filter(Boolean).join(' · ')));
+        const item: SettingItem = {
+          id: destination,
+          label: isEditable
+            ? truncateToWidth(destination.endsWith(':443') ? destination.slice(0, -4) : destination, 36, '…')
+            : theme.fg('dim', truncateToWidth(destination.endsWith(':443') ? destination.slice(0, -4) : destination, 36, '…')),
+          currentValue: isEditable ? currentValue : theme.fg('dim', currentValue),
+          description: isBlocked
+            ? 'Connections are blocked. Request filters cannot be configured until access is allowed.'
+            : (summaries.length === 0 ? 'All requests to this allowed destination may connect.' : `Allowed when any filter matches: ${summaries.join(' OR ')}.`),
+        };
+        if (isEditable) {
+          const scopedPolicies = scope === 'global' ? destinationGlobalPolicies : destinationProjectPolicies;
+          item.submenu = () => {
+            const canEdit = scopedPolicies.length <= 1 && (scopedPolicies[0]?.allow.length ?? 1) === 1;
+            const choices = [
+              ...(canEdit ? [{value: 'edit', label: 'Edit destination', description: 'Change access and request filters together.'}] : []),
+              {value: 'remove', label: 'Remove destination', description: `Remove its access and request filters from ${scope} settings.`},
+            ];
+            const list = new SelectList(choices, choices.length, getSelectListTheme());
+            list.onSelect = choice => {
+              if (choice.value === 'remove') {
+                done({action: 'remove', destination});
+                return;
+              }
+
+              const editDraft: NetworkDraft = {
+                access: isBlocked ? 'deny' : 'allow',
+                destination,
+                previousDestination: destination,
+              };
+              if (scopedPolicies[0] !== undefined) {
+                editDraft.policy = scopedPolicies[0];
+              }
+
+              done({action: 'edit', draft: editDraft});
+            };
+
+            list.onCancel = () => {
+              done(undefined);
+            };
+
+            return list;
+          };
+        }
+
+        items.push(item);
+      }
+
+      const source = scope === 'global' ? 'Global' : 'Local';
+      items.push({
+        id: 'add',
+        label: 'Add a network destination…',
+        currentValue: `${''.padEnd(24)}${source}`,
+        values: [`${''.padEnd(24)}${source}`],
+        description: 'Configure connection access and optional request filters in one form.',
+      });
+
+      const container = new Container();
+      const scopeLabel = scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
+      const heading = theme.bold(`Websites and services — ${scopeLabel}`);
+      container.addChild(new Text(theme.fg('accent', heading), 0, 0));
+      container.addChild(new Text(theme.fg('muted', 'Every configured destination is shown. Blocked destinations cannot have request filters.'), 0, 1));
+      const labelWidth = Math.min(36, Math.max(...items.map(item => visibleWidth(item.label))));
+      const tableHeader = `  ${'Destination'.padEnd(labelWidth)}  ${'Access'.padEnd(12)}${'Requests'.padEnd(12)}Source`;
+      container.addChild(new Text(theme.fg('dim', tableHeader), 0, 0));
+      const settings = new SettingsList(
+        items,
+        isFormOpen ? 7 : 15,
+        getSettingsListTheme(),
+        id => {
+          if (id === 'add') {
+            done({action: 'add'});
+          }
+        },
+        () => {
+          done(undefined);
+        },
+      );
+      container.addChild(settings);
+      container.addChild(inlineForm);
+      return {
+        get focused() {
+          return isFocused;
+        },
+        set focused(value: boolean) {
+          isFocused = value;
+          for (const [index, input] of inputs.entries()) {
+            const fieldIndex = index === 0 ? 0 : index + 1;
+            input.focused = value && isFormOpen && fieldIndex === activeField;
+          }
+        },
+        render(width: number) {
+          return container.render(width);
+        },
+        handleInput(data: string) {
+          if (!isFormOpen) {
+            settings.handleInput(data);
+            tui.requestRender();
+            return;
+          }
+
+          if (keybindings.matches(data, 'tui.select.cancel')) {
+            isFormOpen = false;
+            formError.setText('');
+            for (const input of inputs) {
+              input.focused = false;
+            }
+
+            tui.requestRender();
+            return;
+          }
+
+          if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift('tab'))) {
+            const direction = matchesKey(data, Key.shift('tab')) ? -1 : 1;
+            const fieldCount = formAccess === 'allow' ? 6 : 2;
+            for (const input of inputs) {
+              input.focused = false;
+            }
+
+            activeField = (activeField + direction + fieldCount) % fieldCount;
+            const inputIndex = activeField === 0 ? 0 : activeField - 1;
+            if (activeField !== 1) {
+              inputs[inputIndex]!.focused = isFocused;
+            }
+
+            tui.requestRender();
+            return;
+          }
+
+          if (activeField === 1) {
+            if (matchesKey(data, Key.space) || matchesKey(data, Key.left) || matchesKey(data, Key.right)) {
+              formAccess = formAccess === 'allow' ? 'deny' : 'allow';
+              formError.setText('');
+              tui.requestRender();
+            } else if (keybindings.matches(data, 'tui.select.confirm')) {
+              save();
+            }
+
+            return;
+          }
+
+          const inputIndex = activeField === 0 ? 0 : activeField - 1;
+          inputs[inputIndex]?.handleInput(data);
+          tui.requestRender();
+        },
+        handleMouse(event) {
+          if (!isFormOpen || activeField === 1) {
+            return isFormOpen ? {handled: false} : settings.handleMouse(event);
+          }
+
+          const inputIndex = activeField === 0 ? 0 : activeField - 1;
+          return inputs[inputIndex]?.handleMouse(event);
+        },
+        invalidate() {
+          container.invalidate();
+        },
+      };
+    });
+    if (result === undefined) {
       return;
     }
 
-    const normalizedReason = reason?.trim();
-    const listAction = action === 'Add destination' ? 'add' : 'remove';
-    await this.config.updateDomain(
-      scope,
-      permission,
-      listAction,
-      normalizedDomain,
-      normalizedReason === undefined || normalizedReason.length === 0 ? undefined : normalizedReason,
-    );
+    switch (result.action) {
+      case 'add': {
+        return this.manage(ctx, scope, {access: 'allow', destination: ''});
+      }
+
+      case 'edit': {
+        return this.manage(ctx, scope, result.draft);
+      }
+
+      case 'remove': {
+        await this.config.removeNetworkDestination(scope, result.destination);
+        break;
+      }
+
+      case 'save': {
+        const setting = {
+          destination: result.draft.destination,
+          permission: result.draft.access,
+          ...(result.draft.policy !== undefined && {policy: result.draft.policy}),
+          ...(result.draft.previousDestination !== undefined && {previousDestination: result.draft.previousDestination}),
+        };
+        await this.config.setNetworkDestination(scope, setting);
+        break;
+      }
+    }
+
     await this.sandbox.restartSession();
-    ctx.ui.notify(`${listAction === 'add' ? 'Added' : 'Removed'} ${normalizedDomain} in ${scope} network rules.`, 'info');
+    ctx.ui.notify('Network settings updated.', 'info');
+    return this.manage(ctx, scope);
   }
 }

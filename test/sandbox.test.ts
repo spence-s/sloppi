@@ -905,6 +905,7 @@ void test('filters configured destinations by method, path, and header', async (
 
   try {
     await sandbox.startSession();
+    t.assert.ok(SandboxManager.getConfig()?.network.allowedDomains.includes('api.example.com:443'));
     const filterRequest = SandboxManager.getConfig()?.network.filterRequest;
     if (filterRequest === undefined) {
       throw new Error('Request filter was not configured.');
