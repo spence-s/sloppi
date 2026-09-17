@@ -13,6 +13,12 @@ void test('edits network access and request policies as one destination', async 
   });
 
   try {
+    t.assert.throws(
+      () => {
+        configStore.validateNetworkDestination({destination: ':443', permission: 'allow'});
+      },
+      /Invalid network destination/v,
+    );
     await configStore.setNetworkDestination('project', {
       destination: policy.destination,
       permission: 'allow',

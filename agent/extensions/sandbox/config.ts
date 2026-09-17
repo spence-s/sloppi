@@ -364,14 +364,29 @@ export class ConfigStore {
   }
 
   /**
-   Replaces one destination's connection rule and optional request policy atomically.
+   Validates the combined destination form before the TUI is allowed to close.
    */
-  async setNetworkDestination(scope: ConfigScope, setting: NetworkDestinationSetting): Promise<void> {
+  validateNetworkDestination(setting: NetworkDestinationSetting): void {
     const policy = setting.policy === undefined ? undefined : requestPolicySchema.parse(setting.policy);
     if (policy !== undefined && policy.destination !== setting.destination) {
       throw new Error('A request policy must match its network destination.');
     }
 
+    const validation = NetworkConfigSchema.safeParse({
+      allowedDomains: setting.permission === 'allow' ? [setting.destination] : [],
+      deniedDomains: setting.permission === 'deny' ? [setting.destination] : [],
+    });
+    if (!validation.success) {
+      throw new Error(`Invalid network destination: ${setting.destination}`);
+    }
+  }
+
+  /**
+   Replaces one destination's connection rule and optional request policy atomically.
+   */
+  async setNetworkDestination(scope: ConfigScope, setting: NetworkDestinationSetting): Promise<void> {
+    this.validateNetworkDestination(setting);
+    const {policy} = setting;
     await this.reload();
     const scopedConfig = this.getScopedConfig(scope);
     const networkValidation = NetworkConfigSchema.safeParse({

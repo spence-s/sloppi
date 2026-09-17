@@ -15,6 +15,7 @@ import {
   Text,
   truncateToWidth,
   visibleWidth,
+  wrapTextWithAnsi,
 } from '@earendil-works/pi-tui';
 import type {
   ConfigScope,
@@ -160,6 +161,19 @@ export class SandboxNetworkCommand {
           savedDraft.previousDestination = draft.previousDestination;
         }
 
+        try {
+          this.config.validateNetworkDestination({
+            destination: savedDraft.destination,
+            permission: savedDraft.access,
+            ...(savedDraft.policy !== undefined && {policy: savedDraft.policy}),
+            ...(savedDraft.previousDestination !== undefined && {previousDestination: savedDraft.previousDestination}),
+          });
+        } catch (caughtError) {
+          formError.setText(theme.fg('error', caughtError instanceof Error ? caughtError.message : String(caughtError)));
+          tui.requestRender();
+          return;
+        }
+
         done({action: 'save', draft: savedDraft});
       };
 
@@ -174,24 +188,33 @@ export class SandboxNetworkCommand {
           }
 
           const heading = draft?.previousDestination === undefined ? 'Add network destination' : 'Edit network destination';
+          const instructions = 'Tab/Shift+Tab moves · Type in the › row · Space toggles access · Enter saves · Esc cancels';
+          const destinationLine = inputs[0]!.render(Math.max(1, width - 2))[0] ?? '';
+          const accessLine = `Access: ${formAccess === 'allow' ? 'Allowed' : 'Blocked'} (Space to toggle)`;
+          const selectedAccessLine = activeField === 1
+            ? theme.bg('selectedBg', theme.fg('accent', theme.bold(`› ${accessLine}`)))
+            : `  ${accessLine}`;
           const lines = [
             '',
-            theme.fg('accent', theme.bold(heading)),
-            ...inputs[0]!.render(width),
-            `${activeField === 1 ? '›' : ' '} Access: ${formAccess === 'allow' ? 'Allowed' : 'Blocked'} ${theme.fg('dim', '(Space to toggle)')}`,
+            truncateToWidth(theme.fg('accent', theme.bold(heading)), width),
+            ...wrapTextWithAnsi(theme.fg('muted', instructions), width),
+            `${activeField === 0 ? theme.fg('accent', '› ') : '  '}${destinationLine}`,
+            truncateToWidth(selectedAccessLine, width),
           ];
           if (formAccess === 'allow') {
-            for (const input of inputs.slice(1)) {
-              lines.push(...input.render(width));
+            for (const [index, input] of inputs.slice(1).entries()) {
+              const fieldIndex = index + 2;
+              const inputLine = input.render(Math.max(1, width - 2))[0] ?? '';
+              lines.push(`${activeField === fieldIndex ? theme.fg('accent', '› ') : '  '}${inputLine}`);
             }
           } else {
-            lines.push(theme.fg('dim', 'Request filters are unavailable while this destination is blocked.'));
+            lines.push(...wrapTextWithAnsi(
+              theme.fg('dim', '  Request filters are unavailable while this destination is blocked.'),
+              width,
+            ));
           }
 
-          lines.push(
-            ...formError.render(width),
-            theme.fg('dim', 'Tab/Shift+Tab fields · Space toggles access · Enter save · Esc cancel'),
-          );
+          lines.push(...formError.render(width));
           return lines;
         },
         invalidate() {
@@ -220,8 +243,17 @@ export class SandboxNetworkCommand {
         ...globalPolicies.map(policy => policy.destination),
         ...projectPolicies.map(policy => policy.destination),
       ]);
+      const globalDestinations = new Set([
+        ...globalAllowed,
+        ...globalDenied,
+        ...globalPolicies.map(policy => policy.destination),
+      ]);
+      const sortedDestinations = [...destinations].toSorted((a, b) => {
+        const sourceOrder = Number(globalDestinations.has(b)) - Number(globalDestinations.has(a));
+        return sourceOrder === 0 ? a.localeCompare(b) : sourceOrder;
+      });
       const items: SettingItem[] = [];
-      for (const destination of [...destinations].toSorted((a, b) => a.localeCompare(b))) {
+      for (const destination of sortedDestinations) {
         const destinationGlobalPolicies = globalPolicies.filter(policy => policy.destination === destination);
         const destinationProjectPolicies = projectPolicies.filter(policy => policy.destination === destination);
         const policies = [...destinationGlobalPolicies, ...destinationProjectPolicies];
@@ -371,6 +403,7 @@ export class SandboxNetworkCommand {
           }
 
           if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift('tab'))) {
+            formError.setText('');
             const direction = matchesKey(data, Key.shift('tab')) ? -1 : 1;
             const fieldCount = formAccess === 'allow' ? 6 : 2;
             for (const input of inputs) {
@@ -400,6 +433,7 @@ export class SandboxNetworkCommand {
           }
 
           const inputIndex = activeField === 0 ? 0 : activeField - 1;
+          formError.setText('');
           inputs[inputIndex]?.handleInput(data);
           tui.requestRender();
         },
