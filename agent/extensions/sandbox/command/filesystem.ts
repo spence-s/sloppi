@@ -252,9 +252,9 @@ export class SandboxFilesystemCommand {
         {
           id: 'add',
           label: 'Add a location…',
-          currentValue: `${'Read only'.padEnd(16)}${scope === 'global' ? 'Global' : 'Local'}`,
-          values: [`${'Read only'.padEnd(16)}${scope === 'global' ? 'Global' : 'Local'}`],
-          description: 'Enter an absolute path or a path relative to this project. New locations are read-only.',
+          currentValue: `${''.padEnd(16)}${scope === 'global' ? 'Global' : 'Local'}`,
+          values: [`${''.padEnd(16)}${scope === 'global' ? 'Global' : 'Local'}`],
+          description: 'Enter an absolute path or a path relative to this project, then choose its access.',
         },
       ];
 
@@ -300,15 +300,12 @@ export class SandboxFilesystemCommand {
       };
 
       const locationAccessChoices: Array<{value: FilesystemAccess; label: string; description: string}> = [
-        {value: 'readOnly', label: 'Read only', description: 'Pi can view files but cannot change them.'},
         {value: 'readWrite', label: 'Read/Write', description: 'Pi can view, create, edit, and delete files.'},
         {value: 'none', label: 'No access', description: 'Pi cannot view or change files.'},
       ];
       const locationAccessList = new SelectList(locationAccessChoices, locationAccessChoices.length, getSelectListTheme());
       locationAccessList.onSelect = choice => {
-        const access: FilesystemAccess = choice.value === 'readWrite'
-          ? 'readWrite'
-          : (choice.value === 'none' ? 'none' : 'readOnly');
+        const access: FilesystemAccess = choice.value === 'none' ? 'none' : 'readWrite';
         done({action: 'set', path: pendingLocation, access});
       };
 
