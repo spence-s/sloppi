@@ -85,22 +85,6 @@ export class SandboxOptionsCommand {
   }
 
   /**
-   Lets the user configure whether blocked websites trigger an approval prompt.
-   */
-  async managePrompting(ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
-    const scopeName = scope === 'project' ? 'This project' : 'Global defaults';
-    const scopeLabel = scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
-    const prompting = await ctx.ui.select(`Ask when a website is blocked? — ${scopeLabel}`, ['On', 'Off']);
-    if (prompting === undefined) {
-      return;
-    }
-
-    await this.config.setPrompting(scope, prompting === 'On');
-    await this.sandbox.restartSession();
-    ctx.ui.notify(`Blocked-website prompts are ${prompting.toLowerCase()} for ${scopeName.toLowerCase()}.`, 'info');
-  }
-
-  /**
    Lets the user configure scoped delegation or its global default model.
    */
   async manageResearchAgents(pi: ExtensionAPI, ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {

@@ -1251,28 +1251,17 @@ void test('/sandbox toggles host execution and updates its status', async (t: Te
   t.assert.match(statuses.at(-1) ?? '', /󰕥 sandbox/v);
 });
 
-void test('/sandbox mutates projects by default and global configuration only when requested', async (t: TestContext) => {
+/**
+ Verifies blocked-website prompting is no longer exposed by either settings scope.
+ */
+void test('/sandbox omits the blocked-website prompting option', async (t: TestContext) => {
   type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-command-test-'));
-  const configPath = join(directory, 'sandbox.json');
-  const configStore = new ConfigStore('/project', configPath);
-  const selections: Array<string | undefined> = [
-    'Ask when a website is blocked — Use global setting (On)',
-    'Off',
-    undefined,
-    'Ask when a website is blocked — On',
-    'Off',
-    undefined,
-  ];
-  const notifications: string[] = [];
+  const configStore = new ConfigStore('/project', join(directory, 'sandbox.json'));
+  const menus: string[][] = [];
   let handler: Handler | undefined;
-  let restarts = 0;
 
-  new SandboxCommand(configStore, {
-    async restartSession() {
-      restarts += 1;
-    },
-  } as unknown as SandboxSessionManager).register({
+  new SandboxCommand(configStore, {} as SandboxSessionManager).register({
     registerCommand(_name: string, options: {handler: Handler}) {
       handler = options.handler;
     },
@@ -1280,10 +1269,13 @@ void test('/sandbox mutates projects by default and global configuration only wh
 
   const ctx = {
     ui: {
-      notify(message: string) {
-        notifications.push(message);
+      notify() {
+        return undefined;
       },
-      select: async () => selections.shift(),
+      async select(_title: string, options: string[]) {
+        menus.push(options);
+        return undefined;
+      },
     },
   } as unknown as ExtensionCommandContext;
 
@@ -1294,16 +1286,9 @@ void test('/sandbox mutates projects by default and global configuration only wh
 
     await handler('', ctx);
     await handler('global', ctx);
-    await handler('show', ctx);
 
-    const saved = JSON.parse(await readFile(configPath, 'utf8')) as {
-      sandbox: {promptOnNetworkDeny: boolean};
-      projects: Record<string, {sandbox: {promptOnNetworkDeny: boolean}}>;
-    };
-    t.assert.strictEqual(saved.projects['/project']?.sandbox.promptOnNetworkDeny, false);
-    t.assert.strictEqual(saved.sandbox.promptOnNetworkDeny, false);
-    t.assert.strictEqual(restarts, 2);
-    t.assert.match(notifications.at(-1) ?? '', /Use \/sandbox/v);
+    t.assert.strictEqual(menus.length, 2);
+    t.assert.ok(menus.every(menu => menu.every(option => !option.startsWith('Ask when a website is blocked'))));
   } finally {
     await rm(directory, {force: true, recursive: true});
   }

@@ -40,17 +40,11 @@ export class SandboxCommand {
     while (true) {
       await this.config.reload();
       const scopeLabel = activeScope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
-      const scopedConfig = this.config.getScopedConfig(activeScope);
-      const scopedPrompting = scopedConfig.sandbox?.promptOnNetworkDeny;
-      const promptingValue = activeScope === 'project' && scopedPrompting === undefined
-        ? `Use global setting (${this.config.shouldPrompt() ? 'On' : 'Off'})`
-        : ((scopedPrompting ?? true) ? 'On' : 'Off');
       const scopedResearch = this.config.getResearchAgentsSetting(activeScope);
       const researchValue = activeScope === 'project' && scopedResearch === undefined
         ? `Use global setting (${this.config.areResearchAgentsEnabled() ? 'On' : 'Off'})`
         : ((scopedResearch ?? false) ? 'On' : 'Off');
       const toggleAction = this.sandbox.isEnabled ? 'Turn off session protection' : 'Turn on session protection';
-      const promptingAction = `Ask when a website is blocked — ${promptingValue}`;
       const researchAction = `Research agents — ${researchValue}`;
       const statusIcon = this.sandbox.isEnabled ? '󰕥' : '󰒲';
       const statusLabel = this.sandbox.isEnabled ? 'On' : 'Off';
@@ -58,7 +52,6 @@ export class SandboxCommand {
       const action = await ctx.ui.select(title, [
         'Files and folders',
         'Websites and services',
-        promptingAction,
         researchAction,
         toggleAction,
         '',
@@ -82,11 +75,6 @@ export class SandboxCommand {
 
         case 'Websites and services': {
           await this.network.manage(ctx, activeScope);
-          break;
-        }
-
-        case promptingAction: {
-          await this.options.managePrompting(ctx, activeScope);
           break;
         }
 
