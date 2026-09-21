@@ -30,75 +30,81 @@ export class SandboxCommand {
    */
   async manage(pi: ExtensionAPI, ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
     const keybindings = getKeybindings();
+    const userBindings = keybindings.getUserBindings();
     keybindings.setUserBindings({
-      ...keybindings.getUserBindings(),
+      ...userBindings,
       'tui.select.up': [...new Set([...keybindings.getKeys('tui.select.up'), 'k' as const])],
       'tui.select.down': [...new Set([...keybindings.getKeys('tui.select.down'), 'j' as const])],
     });
-    let activeScope = scope;
-    /* eslint-disable no-await-in-loop, unicorn/no-break-in-nested-loop -- Each menu must finish before the next reflects its changes. */
-    while (true) {
-      await this.config.reload();
-      const scopeLabel = activeScope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
-      const scopedResearch = this.config.getResearchAgentsSetting(activeScope);
-      const researchValue = activeScope === 'project' && scopedResearch === undefined
-        ? `Use global setting (${this.config.areResearchAgentsEnabled() ? 'On' : 'Off'})`
-        : ((scopedResearch ?? false) ? 'On' : 'Off');
-      const toggleAction = this.sandbox.isEnabled ? 'Turn off session protection' : 'Turn on session protection';
-      const researchAction = `Research agents — ${researchValue}`;
-      const statusIcon = this.sandbox.isEnabled ? '󰕥' : '󰒲';
-      const statusLabel = this.sandbox.isEnabled ? 'On' : 'Off';
-      const title = `${statusIcon} Sandbox: ${statusLabel} — ${scopeLabel}`;
-      const action = await ctx.ui.select(title, [
-        'Files and folders',
-        'Websites and services',
-        researchAction,
-        toggleAction,
-        '',
-        activeScope === 'project' ? '← Manage global settings' : '← Manage local settings',
-      ]);
-      if (action === undefined) {
-        return;
+
+    try {
+      let activeScope = scope;
+      /* eslint-disable no-await-in-loop, unicorn/no-break-in-nested-loop -- Each menu must finish before the next reflects its changes. */
+      while (true) {
+        await this.config.reload();
+        const scopeLabel = activeScope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
+        const scopedResearch = this.config.getResearchAgentsSetting(activeScope);
+        const researchValue = activeScope === 'project' && scopedResearch === undefined
+          ? `Use global setting (${this.config.areResearchAgentsEnabled() ? 'On' : 'Off'})`
+          : ((scopedResearch ?? false) ? 'On' : 'Off');
+        const toggleAction = this.sandbox.isEnabled ? 'Turn off session protection' : 'Turn on session protection';
+        const researchAction = `Research agents — ${researchValue}`;
+        const statusIcon = this.sandbox.isEnabled ? '󰕥' : '󰒲';
+        const statusLabel = this.sandbox.isEnabled ? 'On' : 'Off';
+        const title = `${statusIcon} Sandbox: ${statusLabel} — ${scopeLabel}`;
+        const action = await ctx.ui.select(title, [
+          'Files and folders',
+          'Websites and services',
+          researchAction,
+          toggleAction,
+          '',
+          activeScope === 'project' ? '← Manage global settings' : '← Manage local settings',
+        ]);
+        if (action === undefined) {
+          return;
+        }
+
+        switch (action) {
+          case 'Turn off session protection':
+          case 'Turn on session protection': {
+            await this.options.setEnabled(ctx, !this.sandbox.isEnabled);
+            break;
+          }
+
+          case 'Files and folders': {
+            await this.filesystem.manage(ctx, activeScope);
+            break;
+          }
+
+          case 'Websites and services': {
+            await this.network.manage(ctx, activeScope);
+            break;
+          }
+
+          case researchAction: {
+            await this.options.manageResearchAgents(pi, ctx, activeScope);
+            break;
+          }
+
+          case '← Manage global settings': {
+            activeScope = 'global';
+            break;
+          }
+
+          case '← Manage local settings': {
+            activeScope = 'project';
+            break;
+          }
+
+          default: {
+            break;
+          }
+        }
       }
-
-      switch (action) {
-        case 'Turn off session protection':
-        case 'Turn on session protection': {
-          await this.options.setEnabled(ctx, !this.sandbox.isEnabled);
-          break;
-        }
-
-        case 'Files and folders': {
-          await this.filesystem.manage(ctx, activeScope);
-          break;
-        }
-
-        case 'Websites and services': {
-          await this.network.manage(ctx, activeScope);
-          break;
-        }
-
-        case researchAction: {
-          await this.options.manageResearchAgents(pi, ctx, activeScope);
-          break;
-        }
-
-        case '← Manage global settings': {
-          activeScope = 'global';
-          break;
-        }
-
-        case '← Manage local settings': {
-          activeScope = 'project';
-          break;
-        }
-
-        default: {
-          break;
-        }
-      }
+      /* eslint-enable no-await-in-loop, unicorn/no-break-in-nested-loop */
+    } finally {
+      keybindings.setUserBindings(userBindings);
     }
-    /* eslint-enable no-await-in-loop, unicorn/no-break-in-nested-loop */
   }
 
   /**

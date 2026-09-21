@@ -30,6 +30,7 @@ import {
   type LsToolDetails,
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
+import {getKeybindings} from '@earendil-works/pi-tui';
 import {discoverResearchAgents} from '../agent/extensions/sandbox/agents.ts';
 import {SandboxFilesystemCommand} from '../agent/extensions/sandbox/command/filesystem.ts';
 import {SandboxCommand} from '../agent/extensions/sandbox/command/index.ts';
@@ -1198,6 +1199,52 @@ void test('shows local filesystem settings relative to the project', async (t: T
     t.assert.match(globalView, /Project folder \(\/project\)/v);
   } finally {
     await rm(directory, {force: true, recursive: true});
+  }
+});
+
+/**
+ Verifies the sandbox menu does not leak its Vim navigation keys into command autocomplete.
+ */
+void test('/sandbox scopes its Vim navigation bindings to the open menu', async (t: TestContext) => {
+  type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
+  const keybindings = getKeybindings();
+  const initialBindings = keybindings.getUserBindings();
+  const expectedBindings = {'tui.input.tab': 'tab' as const};
+  const config = new ConfigStore('/project');
+  let handler: Handler | undefined;
+
+  t.mock.method(config, 'reload', async () => undefined);
+  new SandboxCommand(config, {} as SandboxSessionManager).register({
+    registerCommand(_name: string, options: {handler: Handler}) {
+      handler = options.handler;
+    },
+  } as unknown as ExtensionAPI);
+
+  const ctx = {
+    ui: {
+      notify() {
+        return undefined;
+      },
+      async select() {
+        t.assert.ok(keybindings.getKeys('tui.select.up').includes('k'));
+        t.assert.ok(keybindings.getKeys('tui.select.down').includes('j'));
+        return undefined;
+      },
+    },
+  } as unknown as ExtensionCommandContext;
+
+  try {
+    keybindings.setUserBindings(expectedBindings);
+    if (handler === undefined) {
+      throw new Error('/sandbox handler was not registered');
+    }
+
+    await handler('', ctx);
+    t.assert.deepStrictEqual(keybindings.getUserBindings(), expectedBindings);
+    t.assert.deepStrictEqual(keybindings.getKeys('tui.select.up'), ['up']);
+    t.assert.deepStrictEqual(keybindings.getKeys('tui.select.down'), ['down']);
+  } finally {
+    keybindings.setUserBindings(initialBindings);
   }
 });
 
