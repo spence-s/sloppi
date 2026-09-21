@@ -1,3 +1,4 @@
+import process from 'node:process';
 import {SandboxManager} from '@anthropic-ai/sandbox-runtime';
 import {
   getSelectListTheme,
@@ -37,7 +38,8 @@ type NetworkAction =
   | {action: 'add'}
   | {action: 'edit'; draft: NetworkDraft}
   | {action: 'save'; draft: NetworkDraft}
-  | {action: 'remove'; destination: string};
+  | {action: 'remove'; destination: string}
+  | {action: 'set-local-binding'; enabled: boolean};
 
 export class SandboxNetworkCommand {
   config: ConfigStore;
@@ -346,6 +348,22 @@ export class SandboxNetworkCommand {
         values: [`${''.padEnd(24)}${source}`],
         description: 'Configure connection access and optional request filters in one form.',
       });
+      if (process.platform === 'darwin') {
+        const scopedLocalBinding = (scope === 'global' ? globalConfig : projectConfig).network?.allowLocalBinding;
+        const isLocalBindingEnabled = effectiveConfig.network?.allowLocalBinding ?? false;
+        const localBindingSource = scopedLocalBinding === undefined
+          ? (globalConfig.network?.allowLocalBinding === undefined ? 'Built in' : 'Global')
+          : source;
+        const localBindingOff = `${'Off'.padEnd(12)}${'—'.padEnd(12)}${localBindingSource}`;
+        const localBindingOn = `${'On'.padEnd(12)}${'—'.padEnd(12)}${localBindingSource}`;
+        items.push({
+          id: 'allow-local-connections',
+          label: 'Allow local connections',
+          currentValue: isLocalBindingEnabled ? localBindingOn : localBindingOff,
+          values: [localBindingOff, localBindingOn],
+          description: 'Allows sandboxed commands to access every localhost service and open listening ports on this Mac.',
+        });
+      }
 
       const container = new Container();
       const scopeLabel = scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
@@ -353,15 +371,17 @@ export class SandboxNetworkCommand {
       container.addChild(new Text(theme.fg('accent', heading), 0, 0));
       container.addChild(new Text(theme.fg('muted', 'Every configured destination is shown. Blocked destinations cannot have request filters.'), 0, 1));
       const labelWidth = Math.min(36, Math.max(...items.map(item => visibleWidth(item.label))));
-      const tableHeader = `  ${'Destination'.padEnd(labelWidth)}  ${'Access'.padEnd(12)}${'Requests'.padEnd(12)}Source`;
+      const tableHeader = `  ${'Destination / setting'.padEnd(labelWidth)}  ${'Access'.padEnd(12)}${'Requests'.padEnd(12)}Source`;
       container.addChild(new Text(theme.fg('dim', tableHeader), 0, 0));
       const settings = new SettingsList(
         items,
         isFormOpen ? 7 : 15,
         getSettingsListTheme(),
-        id => {
+        (id, newValue) => {
           if (id === 'add') {
             done({action: 'add'});
+          } else if (id === 'allow-local-connections') {
+            done({action: 'set-local-binding', enabled: newValue.startsWith('On')});
           }
         },
         () => {
@@ -476,6 +496,18 @@ export class SandboxNetworkCommand {
           ...(result.draft.previousDestination !== undefined && {previousDestination: result.draft.previousDestination}),
         };
         await this.config.setNetworkDestination(scope, setting);
+        break;
+      }
+
+      case 'set-local-binding': {
+        if (result.enabled && !await ctx.ui.confirm(
+          'Allow local connections?',
+          'Sandboxed commands will be able to access every localhost service and open listening ports on this Mac.',
+        )) {
+          return this.manage(ctx, scope);
+        }
+
+        await this.config.setAllowLocalBinding(scope, result.enabled);
         break;
       }
     }

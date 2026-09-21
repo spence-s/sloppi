@@ -220,6 +220,26 @@ export class ConfigStore {
     await this.save();
   }
 
+  /**
+   Stores whether one scope may connect to and listen on local macOS ports.
+   */
+  async setAllowLocalBinding(scope: ConfigScope, isEnabled: boolean): Promise<void> {
+    await this.reload();
+    const scopedConfig = this.getScopedConfig(scope);
+    const validation = NetworkConfigSchema.safeParse({
+      ...scopedConfig.network,
+      allowedDomains: scopedConfig.network?.allowedDomains ?? [],
+      deniedDomains: scopedConfig.network?.deniedDomains ?? [],
+      allowLocalBinding: isEnabled,
+    });
+    if (!validation.success) {
+      throw new Error(`Invalid SRT network configuration: ${validation.error.message}`);
+    }
+
+    scopedConfig.network = validation.data;
+    await this.save();
+  }
+
   /** Adds or removes one network rule in the selected scope. */
   async updateDomain(
     scope: ConfigScope,
