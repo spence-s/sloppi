@@ -191,7 +191,11 @@ export class SandboxNetworkCommand {
 
           const heading = draft?.previousDestination === undefined ? 'Add network destination' : 'Edit network destination';
           const instructions = 'Tab/Shift+Tab moves · Type in the › row · Space toggles access · Enter saves · Esc cancels';
-          const destinationLine = inputs[0]!.render(Math.max(1, width - 2))[0] ?? '';
+          const inputWidth = Math.max(1, width - 2);
+          const destinationValue = inputs[0]!.getValue();
+          const destinationLine = activeField === 0
+            ? (inputs[0]!.render(inputWidth)[0] ?? '')
+            : truncateToWidth(`Destination: ${destinationValue === '' ? theme.fg('dim', fields[0]!.hint) : destinationValue}`, inputWidth, '');
           const accessLine = `Access: ${formAccess === 'allow' ? 'Allowed' : 'Blocked'} (Space to toggle)`;
           const selectedAccessLine = activeField === 1
             ? theme.bg('selectedBg', theme.fg('accent', theme.bold(`› ${accessLine}`)))
@@ -206,7 +210,11 @@ export class SandboxNetworkCommand {
           if (formAccess === 'allow') {
             for (const [index, input] of inputs.slice(1).entries()) {
               const fieldIndex = index + 2;
-              const inputLine = input.render(Math.max(1, width - 2))[0] ?? '';
+              const field = fields[index + 1]!;
+              const value = input.getValue();
+              const inputLine = activeField === fieldIndex
+                ? (input.render(inputWidth)[0] ?? '')
+                : truncateToWidth(`${field.label}: ${value === '' ? theme.fg('dim', field.hint) : value}`, inputWidth, '');
               lines.push(`${activeField === fieldIndex ? theme.fg('accent', '› ') : '  '}${inputLine}`);
             }
           } else {
