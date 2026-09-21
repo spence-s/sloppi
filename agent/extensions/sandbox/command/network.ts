@@ -58,7 +58,7 @@ export class SandboxNetworkCommand {
    */
   async manage(ctx: ExtensionCommandContext, scope: ConfigScope, draft?: NetworkDraft): Promise<void> {
     if (ctx.mode !== 'tui') {
-      ctx.ui.notify('Website and service settings require interactive TUI mode.', 'error');
+      ctx.ui.notify('Network Access requires interactive TUI mode.', 'error');
       return;
     }
 
@@ -367,7 +367,7 @@ export class SandboxNetworkCommand {
 
       const container = new Container();
       const scopeLabel = scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
-      const heading = theme.bold(`Websites and services — ${scopeLabel}`);
+      const heading = theme.bold(`Network Access — ${scopeLabel}`);
       container.addChild(new Text(theme.fg('accent', heading), 0, 0));
       container.addChild(new Text(theme.fg('muted', 'Every configured destination is shown. Blocked destinations cannot have request filters.'), 0, 1));
       const labelWidth = Math.min(36, Math.max(...items.map(item => visibleWidth(item.label))));

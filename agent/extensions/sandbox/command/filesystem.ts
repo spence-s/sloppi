@@ -61,7 +61,7 @@ export class SandboxFilesystemCommand {
    */
   async manage(ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
     if (ctx.mode !== 'tui') {
-      ctx.ui.notify('File and folder settings require interactive TUI mode.', 'error');
+      ctx.ui.notify('Filesystem Access requires interactive TUI mode.', 'error');
       return;
     }
 
@@ -346,7 +346,7 @@ export class SandboxFilesystemCommand {
 
       const container = new Container();
       const scopeLabel = scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
-      const title = theme.fg('accent', theme.bold(`Files and folders — ${scopeLabel}`));
+      const title = theme.fg('accent', theme.bold(`Filesystem Access — ${scopeLabel}`));
       const description = theme.fg('muted', 'Every effective location is shown. Dimmed rows cannot be changed in this scope.');
       const labelWidth = Math.min(36, Math.max(...items.map(item => visibleWidth(item.label))));
       const tableHeader = `  ${'Location'.padEnd(labelWidth)}  ${'Access'.padEnd(16)}Source`;

@@ -53,8 +53,8 @@ export class SandboxCommand {
         const statusLabel = this.sandbox.isEnabled ? 'On' : 'Off';
         const title = `${statusIcon} Sandbox: ${statusLabel} — ${scopeLabel}`;
         const action = await ctx.ui.select(title, [
-          'Files and folders',
-          'Websites and services',
+          'Filesystem Access',
+          'Network Access',
           researchAction,
           toggleAction,
           '',
@@ -71,12 +71,12 @@ export class SandboxCommand {
             break;
           }
 
-          case 'Files and folders': {
+          case 'Filesystem Access': {
             await this.filesystem.manage(ctx, activeScope);
             break;
           }
 
-          case 'Websites and services': {
+          case 'Network Access': {
             await this.network.manage(ctx, activeScope);
             break;
           }
