@@ -28,7 +28,7 @@ export class SandboxCommand {
   /**
    Keeps the settings browser open until Escape is pressed at its top level.
    */
-  async manage(pi: ExtensionAPI, ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
+  async manage(ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
     const keybindings = getKeybindings();
     const userBindings = keybindings.getUserBindings();
     keybindings.setUserBindings({
@@ -43,19 +43,13 @@ export class SandboxCommand {
       while (true) {
         await this.config.reload();
         const scopeLabel = activeScope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
-        const scopedResearch = this.config.getResearchAgentsSetting(activeScope);
-        const researchValue = activeScope === 'project' && scopedResearch === undefined
-          ? `Use global setting (${this.config.areResearchAgentsEnabled() ? 'On' : 'Off'})`
-          : ((scopedResearch ?? false) ? 'On' : 'Off');
         const toggleAction = this.sandbox.isEnabled ? 'Turn off session protection' : 'Turn on session protection';
-        const researchAction = `Research agents — ${researchValue}`;
         const statusIcon = this.sandbox.isEnabled ? '󰕥' : '󰒲';
         const statusLabel = this.sandbox.isEnabled ? 'On' : 'Off';
         const title = `${statusIcon} Sandbox: ${statusLabel} — ${scopeLabel}`;
         const action = await ctx.ui.select(title, [
           'Filesystem Access',
           'Network Access',
-          researchAction,
           toggleAction,
           '',
           activeScope === 'project' ? '← Manage global settings' : '← Manage local settings',
@@ -78,11 +72,6 @@ export class SandboxCommand {
 
           case 'Network Access': {
             await this.network.manage(ctx, activeScope);
-            break;
-          }
-
-          case researchAction: {
-            await this.options.manageResearchAgents(pi, ctx, activeScope);
             break;
           }
 
@@ -132,7 +121,7 @@ export class SandboxCommand {
             return;
           }
 
-          await this.manage(pi, ctx, argument === 'global' ? 'global' : 'project');
+          await this.manage(ctx, argument === 'global' ? 'global' : 'project');
         } catch (error) {
           ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
         }

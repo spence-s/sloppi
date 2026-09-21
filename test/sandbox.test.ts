@@ -1299,9 +1299,9 @@ void test('/sandbox toggles host execution and updates its status', async (t: Te
 });
 
 /**
- Verifies blocked-website prompting is no longer exposed by either settings scope.
+ Verifies unavailable controls are absent from both settings scopes.
  */
-void test('/sandbox omits the blocked-website prompting option', async (t: TestContext) => {
+void test('/sandbox omits unavailable options', async (t: TestContext) => {
   type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-command-test-'));
   const configStore = new ConfigStore('/project', join(directory, 'sandbox.json'));
@@ -1335,75 +1335,8 @@ void test('/sandbox omits the blocked-website prompting option', async (t: TestC
     await handler('global', ctx);
 
     t.assert.strictEqual(menus.length, 2);
-    t.assert.ok(menus.every(menu => menu.every(option => !option.startsWith('Ask when a website is blocked'))));
-  } finally {
-    await rm(directory, {force: true, recursive: true});
-  }
-});
-
-/**
- Verifies project research-agent settings take effect immediately and can return to inheritance.
- */
-void test('/sandbox configures research agents globally or per project', async (t: TestContext) => {
-  type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
-  const directory = await mkdtemp(join(tmpdir(), 'sloppi-command-test-'));
-  const configPath = join(directory, 'sandbox.json');
-  const configStore = new ConfigStore('/project', configPath);
-  const selections: Array<string | undefined> = [
-    'Research agents — Off',
-    'Turn on',
-    undefined,
-    'Research agents — Use global setting (On)',
-    'Turn off',
-    undefined,
-    'Research agents — Off',
-    'Use global setting',
-    undefined,
-  ];
-  const notifications: string[] = [];
-  let activeTools = ['read'];
-  let handler: Handler | undefined;
-
-  new SandboxCommand(configStore, {} as SandboxSessionManager).register({
-    getActiveTools() {
-      return activeTools;
-    },
-    registerCommand(_name: string, options: {handler: Handler}) {
-      handler = options.handler;
-    },
-    setActiveTools(tools: string[]) {
-      activeTools = tools;
-    },
-  } as unknown as ExtensionAPI);
-
-  const ctx = {
-    ui: {
-      notify(message: string) {
-        notifications.push(message);
-      },
-      select: async () => selections.shift(),
-    },
-  } as unknown as ExtensionCommandContext;
-
-  try {
-    if (handler === undefined) {
-      throw new Error('/sandbox handler was not registered');
-    }
-
-    await handler('global', ctx);
-    t.assert.deepStrictEqual(activeTools, ['read', 'research_scout']);
-    await handler('', ctx);
-    t.assert.deepStrictEqual(activeTools, ['read']);
-    await handler('', ctx);
-    t.assert.deepStrictEqual(activeTools, ['read', 'research_scout']);
-
-    const saved = JSON.parse(await readFile(configPath, 'utf8')) as {
-      sandbox: {researchAgentsEnabled: boolean};
-      projects: Record<string, {sandbox: {researchAgentsEnabled?: boolean}}>;
-    };
-    t.assert.strictEqual(saved.sandbox.researchAgentsEnabled, true);
-    t.assert.strictEqual(saved.projects['/project']?.sandbox.researchAgentsEnabled, undefined);
-    t.assert.match(notifications.at(-1) ?? '', /use the global setting and are on/v);
+    t.assert.ok(menus.every(menu => menu.every(option =>
+      !option.startsWith('Ask when a website is blocked') && !option.startsWith('Research agents —'))));
   } finally {
     await rm(directory, {force: true, recursive: true});
   }

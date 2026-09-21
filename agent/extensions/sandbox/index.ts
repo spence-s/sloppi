@@ -84,7 +84,7 @@ export class Sandbox {
       }
 
       if (event.toolName === 'research_scout' && !config.areResearchAgentsEnabled()) {
-        return {block: true, reason: 'Research agents are disabled. Enable them with /sandbox or /sandbox global.'};
+        return {block: true, reason: 'Research agents are disabled in sandbox configuration.'};
       }
 
       if (!sandboxedTools.has(event.toolName) && !hostTools.has(event.toolName)) {
