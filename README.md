@@ -63,6 +63,7 @@ pi install npm:pi-web-access
 
 - `ask-mode.ts` — `/ask on|off|toggle|status` controls modes; `/ask <prompt>` toggles modes before submitting the prompt; `/implement` switches to agent mode and starts implementation.
 - `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input; `/commit model` selects its model.
+- `staging/` — routes configured literal Bash command prefixes into the editor for reviewed host execution; `/staging` edits project selectors.
 - `permissions/` — applies regex-based ask or deny rules to shell commands; `/permissions` edits project rules.
 - `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox on|off|toggle|status` controls it for the current session, while `/sandbox` manages its access. Its `research_scout` tool runs isolated scout, planner, reviewer, or user-defined profiles with only read, grep, find, and list access. Select the default model with `/sandbox global` → `Research agents` → `Default model`.
 - `startup-banner.ts` — replaces Pi's TUI header.
@@ -70,6 +71,25 @@ pi install npm:pi-web-access
 - `zshrc.ts` — loads zsh aliases for host-side `!` commands.
 
 Sandbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. While enabled, it blocks unapproved extension tools from host execution; Pi web-access tools remain host-side so provider credentials are not exposed to sandboxed commands. Turning it off routes every tool directly through the host with your user permissions.
+
+### Host-command staging
+
+Use `/staging` for the current project or `/staging global` for global rules. The settings menu shows local and inherited global commands, and supports adding commands, editing sandbox passthroughs, and removing rules. Rules live in `~/.config/sloppi/staging.json`:
+
+```json
+{
+  "commands": [{
+    "command": "acli confluence",
+    "passthrough": ["-h", "--help"]
+  }]
+}
+```
+
+`command` is an ordered literal argv prefix: `acli confluence` stages Confluence operations but not `acli jira`. Each `passthrough` entry is a literal argv sequence allowed anywhere after that prefix and before `--`; matching invocations remain sandboxed. If any other invocation in a pipeline, chain, substitution, or compound statement requires staging, the entire unchanged Bash expression is staged.
+
+A matching model Bash call is blocked and copied to the editor with one leading `!`. Staging does not execute it: review or edit the command, then press Enter to run it on the host with your full user permissions and authentication. `!` includes output in model context; change it to `!!` to keep output out of context. Request host-routed commands one at a time.
+
+Dynamic executables, variables, wrappers such as `env`, shell `-c` strings, and malformed or multiline input intentionally do not match and remain sandboxed. Staging loads before command permissions, so a staged match takes precedence; avoid overlapping staging and permission rules.
 
 ### Browser automation
 

@@ -49,6 +49,7 @@
     "object-deep-merge": "^2.0.1",
     "playwright": "1.63.0-alpha-2026-08-31",
     "typebox": "^1.3.30",
+    "unbash": "^4.0.11",
     "zod": "^4.6.5"
   },
   "devDependencies": {
@@ -78,6 +79,7 @@
     "extensions": [
       "./agent/extensions/ask-mode.ts",
       "./agent/extensions/commit.ts",
+      "./agent/extensions/staging/index.ts",
       "./agent/extensions/permissions/index.ts",
       "./agent/extensions/sandbox/index.ts",
       "./agent/extensions/startup-banner.ts",
