@@ -7,6 +7,8 @@ import commit from '../agent/extensions/commit.ts';
 
 void test('uses the selected commit model outside the session scope and loads a safely quoted command', async (t: TestContext) => {
   type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
+  type CommandOptions = Parameters<Parameters<typeof commit>[0]['registerCommand']>[1];
+  let getArgumentCompletions: NonNullable<CommandOptions['getArgumentCompletions']> | undefined;
   let handler: Handler | undefined;
   let editorText = '';
   let diffArguments: string[] = [];
@@ -40,8 +42,9 @@ void test('uses the selected commit model outside the session scope and loads a 
 
       throw new Error(`Unexpected Git command: ${arguments_.join(' ')}`);
     },
-    registerCommand(name: string, options: {handler: Handler}) {
+    registerCommand(name: string, options: CommandOptions) {
       t.assert.strictEqual(name, 'commit');
+      getArgumentCompletions = options.getArgumentCompletions;
       handler = options.handler;
     },
   } as unknown as Parameters<typeof commit>[0], join(directory, 'model.json'));
@@ -78,6 +81,11 @@ void test('uses the selected commit model outside the session scope and loads a 
     },
     waitForIdle: async () => undefined,
   } as unknown as ExtensionCommandContext;
+
+  t.assert.deepStrictEqual(await getArgumentCompletions?.('m'), [{
+    value: 'model', label: 'model', description: 'Choose the commit model',
+  }]);
+  t.assert.strictEqual(await getArgumentCompletions?.('other'), null);
 
   await handler?.('model', ctx);
   await handler?.('', ctx);

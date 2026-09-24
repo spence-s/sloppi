@@ -44,6 +44,12 @@ export default function commit(
 ): void {
   pi.registerCommand('commit', {
     description: 'Generate a commit command, or choose its model with /commit model.',
+    /**
+     Completes the only optional subcommand instead of making users remember it.
+     */
+    getArgumentCompletions: prefix => 'model'.startsWith(prefix)
+      ? [{value: 'model', label: 'model', description: 'Choose the commit model'}]
+      : null,
     async handler(arguments_, ctx) {
       if (ctx.mode !== 'tui' || !ctx.isProjectTrusted()) {
         ctx.ui.notify('/commit requires an interactive, trusted project.', 'error');
