@@ -7,6 +7,7 @@ import {
 import {tmpdir} from 'node:os';
 import {join} from 'node:path';
 import process from 'node:process';
+import {setImmediate as waitForImmediate} from 'node:timers/promises';
 import {test, type TestContext} from 'node:test';
 import type {BashOperations, ExtensionAPI} from '@earendil-works/pi-coding-agent';
 import zshrc from '../agent/extensions/zshrc.ts';
@@ -15,8 +16,8 @@ void test('loads zsh aliases before parsing host user commands', async (t: TestC
   type Handler = (event: {command: string}) => {operations: BashOperations} | undefined;
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-user-shell-test-'));
   const shellPath = join(directory, 'zsh');
+  let completedCommand: unknown;
   let handler: Handler | undefined;
-  let isCommandFinished = false;
 
   try {
     await writeFile(shellPath, '#!/bin/sh\nprintf %s "$2"\n');
@@ -25,8 +26,10 @@ void test('loads zsh aliases before parsing host user commands', async (t: TestC
 
     zshrc({
       events: {
-        emit(channel: string) {
-          isCommandFinished = channel === 'sloppi:user-bash-end';
+        emit(channel: string, data: unknown) {
+          if (channel === 'sloppi:user-bash-end') {
+            completedCommand = data;
+          }
         },
       },
       on(name: string, candidate: Handler) {
@@ -51,7 +54,8 @@ void test('loads zsh aliases before parsing host user commands', async (t: TestC
     t.assert.match(output, /^source ~\/\.zshrc\neval -- /v);
     t.assert.match(output, /glol '"'"'quoted'"'"'/v);
     t.assert.doesNotMatch(output, /ignored prefix/v);
-    t.assert.ok(isCommandFinished);
+    await waitForImmediate();
+    t.assert.strictEqual(completedCommand, 'glol \'quoted\'');
   } finally {
     await rm(directory, {force: true, recursive: true});
   }

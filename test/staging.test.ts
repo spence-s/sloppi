@@ -188,23 +188,41 @@ type EventHandler = (event: never, ctx: ExtensionContext) => unknown;
 
 /** Captures extension handlers without giving staging any process-execution API. */
 function createLifecycleHarness(staging: Staging): {
+  busEvents: Map<string, (data: unknown) => void>;
   ctx: ExtensionContext;
   editor: () => string;
   events: Map<string, EventHandler>;
+  messages: Array<{message: unknown; options: unknown}>;
   notifications: string[];
 } {
+  const busEvents = new Map<string, (data: unknown) => void>();
   const events = new Map<string, EventHandler>();
+  const messages: Array<{message: unknown; options: unknown}> = [];
   const notifications: string[] = [];
   let editor = '';
   const pi = staging.pi as unknown as {
+    events: {on: (name: string, handler: (data: unknown) => void) => () => void};
     on: (name: string, handler: EventHandler) => void;
     registerCommand: () => void;
+    sendMessage: (message: unknown, options: unknown) => void;
+  };
+  pi.events = {
+    on(name, handler) {
+      busEvents.set(name, handler);
+      return () => {
+        busEvents.delete(name);
+      };
+    },
   };
   pi.on = (name, handler) => {
     events.set(name, handler);
   };
 
   pi.registerCommand = () => undefined;
+  pi.sendMessage = (message, options) => {
+    messages.push({message, options});
+  };
+
   staging.register();
 
   const ctx = {
@@ -224,9 +242,11 @@ function createLifecycleHarness(staging: Staging): {
   } as unknown as ExtensionContext;
 
   return {
+    busEvents,
     ctx,
     editor: () => editor,
     events,
+    messages,
     notifications,
   };
 }
@@ -277,6 +297,44 @@ void describe('staging lifecycle', () => {
 
       settled({type: 'agent_settled'} as never, harness.ctx);
       t.assert.strictEqual(harness.editor(), '!acli status');
+    } finally {
+      await rm(directory, {force: true, recursive: true});
+    }
+  });
+
+  void test('continues after the reviewed staged command but not ordinary user Bash', async (t: TestContext) => {
+    const directory = await mkdtemp(join(tmpdir(), 'sloppi-staging-test-'));
+    const config = new StagingConfig('/project', join(directory, 'staging.json'));
+    const staging = new Staging({} as ExtensionAPI, config);
+
+    try {
+      await config.replaceRules('global', [{command: 'acli'}]);
+      const harness = createLifecycleHarness(staging);
+      const toolCall = harness.events.get('tool_call');
+      const settled = harness.events.get('agent_settled');
+      const userBash = harness.events.get('user_bash');
+      const userBashEnd = harness.busEvents.get('sloppi:user-bash-end');
+      if (toolCall === undefined || settled === undefined || userBash === undefined || userBashEnd === undefined) {
+        throw new Error('Staging continuation handlers not registered');
+      }
+
+      userBash({command: 'npm test'} as never, harness.ctx);
+      userBashEnd('npm test');
+      t.assert.deepStrictEqual(harness.messages, []);
+
+      await toolCall(bashEvent('acli status') as never, harness.ctx);
+      settled({type: 'agent_settled'} as never, harness.ctx);
+      userBash({command: 'acli status'} as never, harness.ctx);
+      userBashEnd('acli status');
+
+      t.assert.deepStrictEqual(harness.messages, [{
+        message: {
+          customType: 'staging-continue',
+          content: 'The reviewed host command has finished. Continue working on the current task using its result.',
+          display: false,
+        },
+        options: {triggerTurn: true},
+      }]);
     } finally {
       await rm(directory, {force: true, recursive: true});
     }

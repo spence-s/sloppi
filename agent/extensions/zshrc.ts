@@ -18,7 +18,10 @@ export default function zshrc(pi: ExtensionAPI): void {
       operations: {
         async exec(_prefixedCommand, commandCwd, options) {
           const result = await local.exec(command, commandCwd, options);
-          pi.events.emit('sloppi:user-bash-end', undefined);
+          // Let Pi record the Bash result before listeners start a continuation turn.
+          setImmediate(() => {
+            pi.events.emit('sloppi:user-bash-end', event.command);
+          });
           return result;
         },
       },

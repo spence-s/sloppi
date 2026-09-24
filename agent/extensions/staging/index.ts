@@ -20,6 +20,8 @@ export class Staging {
   config: StagingConfig;
   pending: PendingCommand | undefined;
   pi: ExtensionAPI;
+  runningStagedCommand: string | undefined;
+  stagedCommand: string | undefined;
 
   /** Creates an editor handoff that never executes host commands itself. */
   constructor(pi: ExtensionAPI, config = new StagingConfig(realpathSync(process.cwd()))) {
@@ -53,6 +55,7 @@ export class Staging {
   settle(ctx: ExtensionContext): void {
     const {pending} = this;
     this.pending = undefined;
+    this.stagedCommand = undefined;
     if (pending === undefined) {
       return;
     }
@@ -65,6 +68,7 @@ export class Staging {
       return;
     }
 
+    this.stagedCommand = pending.command;
     ctx.ui.setEditorText(`!${pending.command}`);
     ctx.ui.notify(`Host command staged for review (${pending.selectors.join(', ')}). Edit or delete it; press Enter only to run it.${extra}`, 'warning');
   }
@@ -86,8 +90,28 @@ export class Staging {
       this.settle(ctx);
     });
 
+    this.pi.on('user_bash', event => {
+      this.runningStagedCommand = event.command === this.stagedCommand ? event.command : undefined;
+      this.stagedCommand = undefined;
+    });
+
+    this.pi.events.on('sloppi:user-bash-end', completedCommand => {
+      if (completedCommand !== this.runningStagedCommand) {
+        return;
+      }
+
+      this.runningStagedCommand = undefined;
+      this.pi.sendMessage({
+        customType: 'staging-continue',
+        content: 'The reviewed host command has finished. Continue working on the current task using its result.',
+        display: false,
+      }, {triggerTurn: true});
+    });
+
     this.pi.on('session_start', async (_event, ctx) => {
       this.pending = undefined;
+      this.runningStagedCommand = undefined;
+      this.stagedCommand = undefined;
       try {
         await this.config.reload();
         command.setStatus(ctx);
