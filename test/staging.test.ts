@@ -338,7 +338,7 @@ void describe('/staging command', () => {
     const config = new StagingConfig('/project', join(directory, 'staging.json'));
     const notifications: Array<{message: string; level: string}> = [];
     const menus: string[][] = [];
-    const selections: Array<string | undefined> = ['+ Add staged command', undefined];
+    const selections: Array<string | undefined> = ['+ Stage a command for host review', undefined];
     const inputs = ['acli confluence', '-h; --help'];
     let handler: ((arguments_: string, ctx: ExtensionCommandContext) => Promise<void>) | undefined;
     new StagingCommand(config).register({

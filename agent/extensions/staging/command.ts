@@ -22,14 +22,17 @@ export class StagingCommand {
 
   /** Adds one command rule through two short, plain-language prompts. */
   private async add(ctx: ExtensionCommandContext, scope: StagingScope): Promise<void> {
-    const command = await ctx.ui.input('Command to stage', 'Example: acli confluence');
+    const command = await ctx.ui.input(
+      `Stage a ${scope} command — Matching agent Bash calls will pause for your review`,
+      'Enter an executable and optional literal subcommand',
+    );
     if (command === undefined) {
       return;
     }
 
     const passthroughInput = await ctx.ui.input(
-      'Optional sandbox passthroughs',
-      'Separate entries with ;  Example: -h; --help',
+      `Sandbox exceptions for "${command.trim()}" — These exact argument sequences will not be staged`,
+      'Separate exceptions with ; or leave blank for none',
     );
     if (passthroughInput === undefined) {
       return;
@@ -48,8 +51,8 @@ export class StagingCommand {
   private async editPassthrough(ctx: ExtensionCommandContext, scope: StagingScope, rule: StagingRule): Promise<void> {
     const current = rule.passthrough?.join('; ') ?? 'none';
     const value = await ctx.ui.input(
-      `Sandbox passthroughs for ${rule.command} (currently: ${current})`,
-      'Separate entries with ;  Empty means none',
+      `Edit sandbox exceptions for "${rule.command}" — Matching arguments stay sandboxed (currently: ${current})`,
+      'Separate exact sequences with ; or leave blank for none',
     );
     if (value === undefined) {
       return;
@@ -66,7 +69,10 @@ export class StagingCommand {
 
   /** Removes one rule after an explicit confirmation. */
   private async remove(ctx: ExtensionCommandContext, scope: StagingScope, rule: StagingRule): Promise<void> {
-    if (!await ctx.ui.confirm('Remove staged command?', `${rule.command} will return to ordinary sandbox execution.`)) {
+    if (!await ctx.ui.confirm(
+      `Stop staging "${rule.command}"?`,
+      'Matching agent Bash calls will run in the sandbox without host review.',
+    )) {
       return;
     }
 
@@ -115,12 +121,15 @@ export class StagingCommand {
         }));
         const scopeLabel = activeScope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
         const switchScope = activeScope === 'project' ? '← Manage global commands' : '← Manage local commands';
-        const action = await ctx.ui.select(`Host-command staging — ${scopeLabel}`, [
-          '+ Add staged command',
-          ...labels.keys(),
-          '',
-          switchScope,
-        ]);
+        const action = await ctx.ui.select(
+          `Host-command staging — ${scopeLabel} — Matching agent Bash calls pause for host review`,
+          [
+            '+ Stage a command for host review',
+            ...labels.keys(),
+            '',
+            switchScope,
+          ],
+        );
         if (action === undefined) {
           return;
         }
@@ -130,7 +139,7 @@ export class StagingCommand {
           continue;
         }
 
-        if (action === '+ Add staged command') {
+        if (action === '+ Stage a command for host review') {
           await this.add(ctx, activeScope);
           continue;
         }
@@ -145,13 +154,16 @@ export class StagingCommand {
           continue;
         }
 
-        const ruleAction = await ctx.ui.select(selected.rule.command, [
-          'Edit sandbox passthroughs',
-          'Remove staged command',
-        ]);
-        if (ruleAction === 'Edit sandbox passthroughs') {
+        const ruleAction = await ctx.ui.select(
+          `Staged command "${selected.rule.command}" — Choose how to change host review`,
+          [
+            'Edit sandbox exceptions',
+            'Stop staging this command',
+          ],
+        );
+        if (ruleAction === 'Edit sandbox exceptions') {
           await this.editPassthrough(ctx, activeScope, selected.rule);
-        } else if (ruleAction === 'Remove staged command') {
+        } else if (ruleAction === 'Stop staging this command') {
           await this.remove(ctx, activeScope, selected.rule);
         }
       }
