@@ -301,11 +301,14 @@ export class SandboxFilesystemCommand {
 
       const locationAccessChoices: Array<{value: FilesystemAccess; label: string; description: string}> = [
         {value: 'readWrite', label: 'Read/Write', description: 'Pi can view, create, edit, and delete files.'},
+        {value: 'readOnly', label: 'Read only', description: 'Pi can view files but cannot change them.'},
         {value: 'none', label: 'No access', description: 'Pi cannot view or change files.'},
       ];
       const locationAccessList = new SelectList(locationAccessChoices, locationAccessChoices.length, getSelectListTheme());
       locationAccessList.onSelect = choice => {
-        const access: FilesystemAccess = choice.value === 'none' ? 'none' : 'readWrite';
+        const access: FilesystemAccess = choice.value === 'none'
+          ? 'none'
+          : (choice.value === 'readOnly' ? 'readOnly' : 'readWrite');
         done({action: 'set', path: pendingLocation, access});
       };
 
