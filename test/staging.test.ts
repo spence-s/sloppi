@@ -144,7 +144,7 @@ void describe('staging configuration', () => {
       t.assert.deepStrictEqual(config.getEffectiveRules(), []);
 
       const defaultConfig = new StagingConfig('/tmp/project');
-      t.assert.strictEqual(defaultConfig.path, join(homedir(), '.config', 'sloppi', 'staging.json'));
+      t.assert.strictEqual(defaultConfig.path, join(homedir(), '.pi', 'staging.json'));
       t.assert.ok(!defaultConfig.path.startsWith('/tmp/project/'));
     } finally {
       await rm(directory, {force: true, recursive: true});

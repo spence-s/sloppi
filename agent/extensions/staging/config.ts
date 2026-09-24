@@ -113,8 +113,8 @@ export class StagingConfig {
   cwd: string;
   path: string;
 
-  /** Creates a host-owned staging store outside project-writable paths by default. */
-  constructor(cwd: string, path = join(homedir(), '.config', 'sloppi', 'staging.json')) {
+  /** Creates the staging store alongside the user's Pi configuration by default. */
+  constructor(cwd: string, path = join(homedir(), '.pi', 'staging.json')) {
     this.cwd = cwd;
     this.path = path;
   }
