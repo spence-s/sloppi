@@ -1,3 +1,4 @@
+import {Buffer} from 'node:buffer';
 import {realpathSync} from 'node:fs';
 import {
   access,
@@ -174,6 +175,55 @@ void test('balances sandbox wrapper cleanup', async (t: TestContext) => {
     /pipe wrap failed/v,
   );
   t.assert.strictEqual(cleanupCount, 6);
+});
+
+/**
+ Confirms opaque CLI errors carry independently recorded network denials, not guessed 403s.
+ */
+void test('reports attributed network denials without mislabeling application 403s', async (t: TestContext) => {
+  const cwd = process.cwd();
+  const sandbox = new SandboxSessionManager(cwd, new ConfigStore(cwd));
+  sandbox.session = {
+    previousClaudeCodeTmpdir: undefined,
+    previousTmpdir: undefined,
+    scratchPath: cwd,
+  };
+  t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => command);
+  const store = SandboxManager.getSandboxViolationStore();
+  let isBlocked = true;
+  t.mock.method(store, 'getViolationsForCommand', () => isBlocked
+    ? [{line: 'deny network-outbound blocked.example:443 (host is not on the allow list)', timestamp: new Date()}]
+    : []);
+
+  const output: string[] = [];
+  const failure = await sandbox.run({
+    cwd,
+    onData(data) {
+      output.push(Buffer.from(data).toString());
+    },
+  })`printf 'site verification failed: 403'; exit 1`;
+  t.assert.strictEqual(failure.exitCode, 1);
+  t.assert.match(output.join(''), /<sandbox_violations>\ndeny network-outbound blocked\.example:443/v);
+  t.assert.match(failure.stderr, /deny network-outbound blocked\.example:443/v);
+  const reference = /Sandbox denial reference: (?<id>[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/v.exec(failure.stderr)?.groups?.id;
+  if (reference === undefined) {
+    throw new Error('Missing denial reference');
+  }
+
+  t.assert.strictEqual(sandbox.consumeNetworkDenial(reference), 'deny network-outbound blocked.example:443 (host is not on the allow list)');
+  t.assert.strictEqual(sandbox.consumeNetworkDenial(reference), undefined);
+
+  isBlocked = false;
+  output.length = 0;
+  const appError = await sandbox.run({
+    cwd,
+    onData(data) {
+      output.push(Buffer.from(data).toString());
+    },
+  })`printf 'application error: 403'; exit 1`;
+  t.assert.strictEqual(appError.exitCode, 1);
+  t.assert.doesNotMatch(output.join(''), /sandbox_violations/v);
+  t.assert.strictEqual(appError.stderr, '');
 });
 
 /**
@@ -1078,7 +1128,7 @@ void test('reports approved network access to both the UI and the model', async 
   const configPath = join(directory, 'sandbox.json');
   const handlers = new Map<string, (...arguments_: unknown[]) => unknown>();
   const notifications: string[] = [];
-  const selections = ['Deny', 'Allow blocked.example:443 for this project'];
+  const selections = ['Allow blocked.example:443 for this project'];
   let restarts = 0;
   const pi = {
     on(name: string, handler: (...arguments_: unknown[]) => unknown) {
@@ -1093,8 +1143,17 @@ void test('reports approved network access to both the UI and the model', async 
   } as unknown as ExtensionAPI;
   const extension = new SandboxExtension(pi);
   extension.config = new ConfigStore(extension.cwd, configPath);
+  let isDenialPending = true;
   extension.sandbox = {
     isEnabled: true,
+    consumeNetworkDenial(reference: string) {
+      if (reference !== '00000000-0000-0000-0000-000000000001' || !isDenialPending) {
+        return undefined;
+      }
+
+      isDenialPending = false;
+      return 'deny network-outbound blocked.example:443 (host is not on the allow list)';
+    },
     async restartSession() {
       restarts += 1;
     },
@@ -1104,8 +1163,17 @@ void test('reports approved network access to both the UI and the model', async 
   const handler = handlers.get('tool_result');
   const event = {
     toolName: 'bash',
-    input: {command: 'curl https://blocked.example/resource'},
-    content: [{type: 'text', text: 'connection blocked by network allowlist'}],
+    input: {command: 'twg confluence space list --limit 1'},
+    content: [{
+      type: 'text',
+      text: [
+        'site verification failed: 403',
+        '<sandbox_violations>',
+        'deny network-outbound blocked.example:443 (host is not on the allow list)',
+        '</sandbox_violations>',
+        'Sandbox denial reference: 00000000-0000-0000-0000-000000000001',
+      ].join('\n'),
+    }],
   };
   const ctx = {
     hasUI: true,
@@ -1123,8 +1191,12 @@ void test('reports approved network access to both the UI and the model', async 
       throw new Error('tool_result handler was not registered');
     }
 
-    t.assert.strictEqual(await handler(event, ctx), undefined);
+    t.assert.strictEqual(await handler({
+      ...event,
+      content: [{type: 'text', text: 'site verification failed: 403\ndeny network-outbound blocked.example:443 (host is not on the allow list)'}],
+    }, ctx), undefined);
     const result = await handler(event, ctx) as {content: Array<{type: string; text: string}>};
+    t.assert.strictEqual(await handler(event, ctx), undefined);
     const approvalMessage = 'Sandbox access to blocked.example:443 was approved and is now active. Retry the failed tool call.';
 
     t.assert.strictEqual(restarts, 1);

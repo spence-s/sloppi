@@ -1,4 +1,5 @@
 import {Buffer} from 'node:buffer';
+import {randomUUID} from 'node:crypto';
 import {mkdtemp, rm, realpath} from 'node:fs/promises';
 import {homedir, tmpdir} from 'node:os';
 import {
@@ -114,6 +115,7 @@ const isDomainPatternMatch = (destination: string, pattern: string): boolean => 
 };
 
 export class SandboxSessionManager {
+  private readonly networkDenials = new Map<string, string>();
   session: SandboxSession | undefined;
   isEnabled = true;
   cwd: string;
@@ -296,15 +298,19 @@ export class SandboxSessionManager {
       let wrappedCommandCount = 0;
       let executable = command;
       let pipedExecutable: string | undefined;
+      const commandId = randomUUID();
+      const pipeId = randomUUID();
       try {
         if (this.isEnabled) {
-          executable = await SandboxManager.wrapWithSandbox(command);
+          executable = await SandboxManager.wrapWithSandbox(command, undefined, undefined, undefined, {commandId});
           wrappedCommandCount++;
         }
 
         const pipeCommand = options.pipe?.map(argument => `'${String(argument).replaceAll('\'', '\'"\'"\'')}'`).join(' ');
         if (pipeCommand !== undefined) {
-          pipedExecutable = this.isEnabled ? await SandboxManager.wrapWithSandbox(pipeCommand) : pipeCommand;
+          pipedExecutable = this.isEnabled
+            ? await SandboxManager.wrapWithSandbox(pipeCommand, undefined, undefined, undefined, {commandId: pipeId})
+            : pipeCommand;
           if (this.isEnabled) {
             wrappedCommandCount++;
           }
@@ -419,6 +425,31 @@ export class SandboxSessionManager {
           throw new Error(`timeout:${String(options.timeout)}`);
         }
 
+        // CLI errors can hide proxy denials; SRT records the blocked destination independently.
+        const denials = this.isEnabled
+          ? [commandId, ...(pipedExecutable === undefined ? [] : [pipeId])]
+            .flatMap(id => SandboxManager.getSandboxViolationStore().getViolationsForCommand(id))
+            .filter(violation => violation.line.includes('deny network-outbound '))
+            .map(violation => violation.line)
+          : [];
+        const denialId = denials.length > 0 ? randomUUID() : undefined;
+        if (denialId !== undefined) {
+          // Only a denial observed by this SRT invocation may authorize an approval prompt.
+          if (this.networkDenials.size >= 100) {
+            this.networkDenials.clear();
+          }
+
+          this.networkDenials.set(denialId, denials[0] ?? '');
+        }
+
+        const diagnostic = denialId === undefined
+          ? ''
+          : `\n<sandbox_violations>\n${denials.join('\n')}\n</sandbox_violations>\nSandbox denial reference: ${denialId}\n`;
+        if (diagnostic.length > 0) {
+          options.onData?.(Buffer.from(diagnostic));
+          options.onStderr?.(Buffer.from(diagnostic));
+        }
+
         /*
          Streaming commands have no buffered `stdout` or `stderr`, so Execa leaves them undefined.
          Normalize both to strings to keep every `sandbox.run` caller on one simple result shape.
@@ -426,7 +457,7 @@ export class SandboxSessionManager {
         return {
           ...result,
           exitCode: pipelineResults.find(entry => entry.exitCode !== 0)?.exitCode ?? result.exitCode,
-          stderr: `${pipedStderr}${result.stderr ?? ''}`,
+          stderr: `${pipedStderr}${result.stderr ?? ''}${diagnostic}`,
           stdout: result.stdout ?? '',
         };
       } finally {
@@ -439,6 +470,13 @@ export class SandboxSessionManager {
     return 'cwd' in stringsOrOptions
       ? async (strings: TemplateStringsArray, ...commandValues: CommandValue[]) => run(strings, commandValues, stringsOrOptions)
       : run(stringsOrOptions, values, {cwd: this.cwd});
+  }
+
+  /** Consumes proof of a network denial once so printed or replayed text cannot grant access. */
+  consumeNetworkDenial(reference: string): string | undefined {
+    const denial = this.networkDenials.get(reference);
+    this.networkDenials.delete(reference);
+    return denial;
   }
 
   /** Enables or disables SRT routing for the current Pi session. */
@@ -483,6 +521,7 @@ export class SandboxSessionManager {
       await SandboxManager.reset();
     } finally {
       restoreEnvironment(session);
+      this.networkDenials.clear();
       this.session = undefined;
       await rm(session.scratchPath, {force: true, recursive: true});
     }

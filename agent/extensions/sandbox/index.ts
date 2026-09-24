@@ -93,41 +93,34 @@ export class Sandbox {
     });
 
     pi.on('tool_result', async (event, ctx) => {
-      if (!sandbox.isEnabled || !sandboxedTools.has(event.toolName) || !ctx.hasUI || this.isPromptInProgress) {
+      if (!sandbox.isEnabled || !sandboxedTools.has(event.toolName)) {
         return;
       }
 
-      await config.reload();
       const message = event.content
         .filter(entry => entry.type === 'text')
         .map(entry => entry.text)
         .join('\n');
-      const violation = /deny network-outbound (?<host>.+):(?<port>\d+) \(host is not on the allow list\)/v.exec(message);
-      let suggestedDomain: string | undefined;
-      if (violation?.groups === undefined) {
-        if (!/connection blocked by network allowlist|connect tunnel failed, response 403/iv.test(message)) {
-          return;
-        }
-
-        const command = typeof event.input.command === 'string' ? event.input.command : '';
-        const url = /https?:\/\/[^\s"'`]+/v.exec(command)?.[0];
-        if (url === undefined) {
-          return;
-        }
-
-        const parsed = new URL(url);
-        suggestedDomain = `${parsed.hostname}:${parsed.port.length > 0 ? parsed.port : (parsed.protocol === 'https:' ? '443' : '80')}`;
-      } else {
-        suggestedDomain = `${violation.groups.host}:${violation.groups.port}`;
+      const reference = /Sandbox denial reference: (?<id>[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})/v.exec(message)?.groups?.id;
+      const denial = reference === undefined ? undefined : sandbox.consumeNetworkDenial(reference);
+      if (denial === undefined || !ctx.hasUI || this.isPromptInProgress) {
+        return;
       }
 
+      const violation = /deny network-outbound (?<host>.+):(?<port>\d+) \(host is not on the allow list\)/v.exec(denial);
+      if (violation?.groups === undefined) {
+        return;
+      }
+
+      await config.reload();
+      const suggestedDomain = `${violation.groups.host}:${violation.groups.port}`;
       if (!config.shouldPrompt() || config.isDomainAllowed(suggestedDomain)) {
         return;
       }
 
       this.isPromptInProgress = true;
       try {
-        const projectChoice = `Allow ${suggestedDomain} for this project`;
+        const projectChoice = `Allow ${suggestedDomain} for this project. This will permanently alter the sandbox configuration for this project only. Use the "/sandbox" command to further customize sandbox settings.`;
         const customChoice = 'Customize the SRT domain pattern…';
         const choice = await ctx.ui.select('Sandbox blocked a network request', [
           projectChoice,
