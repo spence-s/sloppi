@@ -5,7 +5,7 @@ import {test, type TestContext} from 'node:test';
 import type {ExtensionCommandContext} from '@earendil-works/pi-coding-agent';
 import commit from '../agent/extensions/commit.ts';
 
-void test('uses the selected commit model and loads a safely quoted command', async (t: TestContext) => {
+void test('uses the selected commit model outside the session scope and loads a safely quoted command', async (t: TestContext) => {
   type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
   let handler: Handler | undefined;
   let editorText = '';
@@ -66,7 +66,7 @@ void test('uses the selected commit model and loads a safely quoted command', as
         provider === commitModel.provider && id === commitModel.id ? commitModel : undefined,
       getAvailable: () => [sessionModel, commitModel],
     },
-    scopedModels: [],
+    scopedModels: [{model: sessionModel}],
     ui: {
       notify() {
         return undefined;

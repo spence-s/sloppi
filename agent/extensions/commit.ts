@@ -73,9 +73,7 @@ export default function commit(
 
       const input = arguments_.trim();
       if (input === 'model') {
-        const available = ctx.modelRegistry.getAvailable().filter(model =>
-          ctx.scopedModels.length === 0
-          || ctx.scopedModels.some(({model: scoped}) => scoped.provider === model.provider && scoped.id === model.id));
+        const available = ctx.modelRegistry.getAvailable();
         const choices = available.map(model => `${model.provider}/${model.id}`);
         const selection = await ctx.ui.select(
           `Commit model${configuredModel === undefined ? ' (session model)' : ` (${configuredModel.provider}/${configuredModel.id})`}`,
@@ -124,12 +122,6 @@ export default function commit(
       if (ctx.modelRegistry.getAvailable().every(available =>
         available.provider !== model.provider || available.id !== model.id)) {
         ctx.ui.notify(`Commit model ${model.provider}/${model.id} is unavailable. Choose another with /commit model.`, 'error');
-        return;
-      }
-
-      if (ctx.scopedModels.length > 0
-        && ctx.scopedModels.every(({model: scoped}) => scoped.provider !== model.provider || scoped.id !== model.id)) {
-        ctx.ui.notify(`Commit model ${model.provider}/${model.id} is outside this session's model scope.`, 'error');
         return;
       }
 
