@@ -10,11 +10,11 @@ import {
   type Word,
   type WordPart,
 } from 'unbash';
-import type {StagingRule} from './config.ts';
+import type {PermissionRule} from './config.ts';
 
-export const stagingParseLimit = 64 * 1024;
+export const permissionParseLimit = 64 * 1024;
 
-export type StagedInvocation = {
+export type PermissionInvocation = {
   argv: string[];
   end: number;
   pos: number;
@@ -40,12 +40,12 @@ function isLiteralWord(word: Word): boolean {
 }
 
 /** Finds confidently literal configured invocations without evaluating shell behavior. */
-export function findStagedInvocations(source: string, rules: StagingRule[]): StagedInvocation[] {
+export function findPermissionInvocations(source: string, rules: PermissionRule[]): PermissionInvocation[] {
   const hasDisallowedControl = [...source].some(character => {
     const code = character.codePointAt(0) ?? 0;
     return (code < 32 && code !== 9) || code === 127;
   });
-  if (source.length > stagingParseLimit || hasDisallowedControl) {
+  if (source.length > permissionParseLimit || hasDisallowedControl) {
     return [];
   }
 
@@ -54,7 +54,7 @@ export function findStagedInvocations(source: string, rules: StagingRule[]): Sta
     commandWords: rule.command.split(/\s+/v),
     passthroughWords: (rule.passthrough ?? []).map(sequence => sequence.split(/\s+/v)),
   }));
-  const matches: StagedInvocation[] = [];
+  const matches: PermissionInvocation[] = [];
   let hasParseError = false;
 
   /** Visits one expansion-capable word part without relying on enumerable properties. */

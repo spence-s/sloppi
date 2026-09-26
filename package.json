@@ -79,7 +79,6 @@
     "extensions": [
       "./agent/extensions/ask-mode.ts",
       "./agent/extensions/commit.ts",
-      "./agent/extensions/staging/index.ts",
       "./agent/extensions/permissions/index.ts",
       "./agent/extensions/sandbox/index.ts",
       "./agent/extensions/startup-banner.ts",
