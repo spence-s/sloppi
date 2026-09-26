@@ -87,7 +87,7 @@ Use `/permissions` for the current project or `/permissions global` for global r
 
 `command` is an ordered literal argv prefix: `acli confluence` matches Confluence operations but not `acli jira`. Each `passthrough` entry is a literal argv sequence that skips that rule when found after its prefix and before `--`. The longest matching selector controls each invocation; across a pipeline, chain, substitution, or compound statement, action precedence is `deny`, `stage`, `ask`, then `allow`. Unmatched commands are allowed.
 
-`ask` offers one-time or session approval. `deny` blocks the complete Bash expression. `stage` blocks the model call and copies the unchanged expression to the editor with one leading `!`; review or edit it, then press Enter to run it on the host. `!` includes output in model context; change it to `!!` to keep output out of context. Request staged commands one at a time.
+With the Sloppi sandbox enabled, the key distinction is where an approved command runs: **`ask` runs it inside the sandbox, while `stage` hands it to you to run on the host system with your user permissions.** `ask` offers one-time or session approval. `deny` blocks the complete Bash expression. `stage` blocks the model call and copies the unchanged expression to the editor with one leading `!`; review or edit it, then press Enter to run it on the host. `!` includes output in model context; change it to `!!` to keep output out of context. Request staged commands one at a time.
 
 Dynamic executables, variables, wrappers such as `env`, shell `-c` strings, and malformed or multiline input intentionally do not match.
 
