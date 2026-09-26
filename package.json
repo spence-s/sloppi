@@ -44,7 +44,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.76",
-    "@playwright/cli": "0.1.19",
+    "@playwright/cli": "0.1.21",
     "execa": "^10.0.1",
     "object-deep-merge": "^2.0.1",
     "playwright": "1.63.0-alpha-2026-08-31",
