@@ -136,9 +136,9 @@ void describe('ask-mode', () => {
 
   void test('onToolCall allows file and web research when ask mode is enabled', (t: TestContext) => {
     t.assert.deepStrictEqual(
-      ['read', 'grep', 'web_search', 'source_check', 'fetch_content', 'get_search_content']
+      ['read', 'grep', 'web_search', 'source_check', 'fetch_content', 'get_search_content', 'rendered_fetch']
         .map(tool => onToolCall(createToolCall(tool), true)),
-      [undefined, undefined, undefined, undefined, undefined, undefined],
+      [undefined, undefined, undefined, undefined, undefined, undefined, undefined],
     );
   });
 
@@ -166,6 +166,7 @@ void describe('ask-mode', () => {
       'source_check',
       'fetch_content',
       'get_search_content',
+      'rendered_fetch',
     ]);
     t.assert.strictEqual(harness.getStatus(), '[accent]󰋼 [dim]ask');
 
@@ -210,6 +211,7 @@ void describe('ask-mode', () => {
       'source_check',
       'fetch_content',
       'get_search_content',
+      'rendered_fetch',
     ]);
 
     await harness.getCommand('ask').handler('toggle', harness.ctx);
@@ -234,6 +236,7 @@ void describe('ask-mode', () => {
       'source_check',
       'fetch_content',
       'get_search_content',
+      'rendered_fetch',
     ]);
     t.assert.strictEqual(harness.getStatus(), '[accent]󰋼 [dim]ask');
 

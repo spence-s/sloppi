@@ -104,6 +104,12 @@ playwright-cli snapshot
 
 Playwright is off by default. Use `/playwright on|off|status` for explicit control. Enable `network.allowLocalBinding` under `/sandbox` → `Advanced SRT options` before using a local development server. Playwright CLI blocks direct `file:` navigation by default; serve local files from inside the sandbox instead. The browser control endpoint is visible inside the sandbox while enabled, so this bridge is not equivalent to running Chrome itself under SRT.
 
+### Rendered web fallback
+
+`rendered_fetch` renders one JavaScript-driven public page when the normal `fetch_content` call reports that client-side rendering is required. For example, after that failure Pi can call `rendered_fetch` with the same URL. The packaged `rendered-fetch` skill preserves `fetch_content` as the default and guides this fallback behavior.
+
+Each call launches disposable headless Chrome directly on the host, extracts visible text and links, and closes the browser. It uses direct host networking—not SRT or a proxy—and does not use a personal profile, cookies, API key, crawler, or hosted rendering service. This is not an authentication, anti-bot, or browser security solution: rendered pages retain ordinary browser risk, can contact other hosts, and return untrusted content that may contain prompt injection.
+
 ### Research agent profiles
 
 Research agents are off by default. Enable them persistently with `/sandbox global` → `Research agents` → `Turn on`. While one runs, its activity panel shows the current phase, elapsed time, read/search counters, usage, and cancel hint; `Ctrl+O` expands the detailed transcript. The `research_scout` tool includes `scout`, `planner`, and `reviewer` profiles. Add user profiles under `~/.pi/agent/agents/*.md`:

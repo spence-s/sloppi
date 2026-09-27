@@ -11,7 +11,7 @@ import {SandboxTools} from './tools.ts';
 // Only these tools may execute commands; everything else stays explicitly allowlisted.
 const sandboxedTools = new Set(['bash', 'edit', 'find', 'grep', 'ls', 'read', 'write']);
 // Provider-backed tools and delegation keep model credentials on the host; delegation filesystem access is SRT-backed.
-const hostTools = new Set(['research_scout', 'fetch_content', 'get_search_content', 'source_check', 'web_search']);
+const hostTools = new Set(['research_scout', 'fetch_content', 'get_search_content', 'rendered_fetch', 'source_check', 'web_search']);
 
 export class Sandbox {
   pi: ExtensionAPI;

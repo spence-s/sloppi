@@ -12,7 +12,7 @@ type AskModeState = {
 
 const askModeStatusId = 'ask-mode';
 const askModeEntryType = 'ask-mode';
-const askModeTools = ['read', 'grep', 'find', 'ls', 'web_search', 'source_check', 'fetch_content', 'get_search_content'];
+const askModeTools = ['read', 'grep', 'find', 'ls', 'web_search', 'source_check', 'fetch_content', 'get_search_content', 'rendered_fetch'];
 const askModeEnabledContext =
   'Ask mode is active. You may use read-only tools and web research. Do not call bash, edit, or write.';
 const agentModeContext =

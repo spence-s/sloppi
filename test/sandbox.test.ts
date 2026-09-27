@@ -1112,11 +1112,17 @@ void test('adds current sandbox access to the system prompt', async (t: TestCont
     t.assert.match(result.systemPrompt, /"\/shared"/v);
     t.assert.match(result.systemPrompt, /"api\.example\.com"/v);
 
+    const toolCall = handlers.get('tool_call');
+    t.assert.strictEqual(await toolCall?.({toolName: 'rendered_fetch'}), undefined);
+    t.assert.deepStrictEqual(await toolCall?.({toolName: 'unapproved_extension_tool'}), {
+      block: true,
+      reason: 'Tool unapproved_extension_tool is not approved for host execution.',
+    });
+
     extension.sandbox.isEnabled = false;
     const hostResult = await handler({systemPrompt: 'base'}) as {systemPrompt: string};
     t.assert.match(hostResult.systemPrompt, /Sandbox is OFF/v);
     t.assert.match(hostResult.systemPrompt, /directly on the host/v);
-    const toolCall = handlers.get('tool_call');
     t.assert.strictEqual(await toolCall?.({toolName: 'unapproved_extension_tool'}), undefined);
   } finally {
     await rm(directory, {force: true, recursive: true});
