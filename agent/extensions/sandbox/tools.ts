@@ -473,13 +473,20 @@ export class SandboxTools {
     return {...createGrepTool(this.cwd), execute: this.grepExecute};
   }
 
+  /**
+   Registers sandboxed replacements without changing Pi's default tool selection.
+
+   Pi still activates tools named by its defaults, settings, or CLI flags. Marking
+   every override as non-default prevents registration itself from enabling optional
+   built-ins while keeping the sandboxed definition available when Pi activates one.
+   */
   register(): void {
-    this.pi.registerTool(this.read);
-    this.pi.registerTool(this.write);
-    this.pi.registerTool(this.edit);
-    this.pi.registerTool(this.bash);
-    this.pi.registerTool(this.find);
-    this.pi.registerTool(this.ls);
-    this.pi.registerTool(this.grep);
+    this.pi.registerTool({...this.read, defaultActive: false});
+    this.pi.registerTool({...this.write, defaultActive: false});
+    this.pi.registerTool({...this.edit, defaultActive: false});
+    this.pi.registerTool({...this.bash, defaultActive: false});
+    this.pi.registerTool({...this.find, defaultActive: false});
+    this.pi.registerTool({...this.ls, defaultActive: false});
+    this.pi.registerTool({...this.grep, defaultActive: false});
   }
 }

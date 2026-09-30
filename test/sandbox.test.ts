@@ -1000,6 +1000,33 @@ void test('SRT denies writes outside the project and session scratch directory',
   }
 });
 
+/**
+ Verifies replacement registration preserves Pi's authority over which built-ins start active.
+ */
+void test('registers every built-in override without activating optional tools', (t: TestContext) => {
+  const registered: Array<{name: string; defaultActive: boolean | undefined}> = [];
+  const pi = {
+    /**
+     Captures the registration metadata that controls Pi's initial tool activation.
+     */
+    registerTool(tool: {name: string; defaultActive?: boolean}) {
+      registered.push({name: tool.name, defaultActive: tool.defaultActive});
+    },
+  } as unknown as ExtensionAPI;
+
+  new SandboxTools(pi, process.cwd(), {} as SandboxSessionManager).register();
+
+  t.assert.deepStrictEqual(registered, [
+    {name: 'read', defaultActive: false},
+    {name: 'write', defaultActive: false},
+    {name: 'edit', defaultActive: false},
+    {name: 'bash', defaultActive: false},
+    {name: 'find', defaultActive: false},
+    {name: 'ls', defaultActive: false},
+    {name: 'grep', defaultActive: false},
+  ]);
+});
+
 void test('writes a new file through the sandbox tool and creates missing parents', async (t: TestContext) => {
   if (process.env.USER === 'sandbox') {
     t.skip('Sandbox Runtime cannot apply a second macOS sandbox profile.');
