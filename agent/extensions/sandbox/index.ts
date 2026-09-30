@@ -71,10 +71,15 @@ Sloppi filesystem, network, credential, and host-service restrictions do not app
         'Writable paths:',
         ...writePaths.map(path => `- ${JSON.stringify(path)}`),
         '',
-        allowedDomains.length > 0
-          ? `Allowed sandboxed network destinations: ${allowedDomains.map(domain => JSON.stringify(domain)).join(', ')}`
-          : 'No sandboxed network destinations are allowed.',
-        ...requestPolicyDestinations.map(destination => `Request-filtered destination: ${JSON.stringify(destination)}`),
+        'Allowed sandboxed network destinations:',
+        ...(allowedDomains.length > 0
+          ? allowedDomains.map(domain => `- ${JSON.stringify(domain)}`)
+          : ['No sandboxed network destinations are allowed.']),
+        '',
+        'Request-filtered destinations:',
+        ...(requestPolicyDestinations.length > 0
+          ? requestPolicyDestinations.map(destination => `- ${JSON.stringify(destination)}`)
+          : ['No request-filtered destinations are configured.']),
       ].join('\n');
 
       return {systemPrompt: `${event.systemPrompt}\n\n${sandboxSystemPrompt}\n\n${accessSummary}`};
