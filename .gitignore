@@ -29,3 +29,8 @@ pi-acp
 .playwright-cli
 staging.json
 commit-model.json
+
+# Explicit request captures contain private prompts and conversation history.
+request-capture-*/
+latest-request.json
+last-instructions.txt

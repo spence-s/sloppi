@@ -62,6 +62,7 @@ pi install npm:pi-web-access
 ## Extensions
 
 - `ask-mode.ts` — `/ask on|off|toggle|status` controls modes; `/ask <prompt>` toggles modes before submitting the prompt; `/implement` switches to agent mode and starts implementation.
+- `capture-request.ts` — `/capture-request` saves the next provider payload and a private, offline HTML context-cost report.
 - `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input; `/commit model` selects its model.
 - `permissions/` — applies literal allow, ask, deny, or stage rules to shell commands; `/permissions` manages project rules.
 - `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox on|off|toggle|status` controls it for the current session, while `/sandbox` manages its access. Its `research_scout` tool runs isolated scout, planner, reviewer, or user-defined profiles with only read, grep, find, and list access. Configure delegation under `/sandbox` → `Advanced`.
@@ -70,6 +71,14 @@ pi install npm:pi-web-access
 - `zshrc.ts` — loads zsh aliases for host-side `!` commands.
 
 Sandbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. While enabled, it blocks unapproved extension tools from host execution; Pi web-access tools remain host-side so provider credentials are not exposed to sandboxed commands. Turning it off routes every tool directly through the host with your user permissions.
+
+### Request context report
+
+Run `/capture-request`, then send a prompt. Open the notified `request-capture-*/context-report.html` path in your browser. The owner-only directory also contains `latest-request.json` and `last-instructions.txt`; captures no longer overwrite files in the project root.
+
+The report separates instructions, tool declarations, conversation, and request settings. It includes byte sizes, expandable instruction sections and schemas, context-window estimates, and uncached/cache-rate cost scenarios using Pi's configured model prices. Token counts are rough character-based estimates, not provider billing measurements. Capture a fresh session to compare your default overhead with an ongoing conversation.
+
+Reports make no network or model calls. They contain sensitive context: do not commit or share them, and delete capture directories when finished. Other projects should ignore `request-capture-*/` too.
 
 ### Command permissions
 
