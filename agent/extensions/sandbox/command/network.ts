@@ -28,7 +28,7 @@ import type {
 import type {SandboxSessionManager} from '../session-manager.ts';
 
 type NetworkDraft = {
-  access: NetworkPermission;
+  permission: NetworkPermission;
   destination: string;
   policy?: RequestPolicy;
   previousDestination?: string;
@@ -73,7 +73,7 @@ export class SandboxNetworkCommand {
       let isFocused = false;
       let isFormOpen = draft !== undefined;
       let activeField = 0;
-      let formAccess: NetworkPermission = draft?.access ?? 'allow';
+      let formPermission: NetworkPermission = draft?.permission ?? 'allow';
       const initialRule = draft?.policy?.allow[0];
       const fields = [
         {
@@ -107,7 +107,7 @@ export class SandboxNetworkCommand {
           ? `${enteredDestination}:443`
           : enteredDestination;
         let policy: RequestPolicy | undefined;
-        if (formAccess === 'allow') {
+        if (formPermission === 'allow') {
           const methods = inputs[1]?.getValue().split(',').map(entry => entry.trim()).filter(Boolean) ?? [];
           const paths = inputs[2]?.getValue().split(',').map(entry => entry.trim()).filter(Boolean) ?? [];
           const pathPrefixes = inputs[3]?.getValue().split(',').map(entry => entry.trim()).filter(Boolean) ?? [];
@@ -154,7 +154,7 @@ export class SandboxNetworkCommand {
           }
         }
 
-        const savedDraft: NetworkDraft = {access: formAccess, destination};
+        const savedDraft: NetworkDraft = {permission: formPermission, destination};
         if (policy !== undefined) {
           savedDraft.policy = policy;
         }
@@ -166,7 +166,7 @@ export class SandboxNetworkCommand {
         try {
           this.config.validateNetworkDestination({
             destination: savedDraft.destination,
-            permission: savedDraft.access,
+            permission: savedDraft.permission,
             ...(savedDraft.policy !== undefined && {policy: savedDraft.policy}),
             ...(savedDraft.previousDestination !== undefined && {previousDestination: savedDraft.previousDestination}),
           });
@@ -196,7 +196,7 @@ export class SandboxNetworkCommand {
           const destinationLine = activeField === 0
             ? (inputs[0]!.render(inputWidth)[0] ?? '')
             : truncateToWidth(`Destination: ${destinationValue === '' ? theme.fg('dim', fields[0]!.hint) : destinationValue}`, inputWidth, '');
-          const accessLine = `Access: ${formAccess === 'allow' ? 'Allowed' : 'Blocked'} (Space to toggle)`;
+          const accessLine = `Access: ${formPermission === 'allow' ? 'Allowed' : 'Blocked'} (Space to toggle)`;
           const selectedAccessLine = activeField === 1
             ? theme.bg('selectedBg', theme.fg('accent', theme.bold(`› ${accessLine}`)))
             : `  ${accessLine}`;
@@ -207,7 +207,7 @@ export class SandboxNetworkCommand {
             `${activeField === 0 ? theme.fg('accent', '› ') : '  '}${destinationLine}`,
             truncateToWidth(selectedAccessLine, width),
           ];
-          if (formAccess === 'allow') {
+          if (formPermission === 'allow') {
             for (const [index, input] of inputs.slice(1).entries()) {
               const fieldIndex = index + 2;
               const field = fields[index + 1]!;
@@ -326,7 +326,7 @@ export class SandboxNetworkCommand {
               }
 
               const editDraft: NetworkDraft = {
-                access: isBlocked ? 'deny' : 'allow',
+                permission: isBlocked ? 'deny' : 'allow',
                 destination,
                 previousDestination: destination,
               };
@@ -433,7 +433,7 @@ export class SandboxNetworkCommand {
           if (matchesKey(data, Key.tab) || matchesKey(data, Key.shift('tab'))) {
             formError.setText('');
             const direction = matchesKey(data, Key.shift('tab')) ? -1 : 1;
-            const fieldCount = formAccess === 'allow' ? 6 : 2;
+            const fieldCount = formPermission === 'allow' ? 6 : 2;
             for (const input of inputs) {
               input.focused = false;
             }
@@ -450,7 +450,7 @@ export class SandboxNetworkCommand {
 
           if (activeField === 1) {
             if (matchesKey(data, Key.space) || matchesKey(data, Key.left) || matchesKey(data, Key.right)) {
-              formAccess = formAccess === 'allow' ? 'deny' : 'allow';
+              formPermission = formPermission === 'allow' ? 'deny' : 'allow';
               formError.setText('');
               tui.requestRender();
             } else if (keybindings.matches(data, 'tui.select.confirm')) {
@@ -484,7 +484,7 @@ export class SandboxNetworkCommand {
 
     switch (result.action) {
       case 'add': {
-        return this.manage(ctx, scope, {access: 'allow', destination: ''});
+        return this.manage(ctx, scope, {permission: 'allow', destination: ''});
       }
 
       case 'edit': {
@@ -499,7 +499,7 @@ export class SandboxNetworkCommand {
       case 'save': {
         const setting = {
           destination: result.draft.destination,
-          permission: result.draft.access,
+          permission: result.draft.permission,
           ...(result.draft.policy !== undefined && {policy: result.draft.policy}),
           ...(result.draft.previousDestination !== undefined && {previousDestination: result.draft.previousDestination}),
         };

@@ -101,7 +101,6 @@ export type ConfigScope = 'global' | 'project';
 export type FilesystemPermission = 'allowRead' | 'allowWrite' | 'denyRead' | 'denyWrite';
 export type ListAction = 'add' | 'remove';
 export type NetworkPermission = 'allow' | 'deny';
-export type RequestPolicyAction = 'add' | 'remove' | 'replace';
 export type NetworkDestinationSetting = {
   destination: string;
   permission: NetworkPermission;
@@ -148,8 +147,11 @@ export class ConfigStore {
     return this.hasLoaded ? this.config : this.reload();
   }
 
-  /** Returns configuration for a scope, migrating legacy project directories. */
-  getScopedConfig(scope: ConfigScope): Config {
+  /**
+   Returns mutable configuration for one scope, creating the project entry and
+   migrating its legacy directory list when no current project entry exists.
+   */
+  getOrCreateScopedConfig(scope: ConfigScope): Config {
     if (scope === 'global') {
       return this.config;
     }
@@ -177,7 +179,7 @@ export class ConfigStore {
   /** Merges global SRT settings with the current project's overrides. */
   getEffectiveConfig(): SandboxRuntimeConfig {
     const {projects: _projects, sandbox: _sandbox, ...globalConfig} = this.config;
-    const {sandbox: _projectSandbox, ...projectConfig} = this.getScopedConfig('project');
+    const {sandbox: _projectSandbox, ...projectConfig} = this.getOrCreateScopedConfig('project');
     return merge(globalConfig, projectConfig);
   }
 
@@ -189,7 +191,7 @@ export class ConfigStore {
     path: string,
   ): Promise<void> {
     await this.reload();
-    const scopedConfig = this.getScopedConfig(scope);
+    const scopedConfig = this.getOrCreateScopedConfig(scope);
     const validation = FilesystemConfigSchema.safeParse({
       ...scopedConfig.filesystem,
       allowRead: scopedConfig.filesystem?.allowRead ?? [],
@@ -227,7 +229,7 @@ export class ConfigStore {
    */
   async setAllowLocalBinding(scope: ConfigScope, isEnabled: boolean): Promise<void> {
     await this.reload();
-    const scopedConfig = this.getScopedConfig(scope);
+    const scopedConfig = this.getOrCreateScopedConfig(scope);
     const validation = NetworkConfigSchema.safeParse({
       ...scopedConfig.network,
       allowedDomains: scopedConfig.network?.allowedDomains ?? [],
@@ -260,7 +262,7 @@ export class ConfigStore {
     }
 
     await this.reload();
-    const scopedConfig = this.getScopedConfig(scope);
+    const scopedConfig = this.getOrCreateScopedConfig(scope);
     const validation = NetworkConfigSchema.safeParse({
       ...scopedConfig.network,
       allowedDomains: scopedConfig.network?.allowedDomains ?? [],
@@ -292,7 +294,7 @@ export class ConfigStore {
 
   /** Returns only settings explicitly stored in a scope, excluding Sloppi metadata. */
   getScopedSrtConfig(scope: ConfigScope): Config {
-    const scopedConfig = this.getScopedConfig(scope);
+    const scopedConfig = this.getOrCreateScopedConfig(scope);
     const {projects: _projects, sandbox: _sandbox, ...srtConfig} = scopedConfig;
     return srtConfig;
   }
@@ -322,7 +324,7 @@ export class ConfigStore {
 
   /** Returns the research-agent setting stored directly in one scope. */
   getResearchAgentsSetting(scope: ConfigScope): boolean | undefined {
-    return z.boolean().optional().parse(this.getScopedConfig(scope).sandbox?.researchAgentsEnabled);
+    return z.boolean().optional().parse(this.getOrCreateScopedConfig(scope).sandbox?.researchAgentsEnabled);
   }
 
   /** Returns the project override, global default, or disabled fallback. */
@@ -333,7 +335,7 @@ export class ConfigStore {
   /** Persists or clears research-agent delegation in one scope. */
   async setResearchAgentsEnabled(scope: ConfigScope, isEnabled: boolean | undefined): Promise<void> {
     await this.reload();
-    const scopedConfig = this.getScopedConfig(scope);
+    const scopedConfig = this.getOrCreateScopedConfig(scope);
     const sandboxConfig = scopedConfig.sandbox ?? {};
     if (isEnabled === undefined) {
       delete sandboxConfig.researchAgentsEnabled;
@@ -350,7 +352,7 @@ export class ConfigStore {
    screens can distinguish an editable value from an inherited value.
    */
   getResearchScoutModelSetting(scope: ConfigScope): ResearchScoutModel | undefined {
-    return researchScoutModelSchema.optional().parse(this.getScopedConfig(scope).sandbox?.researchScoutModel);
+    return researchScoutModelSchema.optional().parse(this.getOrCreateScopedConfig(scope).sandbox?.researchScoutModel);
   }
 
   /**
@@ -367,7 +369,7 @@ export class ConfigStore {
    */
   async setResearchScoutModel(scope: ConfigScope, model: ResearchScoutModel | undefined): Promise<void> {
     await this.reload();
-    const scopedConfig = this.getScopedConfig(scope);
+    const scopedConfig = this.getOrCreateScopedConfig(scope);
     const sandboxConfig = scopedConfig.sandbox ?? {};
     if (model === undefined) {
       delete sandboxConfig.researchScoutModel;
@@ -382,7 +384,7 @@ export class ConfigStore {
   /** Sets whether blocked network requests prompt for access in the selected scope. */
   async setPrompting(scope: ConfigScope, isEnabled: boolean): Promise<void> {
     await this.reload();
-    const scopedConfig = this.getScopedConfig(scope);
+    const scopedConfig = this.getOrCreateScopedConfig(scope);
     const sandboxConfig = scopedConfig.sandbox ?? {};
     sandboxConfig.promptOnNetworkDeny = isEnabled;
     scopedConfig.sandbox = sandboxConfig;
@@ -393,7 +395,7 @@ export class ConfigStore {
    Validates and combines declarative request policies from both configuration scopes.
    */
   getRequestPolicies(): RequestPolicy[] {
-    const projectConfig = this.getScopedConfig('project');
+    const projectConfig = this.getOrCreateScopedConfig('project');
     return [
       ...requestPoliciesSchema.parse(this.config.sandbox?.requestPolicies ?? []),
       ...requestPoliciesSchema.parse(projectConfig.sandbox?.requestPolicies ?? []),
@@ -425,7 +427,7 @@ export class ConfigStore {
     this.validateNetworkDestination(setting);
     const {policy} = setting;
     await this.reload();
-    const scopedConfig = this.getScopedConfig(scope);
+    const scopedConfig = this.getOrCreateScopedConfig(scope);
     const networkValidation = NetworkConfigSchema.safeParse({
       ...scopedConfig.network,
       allowedDomains: scopedConfig.network?.allowedDomains ?? [],
@@ -460,7 +462,7 @@ export class ConfigStore {
    */
   async removeNetworkDestination(scope: ConfigScope, destination: string): Promise<void> {
     await this.reload();
-    const scopedConfig = this.getScopedConfig(scope);
+    const scopedConfig = this.getOrCreateScopedConfig(scope);
     const networkValidation = NetworkConfigSchema.safeParse({
       ...scopedConfig.network,
       allowedDomains: scopedConfig.network?.allowedDomains ?? [],
@@ -487,7 +489,7 @@ export class ConfigStore {
    Returns validated request policies stored directly in one configuration scope.
    */
   getScopedRequestPolicies(scope: ConfigScope): RequestPolicy[] {
-    return requestPoliciesSchema.parse(this.getScopedConfig(scope).sandbox?.requestPolicies ?? []);
+    return requestPoliciesSchema.parse(this.getOrCreateScopedConfig(scope).sandbox?.requestPolicies ?? []);
   }
 
   /**
@@ -498,50 +500,11 @@ export class ConfigStore {
   }
 
   /**
-   Mutates one scoped request policy while preserving unrelated concurrent configuration changes.
-   */
-  async updateRequestPolicy(
-    scope: ConfigScope,
-    action: RequestPolicyAction,
-    policy: RequestPolicy,
-    replacement?: RequestPolicy,
-  ): Promise<void> {
-    const validatedPolicy = requestPolicySchema.parse(policy);
-    const validatedReplacement = replacement === undefined ? undefined : requestPolicySchema.parse(replacement);
-    if (action === 'replace' && validatedReplacement === undefined) {
-      throw new Error('Replacing a request policy requires its replacement.');
-    }
-
-    await this.reload();
-    const scopedConfig = this.getScopedConfig(scope);
-    const sandboxConfig = scopedConfig.sandbox ?? {};
-    const policies = requestPoliciesSchema.parse(sandboxConfig.requestPolicies ?? []);
-    const serializedPolicy = JSON.stringify(validatedPolicy);
-    const index = policies.findIndex(candidate => JSON.stringify(candidate) === serializedPolicy);
-
-    if (action === 'add') {
-      if (index === -1) {
-        policies.push(validatedPolicy);
-      }
-    } else if (index !== -1) {
-      if (action === 'replace' && validatedReplacement !== undefined) {
-        policies[index] = validatedReplacement;
-      } else {
-        policies.splice(index, 1);
-      }
-    }
-
-    sandboxConfig.requestPolicies = policies;
-    scopedConfig.sandbox = sandboxConfig;
-    await this.save();
-  }
-
-  /**
    Returns validated host environment variable names stored directly in one
    scope, without folding inherited names into the editable list.
    */
   getScopedExposedEnv(scope: ConfigScope): string[] {
-    const names = this.getScopedConfig(scope).sandbox?.exposeEnv ?? [];
+    const names = this.getOrCreateScopedConfig(scope).sandbox?.exposeEnv ?? [];
     const invalidName = names.find(name => !environmentVariableNameSchema.safeParse(name).success);
     if (invalidName !== undefined) {
       throw new Error(`Invalid sandbox.exposeEnv variable name: ${invalidName}`);
@@ -572,7 +535,7 @@ export class ConfigStore {
     }
 
     await this.reload();
-    const scopedConfig = this.getScopedConfig(scope);
+    const scopedConfig = this.getOrCreateScopedConfig(scope);
     const sandboxConfig = scopedConfig.sandbox ?? {};
     const names = this.getScopedExposedEnv(scope);
     sandboxConfig.exposeEnv = action === 'add'
@@ -585,7 +548,7 @@ export class ConfigStore {
   /** Returns the current project's prompt setting, falling back to global and then true. */
   shouldPrompt(): boolean {
     const globalPromptSetting = this.config.sandbox?.promptOnNetworkDeny;
-    const projectConfig = this.getScopedConfig('project');
+    const projectConfig = this.getOrCreateScopedConfig('project');
     const projectPromptSetting = projectConfig.sandbox?.promptOnNetworkDeny;
     return typeof projectPromptSetting === 'boolean'
       ? projectPromptSetting
