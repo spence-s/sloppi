@@ -14,28 +14,32 @@ import type {
 export class PermissionCommand {
   config: PermissionConfig;
 
-  /** Creates the scoped settings browser for command policy. */
+  /**
+  Creates the scoped settings browser for command policy.
+  */
   constructor(config: PermissionConfig) {
     this.config = config;
   }
 
-  /** Parses the optional semicolon-separated passthrough field shown by the TUI. */
+  /**
+  Parses the optional semicolon-separated passthrough field shown by the TUI.
+  */
   private parsePassthrough(value: string | undefined): string[] | undefined {
     const entries = value?.split(';').map(entry => entry.trim()).filter(Boolean) ?? [];
     return entries.length === 0 ? undefined : entries;
   }
 
-  /** Asks for one of the four deliberately small permission actions. */
+  /**
+  Asks for one of the four deliberately small permission actions.
+  */
   private async selectAction(ctx: ExtensionCommandContext, title: string): Promise<PermissionAction | undefined> {
     const action = await ctx.ui.select(title, ['allow', 'ask', 'deny', 'stage']);
-    if (action !== 'allow' && action !== 'ask' && action !== 'deny' && action !== 'stage') {
-      return undefined;
-    }
-
-    return action;
+    return action !== 'allow' && action !== 'ask' && action !== 'deny' && action !== 'stage' ? undefined : action;
   }
 
-  /** Adds one literal command rule through short plain-language prompts. */
+  /**
+  Adds one literal command rule through short plain-language prompts.
+  */
   private async add(ctx: ExtensionCommandContext, scope: PermissionScope): Promise<void> {
     const command = await ctx.ui.input(
       `Add a ${scope} command permission`,
@@ -67,7 +71,9 @@ export class PermissionCommand {
     ctx.ui.notify(`Added ${command.trim()} as ${action} in ${scope} permissions.`, 'info');
   }
 
-  /** Changes the outcome without changing the selector or its exceptions. */
+  /**
+  Changes the outcome without changing the selector or its exceptions.
+  */
   private async editAction(ctx: ExtensionCommandContext, scope: PermissionScope, rule: PermissionRule): Promise<void> {
     const action = await this.selectAction(ctx, `Permission for "${rule.command}" is ${rule.action}`);
     if (action === undefined) {
@@ -82,7 +88,9 @@ export class PermissionCommand {
     ctx.ui.notify(`Changed ${rule.command} to ${action}.`, 'info');
   }
 
-  /** Edits argument exceptions while keeping command identity obvious. */
+  /**
+  Edits argument exceptions while keeping command identity obvious.
+  */
   private async editPassthrough(ctx: ExtensionCommandContext, scope: PermissionScope, rule: PermissionRule): Promise<void> {
     const current = rule.passthrough?.join('; ') ?? 'none';
     const value = await ctx.ui.input(
@@ -102,7 +110,9 @@ export class PermissionCommand {
     ctx.ui.notify(`Updated exceptions for ${rule.command}.`, 'info');
   }
 
-  /** Removes one rule after explicit confirmation. */
+  /**
+  Removes one rule after explicit confirmation.
+  */
   private async remove(ctx: ExtensionCommandContext, scope: PermissionScope, rule: PermissionRule): Promise<void> {
     if (!await ctx.ui.confirm(
       `Remove permission for "${rule.command}"?`,
@@ -119,7 +129,9 @@ export class PermissionCommand {
     ctx.ui.notify(`Removed ${rule.command} from ${scope} permissions.`, 'info');
   }
 
-  /** Keeps a compact command list open until the user presses Escape. */
+  /**
+  Keeps a compact command list open until the user presses Escape.
+  */
   async manage(ctx: ExtensionCommandContext, scope: PermissionScope): Promise<void> {
     if (ctx.mode !== 'tui') {
       ctx.ui.notify('Command permission settings require interactive TUI mode.', 'error');
@@ -206,7 +218,9 @@ export class PermissionCommand {
     }
   }
 
-  /** Shows whether any command policy is currently active. */
+  /**
+  Shows whether any command policy is currently active.
+  */
   setStatus(ctx: ExtensionContext): void {
     const hasRules = this.config.getEffectiveRules().length > 0;
     ctx.ui.setStatus(
@@ -215,7 +229,9 @@ export class PermissionCommand {
     );
   }
 
-  /** Registers the scoped interactive settings browser. */
+  /**
+  Registers the scoped interactive settings browser.
+  */
   register(pi: ExtensionAPI): void {
     pi.registerCommand('permissions', {
       description: 'Manage allow, ask, deny, and stage rules for literal commands.',

@@ -27,13 +27,17 @@ export class Permissions {
   sessionApprovals = new Set<string>();
   stagedCommand: string | undefined;
 
-  /** Creates one policy gate that remains independent from command execution. */
+  /**
+  Creates one policy gate that remains independent from command execution.
+  */
   constructor(pi: ExtensionAPI, config = new PermissionConfig(realpathSync(process.cwd()))) {
     this.pi = pi;
     this.config = config;
   }
 
-  /** Resolves literal invocations and applies the strongest resulting action. */
+  /**
+  Resolves literal invocations and applies the strongest resulting action.
+  */
   async check(command: string, ctx: ExtensionContext): Promise<ToolCallEventResult | void> {
     await this.config.reload();
     const globalDenials = this.config.getScopedRules('global').filter(rule => rule.action === 'deny');
@@ -120,7 +124,9 @@ export class Permissions {
     return {block: true, reason: 'Command blocked by user.'};
   }
 
-  /** Hands the first blocked staged command to an empty editor after Pi settles. */
+  /**
+  Hands the first blocked staged command to an empty editor after Pi settles.
+  */
   settle(ctx: ExtensionContext): void {
     const {pending} = this;
     this.pending = undefined;
@@ -142,18 +148,14 @@ export class Permissions {
     ctx.ui.notify(`Host command staged for review (${pending.selectors.join(', ')}). Edit or delete it; press Enter only to run it.${extra}`, 'warning');
   }
 
-  /** Registers the unified gate, staging handoff, continuation, and settings UI. */
+  /**
+  Registers the unified gate, staging handoff, continuation, and settings UI.
+  */
   register(): void {
     const command = new PermissionCommand(this.config);
     command.register(this.pi);
 
-    this.pi.on('tool_call', async (event, ctx) => {
-      if (!isToolCallEventType('bash', event)) {
-        return;
-      }
-
-      return this.check(event.input.command, ctx);
-    });
+    this.pi.on('tool_call', async (event, ctx) => isToolCallEventType('bash', event) ? this.check(event.input.command, ctx) : undefined);
 
     this.pi.on('agent_settled', (_event, ctx) => {
       this.settle(ctx);
@@ -207,7 +209,9 @@ export class Permissions {
   }
 }
 
-/** Loads the unified literal command-permission extension. */
+/**
+Loads the unified literal command-permission extension.
+*/
 export default function permissionExtension(pi: ExtensionAPI): void {
   new Permissions(pi).register();
 }

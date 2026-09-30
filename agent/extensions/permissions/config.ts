@@ -28,13 +28,17 @@ type Config = ScopedConfig & {
 
 let configWriteQueue = Promise.resolve();
 
-/** Checks the deliberately small literal selector alphabet. */
+/**
+Checks the deliberately small literal selector alphabet.
+*/
 function isSelectorWord(word: string, hasSlash: boolean): boolean {
   const punctuation = hasSlash ? '%+,-./:=@' : '%+,-.:=@';
   return word.length > 0 && [...word].every(character => /\w/v.test(character) || punctuation.includes(character));
 }
 
-/** Normalizes one whitespace-separated literal argv sequence. */
+/**
+Normalizes one whitespace-separated literal argv sequence.
+*/
 function parseSequence(value: unknown, description: string, hasExecutable: boolean): string {
   if (typeof value !== 'string') {
     throw new TypeError(`${description} must be a string.`);
@@ -44,14 +48,16 @@ function parseSequence(value: unknown, description: string, hasExecutable: boole
   const words = sequence.split(' ');
   const hasInvalidControl = [...value].some(character => (character.codePointAt(0) ?? 0) < 32 || character.codePointAt(0) === 127);
   const hasInvalidWord = words.some((word, index) => !isSelectorWord(word, !hasExecutable || index > 0));
-  if (sequence.length === 0 || hasInvalidControl || hasInvalidWord) {
+  if (hasInvalidControl || hasInvalidWord || sequence.length === 0) {
     throw new TypeError(`Invalid permission command: ${value.length === 0 ? '<empty>' : value}`);
   }
 
   return sequence;
 }
 
-/** Fully validates command rules before any policy becomes active. */
+/**
+Fully validates command rules before any policy becomes active.
+*/
 function parseRules(value: unknown): PermissionRule[] {
   if (value === undefined) {
     return [];
@@ -98,7 +104,9 @@ function parseRules(value: unknown): PermissionRule[] {
   return rules;
 }
 
-/** Rejects unknown fields so malformed policy never becomes partially active. */
+/**
+Rejects unknown fields so malformed policy never becomes partially active.
+*/
 function assertKnownFields(value: Record<string, unknown>, allowed: string[], description: string): void {
   const unknown = Object.keys(value).find(key => !allowed.includes(key));
   if (unknown !== undefined) {
@@ -111,13 +119,17 @@ export class PermissionConfig {
   cwd: string;
   path: string;
 
-  /** Creates the central permission store alongside the user's Pi configuration. */
+  /**
+  Creates the central permission store alongside the user's Pi configuration.
+  */
   constructor(cwd: string, path?: string) {
     this.cwd = cwd;
     this.path = path ?? resolve(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'), '..', 'permissions.json');
   }
 
-  /** Reloads and fully validates policy, treating a missing file as empty. */
+  /**
+  Reloads and fully validates policy, treating a missing file as empty.
+  */
   async reload(): Promise<void> {
     try {
       const parsed = JSON.parse(await readFile(this.path, 'utf8')) as unknown;
@@ -159,13 +171,17 @@ export class PermissionConfig {
     }
   }
 
-  /** Returns independent copies of rules configured in one scope. */
+  /**
+  Returns independent copies of rules configured in one scope.
+  */
   getScopedRules(scope: PermissionScope): PermissionRule[] {
     const rules = scope === 'global' ? this.config.commands ?? [] : this.config.projects?.[this.cwd]?.commands ?? [];
     return rules.map(rule => ({...rule, ...(rule.passthrough !== undefined && {passthrough: [...rule.passthrough]})}));
   }
 
-  /** Combines scopes, allowing project rules to replace equal non-denied global selectors. */
+  /**
+  Combines scopes, allowing project rules to replace equal non-denied global selectors.
+  */
   getEffectiveRules(): PermissionRule[] {
     const rules = new Map((this.config.commands ?? []).map(rule => [rule.command, rule]));
     for (const rule of this.config.projects?.[this.cwd]?.commands ?? []) {
@@ -177,7 +193,9 @@ export class PermissionConfig {
     return rules.values().map(rule => ({...rule, ...(rule.passthrough !== undefined && {passthrough: [...rule.passthrough]})})).toArray();
   }
 
-  /** Atomically replaces one scope after reloading changes made by another editor. */
+  /**
+  Atomically replaces one scope after reloading changes made by another editor.
+  */
   async replaceRules(scope: PermissionScope, rules: unknown): Promise<void> {
     const validated = parseRules(rules);
     const write = configWriteQueue.then(async () => {

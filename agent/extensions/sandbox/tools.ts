@@ -154,7 +154,7 @@ export class SandboxTools {
    */
   get grepExecute(): GrepExecute {
     const {sandbox} = this;
-    // eslint-disable-next-line complexity -- search, formatting, and errors stay together to keep the flow readable.
+    // Search, formatting, and errors stay together to keep the flow readable.
     return async (_id, {pattern, path = '.', glob, ignoreCase, literal, context, limit = 100}, signal) => {
       const arguments_ = [
         'rg',
@@ -166,20 +166,13 @@ export class SandboxTools {
         '!.git/**',
         '--glob',
         '!node_modules/**',
+        ...(ignoreCase === true ? ['--ignore-case'] : []),
+        ...(literal === true ? ['--fixed-strings'] : []),
+        ...(glob === undefined ? [] : ['--glob', glob]),
+        '--',
+        pattern,
+        path,
       ];
-      if (ignoreCase === true) {
-        arguments_.push('--ignore-case');
-      }
-
-      if (literal === true) {
-        arguments_.push('--fixed-strings');
-      }
-
-      if (glob !== undefined) {
-        arguments_.push('--glob', glob);
-      }
-
-      arguments_.push('--', pattern, path);
 
       const effectiveLimit = Math.max(1, Math.floor(limit));
       const contextLines = Math.max(0, Math.floor(context ?? 0));
@@ -198,10 +191,10 @@ export class SandboxTools {
             const eventPath = event.data?.path?.text;
             const lineNumber = event.data?.line_number;
             const text = event.data?.lines?.text;
-            if (event.type !== 'match'
-              || eventPath === undefined
+            if (eventPath === undefined
               || lineNumber === undefined
-              || text === undefined) {
+              || text === undefined
+              || event.type !== 'match') {
               return undefined;
             }
 

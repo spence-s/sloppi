@@ -207,9 +207,9 @@ export default function commit(
         .filter((part): part is {type: 'text'; text: string} => part.type === 'text')
         .flatMap(part => part.text.split(/\r?\n/v).map(line => line.trim()).filter(Boolean));
       const message = lines[0];
-      if (response.stopReason !== 'stop'
+      if (message === undefined
+        || response.stopReason !== 'stop'
         || lines.length !== 1
-        || message === undefined
         || message.length > 100
         || !conventionalCommitPattern.test(message)
         || [...message].some(character => {

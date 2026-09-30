@@ -52,8 +52,6 @@ type ScoutActivity = {
 };
 
 const scoutParameters = Type.Object({
-  // TypeBox uses a capitalized function for optional schema fields.
-  // eslint-disable-next-line new-cap
   agent: Type.Optional(Type.String({minLength: 1, description: 'Research agent profile. Defaults to scout.'})),
   task: Type.String({minLength: 1, description: 'The focused repository task for the selected agent'}),
 });
@@ -108,7 +106,7 @@ export class SandboxSubagent {
         call.addChild(new Text(`${title} ${theme.fg('warning', `[${agent}]`)} ${theme.fg('muted', task)}`, 0, 0));
         return call;
       },
-      // eslint-disable-next-line complexity -- this is the single renderer for compact, expanded, pending, and completed states.
+      // This single renderer keeps compact, expanded, pending, and completed states consistent.
       renderResult(result, {expanded, isPartial}, theme) {
         const {details} = result;
         const content = result.content.find(part => part.type === 'text');
@@ -133,22 +131,20 @@ export class SandboxSubagent {
           status = `✓ Completed${activity === undefined ? '' : ` in ${elapsed}`}`;
         }
 
-        const counters: string[] = [];
-        if (activity?.filesRead !== undefined && activity.filesRead > 0) {
-          counters.push(`${String(activity.filesRead)} file${activity.filesRead === 1 ? '' : 's'}`);
-        }
-
-        if (activity?.searches !== undefined && activity.searches > 0) {
-          counters.push(`${String(activity.searches)} search${activity.searches === 1 ? '' : 'es'}`);
-        }
-
-        if (activity?.listings !== undefined && activity.listings > 0) {
-          counters.push(`${String(activity.listings)} listing${activity.listings === 1 ? '' : 's'}`);
-        }
-
-        if (usage !== undefined && usage.turns > 0) {
-          counters.push(`${String(usage.turns)} turn${usage.turns === 1 ? '' : 's'}`);
-        }
+        const counters = [
+          ...(activity?.filesRead !== undefined && activity.filesRead > 0
+            ? [`${String(activity.filesRead)} file${activity.filesRead === 1 ? '' : 's'}`]
+            : []),
+          ...(activity?.searches !== undefined && activity.searches > 0
+            ? [`${String(activity.searches)} search${activity.searches === 1 ? '' : 'es'}`]
+            : []),
+          ...(activity?.listings !== undefined && activity.listings > 0
+            ? [`${String(activity.listings)} listing${activity.listings === 1 ? '' : 's'}`]
+            : []),
+          ...(usage !== undefined && usage.turns > 0
+            ? [`${String(usage.turns)} turn${usage.turns === 1 ? '' : 's'}`]
+            : []),
+        ];
 
         const container = new Container();
         const activityResult = new Box(4, 1, text => theme.bg('toolPendingBg', text));
@@ -221,6 +217,7 @@ export class SandboxSubagent {
         container.addChild(finalResult);
         return container;
       },
+      // eslint-disable-next-line max-params -- Pi's tool callback contract supplies all five positional arguments.
       execute: async (_toolCallId, {agent = 'scout', task}, signal, onUpdate, ctx) => this.run({agent: agent.trim(), task: task.trim()}, signal, onUpdate, ctx),
     });
   }
@@ -228,7 +225,7 @@ export class SandboxSubagent {
   /**
    Runs a fresh SDK session so the selected agent cannot inherit parent context.
    */
-  // eslint-disable-next-line complexity -- the child lifecycle owns setup, streaming, abort, and cleanup.
+  // The child lifecycle keeps setup, streaming, abort, and cleanup in one place.
   async run(request: {agent: string; task: string}, signal: AbortSignal | undefined, onUpdate: Parameters<ToolDefinition<typeof scoutParameters, ScoutDetails>['execute']>[3], ctx: ExtensionContext) {
     const {agent: agentName, task} = request;
     if (task.length === 0) {
@@ -370,7 +367,7 @@ export class SandboxSubagent {
     }, 80);
     spinnerInterval.unref();
 
-    // eslint-disable-next-line complexity -- one event stream owns all live child-session state.
+    // One event stream owns all live child-session state.
     const unsubscribe = session.subscribe(event => {
       // The scout only needs streaming, tool-start, and completed-message events.
       // eslint-disable-next-line @typescript-eslint/switch-exhaustiveness-check
@@ -443,7 +440,7 @@ export class SandboxSubagent {
           }
 
           currentAction = action;
-          if (event.toolName === 'read' && path !== undefined) {
+          if (path !== undefined && event.toolName === 'read') {
             filesRead.add(path);
           } else if (event.toolName === 'grep' || event.toolName === 'find') {
             searches++;

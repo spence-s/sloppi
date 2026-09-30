@@ -21,31 +21,33 @@ export type PermissionInvocation = {
   selectors: string[];
 };
 
-/** Accepts only words whose dequoted value requires no shell expansion. */
+/**
+Accepts only words whose dequoted value requires no shell expansion.
+*/
 function isLiteralWord(word: Word): boolean {
-  /** Recursively permits quoting while rejecting every expansion node. */
+  /**
+  Recursively permits quoting while rejecting every expansion node.
+  */
   const isLiteralPart = (part: WordPart): boolean => {
     if (['Literal', 'SingleQuoted', 'AnsiCQuoted'].includes(part.type)) {
       return true;
     }
 
-    if (part.type === 'DoubleQuoted' || part.type === 'LocaleString') {
-      return part.parts.every(child => isLiteralPart(child));
-    }
-
-    return false;
+    return part.type === 'DoubleQuoted' || part.type === 'LocaleString' ? part.parts.every(child => isLiteralPart(child)) : false;
   };
 
   return (word.parts ?? []).every(part => isLiteralPart(part));
 }
 
-/** Finds confidently literal configured invocations without evaluating shell behavior. */
+/**
+Finds confidently literal configured invocations without evaluating shell behavior.
+*/
 export function findPermissionInvocations(source: string, rules: PermissionRule[]): PermissionInvocation[] {
   const hasDisallowedControl = [...source].some(character => {
     const code = character.codePointAt(0) ?? 0;
     return (code < 32 && code !== 9) || code === 127;
   });
-  if (source.length > permissionParseLimit || hasDisallowedControl) {
+  if (hasDisallowedControl || source.length > permissionParseLimit) {
     return [];
   }
 
@@ -57,7 +59,9 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
   const matches: PermissionInvocation[] = [];
   let hasParseError = false;
 
-  /** Visits one expansion-capable word part without relying on enumerable properties. */
+  /**
+  Visits one expansion-capable word part without relying on enumerable properties.
+  */
   function visitPart(part: WordPart): void {
     switch (part.type) {
       case 'CommandExpansion':
@@ -115,19 +119,25 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
     }
   }
 
-  /** Visits nested shell carried by every expansion-capable word part. */
+  /**
+  Visits nested shell carried by every expansion-capable word part.
+  */
   function visitParts(parts: WordPart[] | undefined): void {
     for (const part of parts ?? []) {
       visitPart(part);
     }
   }
 
-  /** Forces unbash's lazy word parts so nested scripts cannot evade inspection. */
+  /**
+  Forces unbash's lazy word parts so nested scripts cannot evade inspection.
+  */
   function visitWord(word: Word): void {
     visitParts(word.parts);
   }
 
-  /** Visits command substitutions embedded in arithmetic expressions. */
+  /**
+  Visits command substitutions embedded in arithmetic expressions.
+  */
   function visitArithmetic(expression: ArithmeticExpression): void {
     switch (expression.type) {
       case 'ArithmeticBinary': {
@@ -173,7 +183,9 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
     }
   }
 
-  /** Visits words embedded in [[ ]] expressions. */
+  /**
+  Visits words embedded in [[ ]] expressions.
+  */
   function visitTest(expression: TestExpression): void {
     switch (expression.type) {
       case 'TestUnary': {
@@ -209,7 +221,9 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
     }
   }
 
-  /** Visits redirect words because process substitutions may execute there. */
+  /**
+  Visits redirect words because process substitutions may execute there.
+  */
   function visitRedirect(redirect: Redirect): void {
     if (redirect.target !== undefined) {
       visitWord(redirect.target);
@@ -220,7 +234,9 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
     }
   }
 
-  /** Classifies one simple command and records selectors matching its literal argv prefix. */
+  /**
+  Classifies one simple command and records selectors matching its literal argv prefix.
+  */
   function visitCommand(command: Command): void {
     if (command.name !== undefined) {
       const words = [command.name, ...command.suffix];
@@ -280,8 +296,10 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
     }
   }
 
-  /** Traverses every executable AST position supported by unbash. */
-  // eslint-disable-next-line complexity -- Keeping exhaustive AST dispatch together makes security review simpler.
+  /**
+  Traverses every executable AST position supported by unbash.
+  */
+  // Keeping exhaustive AST dispatch together makes security review simpler.
   function visitNode(node: Node): void {
     switch (node.type) {
       case 'Command': {
@@ -407,7 +425,9 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
     }
   }
 
-  /** Checks each root or nested script before trusting any collected match. */
+  /**
+  Checks each root or nested script before trusting any collected match.
+  */
   function visitScript(script: ParsedScript): void {
     hasParseError ||= (script.errors?.length ?? 0) > 0;
     for (const statement of script.commands) {

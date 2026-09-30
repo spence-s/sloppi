@@ -7,6 +7,11 @@ const xoConfig: XoConfigItem[] = [
     rules: {
       'capitalized-comments': 'off',
       '@typescript-eslint/naming-convention': 'off',
+      // TypeBox exposes schema builders as capitalized functions rather than constructors.
+      'new-cap': ['error', {capIsNewExceptionPattern: String.raw`^Type\.`}],
+      '@stylistic/max-len': 'off',
+      'max-depth': 'off',
+      complexity: 'off',
     },
   },
   {
@@ -32,6 +37,14 @@ const xoConfig: XoConfigItem[] = [
           mjs: 'never',
         },
       ],
+    },
+  },
+  {
+    files: ['package.json'],
+    rules: {
+      // Pi packages use their `pi` manifest as the entry point, and Playwright is intentionally pinned.
+      'package-json/require-entry-point': 'off',
+      'package-json/dependency-version-range': 'off',
     },
   },
   {

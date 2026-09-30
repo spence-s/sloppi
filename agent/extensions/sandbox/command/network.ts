@@ -111,20 +111,13 @@ export class SandboxNetworkCommand {
           const methods = inputs[1]?.getValue().split(',').map(entry => entry.trim()).filter(Boolean) ?? [];
           const paths = inputs[2]?.getValue().split(',').map(entry => entry.trim()).filter(Boolean) ?? [];
           const pathPrefixes = inputs[3]?.getValue().split(',').map(entry => entry.trim()).filter(Boolean) ?? [];
-          const rule: RequestAllowRule = {};
-          if (methods.length > 0) {
-            rule.methods = methods;
-          }
+          const rule: RequestAllowRule = {
+            ...(methods.length > 0 && {methods}),
+            ...(paths.length > 0 && {paths}),
+            ...(pathPrefixes.length > 0 && {pathPrefixes}),
+          };
 
-          if (paths.length > 0) {
-            rule.paths = paths;
-          }
-
-          if (pathPrefixes.length > 0) {
-            rule.pathPrefixes = pathPrefixes;
-          }
-
-          const headers: Record<string, string[]> = {};
+          let headers: Record<string, string[]> = {};
           const headerEntries = inputs[4]?.getValue().split(';').map(entry => entry.trim()).filter(Boolean) ?? [];
           for (const header of headerEntries) {
             const separator = header.indexOf('=');
@@ -136,7 +129,7 @@ export class SandboxNetworkCommand {
               return;
             }
 
-            headers[name] = [...new Set([...(headers[name] ?? []), ...acceptedValues])];
+            headers = {...headers, [name]: [...new Set([...(headers[name] ?? []), ...acceptedValues])]};
           }
 
           if (Object.keys(headers).length > 0) {
@@ -154,14 +147,12 @@ export class SandboxNetworkCommand {
           }
         }
 
-        const savedDraft: NetworkDraft = {permission: formPermission, destination};
-        if (policy !== undefined) {
-          savedDraft.policy = policy;
-        }
-
-        if (draft?.previousDestination !== undefined) {
-          savedDraft.previousDestination = draft.previousDestination;
-        }
+        const savedDraft: NetworkDraft = {
+          permission: formPermission,
+          destination,
+          ...(policy !== undefined && {policy}),
+          ...(draft?.previousDestination !== undefined && {previousDestination: draft.previousDestination}),
+        };
 
         try {
           this.config.validateNetworkDestination({
@@ -325,16 +316,15 @@ export class SandboxNetworkCommand {
                 return;
               }
 
-              const editDraft: NetworkDraft = {
-                permission: isBlocked ? 'deny' : 'allow',
-                destination,
-                previousDestination: destination,
-              };
-              if (scopedPolicies[0] !== undefined) {
-                editDraft.policy = scopedPolicies[0];
-              }
-
-              done({action: 'edit', draft: editDraft});
+              done({
+                action: 'edit',
+                draft: {
+                  permission: isBlocked ? 'deny' : 'allow',
+                  destination,
+                  previousDestination: destination,
+                  ...(scopedPolicies[0] !== undefined && {policy: scopedPolicies[0]}),
+                },
+              });
             };
 
             list.onCancel = () => {

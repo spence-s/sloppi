@@ -19,7 +19,9 @@ import {PermissionConfig, type PermissionRule} from '../agent/extensions/permiss
 import {Permissions} from '../agent/extensions/permissions/index.ts';
 import {findPermissionInvocations, permissionParseLimit} from '../agent/extensions/permissions/parser.ts';
 
-/** Returns matched selector names for concise parser assertions. */
+/**
+Returns matched selector names for concise parser assertions.
+*/
 function matches(command: string, rules: PermissionRule[] = [
   {action: 'stage', command: 'acli'},
   {action: 'ask', command: 'gh auth'},
@@ -27,7 +29,9 @@ function matches(command: string, rules: PermissionRule[] = [
   return [...new Set(findPermissionInvocations(command, rules).flatMap(match => match.selectors))];
 }
 
-/** Creates the minimum interactive context needed by the permission gate. */
+/**
+Creates the minimum interactive context needed by the permission gate.
+*/
 function createContext(choice: string | undefined, hasUI = true, steering?: string): ExtensionContext {
   return {
     hasUI,
@@ -206,7 +210,9 @@ void describe('permission decisions', () => {
     const config = new PermissionConfig('/project', join(directory, 'permissions.json'));
     const steeringMessages: Array<{message: string; deliverAs: string | undefined}> = [];
     const permissions = new Permissions({
-      /** Records steering without starting an agent turn during the test. */
+      /**
+      Records steering without starting an agent turn during the test.
+      */
       sendUserMessage(message: string, options?: {deliverAs?: string}) {
         steeringMessages.push({message, deliverAs: options?.deliverAs});
       },
@@ -290,7 +296,9 @@ void describe('/permissions command', () => {
 
 type EventHandler = (event: never, ctx: ExtensionContext) => unknown;
 
-/** Captures extension handlers without giving permissions process-execution APIs. */
+/**
+Captures extension handlers without giving permissions process-execution APIs.
+*/
 function createLifecycleHarness(permissions: Permissions): {
   busEvents: Map<string, (data: unknown) => void>;
   ctx: ExtensionContext;
@@ -352,7 +360,9 @@ function createLifecycleHarness(permissions: Permissions): {
   };
 }
 
-/** Builds the typed Bash event used by lifecycle checks. */
+/**
+Builds the typed Bash event used by lifecycle checks.
+*/
 function bashEvent(command: string): ToolCallEvent {
   return {
     input: {command}, toolCallId: 'bash-1', toolName: 'bash', type: 'tool_call',

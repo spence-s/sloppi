@@ -1,4 +1,4 @@
 {
-  "provider": "openai-codex",
+  "provider": "openai",
   "id": "gpt-6-luna"
 }

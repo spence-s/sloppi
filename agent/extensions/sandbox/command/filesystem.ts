@@ -129,10 +129,10 @@ export class SandboxFilesystemCommand {
           : (homeRelativePath === undefined ? path : `~/${homeRelativePath.split(sep).join('/')}`);
         let accessLabel = 'Read only';
         let description = sources.length === 0 ? 'Built into the sandbox.' : `Configured by ${sources.join(' and ')}.`;
-        let label = scope === 'project'
+        let label = projectRelativePath !== undefined
+          && scope === 'project'
           && projectPaths.has(path)
           && !globalPaths.has(path)
-          && projectRelativePath !== undefined
           ? projectRelativePath
           : displayPath;
         switch (path) {

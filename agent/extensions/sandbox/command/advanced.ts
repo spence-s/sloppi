@@ -270,7 +270,7 @@ export class SandboxAdvancedCommand {
    Presents advanced settings for the selected scope and rebuilds the menu after
    each edit so inherited values and conditional model visibility stay accurate.
    */
-  // eslint-disable-next-line complexity -- One menu derives all conditional scoped labels and routes their child screens.
+  // One menu derives all conditional scoped labels and routes their child screens.
   async manage(pi: ExtensionAPI, ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
     /* eslint-disable no-await-in-loop, unicorn/no-break-in-nested-loop -- Each completed child screen may change the next menu. */
     while (true) {

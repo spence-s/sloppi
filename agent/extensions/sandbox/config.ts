@@ -114,13 +114,17 @@ export class ConfigStore {
   cwd: string;
   path: string;
 
-  /** Creates a store for the current project's Sandbox configuration. */
+  /**
+  Creates a store for the current project's Sandbox configuration.
+  */
   constructor(cwd: string, path?: string) {
     this.cwd = cwd;
     this.path = path ?? resolve(process.env.PI_CODING_AGENT_DIR ?? join(homedir(), '.pi', 'agent'), '..', 'sandbox.json');
   }
 
-  /** Reloads the configuration file, treating a missing file as an empty configuration. */
+  /**
+  Reloads the configuration file, treating a missing file as an empty configuration.
+  */
   async reload(): Promise<Config> {
     try {
       const parsedConfig = JSON.parse(await readFile(this.path, 'utf8')) as unknown;
@@ -142,7 +146,9 @@ export class ConfigStore {
     return this.config;
   }
 
-  /** Returns the cached configuration, loading it on first use. */
+  /**
+  Returns the cached configuration, loading it on first use.
+  */
   async load(): Promise<Config> {
     return this.hasLoaded ? this.config : this.reload();
   }
@@ -176,14 +182,18 @@ export class ConfigStore {
     return projectConfig;
   }
 
-  /** Merges global SRT settings with the current project's overrides. */
+  /**
+  Merges global SRT settings with the current project's overrides.
+  */
   getEffectiveConfig(): SandboxRuntimeConfig {
     const {projects: _projects, sandbox: _sandbox, ...globalConfig} = this.config;
     const {sandbox: _projectSandbox, ...projectConfig} = this.getOrCreateScopedConfig('project');
     return merge(globalConfig, projectConfig);
   }
 
-  /** Stores project descendants relatively while keeping external filesystem rules absolute. */
+  /**
+  Stores project descendants relatively while keeping external filesystem rules absolute.
+  */
   async updateFilesystem(
     scope: ConfigScope,
     permission: FilesystemPermission | readonly FilesystemPermission[],
@@ -244,7 +254,10 @@ export class ConfigStore {
     await this.save();
   }
 
-  /** Adds or removes one network rule in the selected scope. */
+  /**
+  Adds or removes one network rule in the selected scope.
+  */
+  // eslint-disable-next-line max-params -- The optional denial reason belongs to this one atomic scoped-list update.
   async updateDomain(
     scope: ConfigScope,
     permission: NetworkPermission,
@@ -292,14 +305,18 @@ export class ConfigStore {
     await this.save();
   }
 
-  /** Returns only settings explicitly stored in a scope, excluding Sloppi metadata. */
+  /**
+  Returns only settings explicitly stored in a scope, excluding Sloppi metadata.
+  */
   getScopedSrtConfig(scope: ConfigScope): Config {
     const scopedConfig = this.getOrCreateScopedConfig(scope);
     const {projects: _projects, sandbox: _sandbox, ...srtConfig} = scopedConfig;
     return srtConfig;
   }
 
-  /** Removes all settings stored in one scope. */
+  /**
+  Removes all settings stored in one scope.
+  */
   async resetScope(scope: ConfigScope): Promise<void> {
     await this.reload();
     if (scope === 'global') {
@@ -314,7 +331,9 @@ export class ConfigStore {
     await this.save();
   }
 
-  /** Persists the current configuration without legacy project entries. */
+  /**
+  Persists the current configuration without legacy project entries.
+  */
   async save(): Promise<void> {
     const {[this.cwd]: _legacy, ...updatedConfig} = this.config;
     this.config = updatedConfig;
@@ -322,17 +341,23 @@ export class ConfigStore {
     await writeFile(this.path, `${JSON.stringify(this.config, undefined, 2)}\n`);
   }
 
-  /** Returns the research-agent setting stored directly in one scope. */
+  /**
+  Returns the research-agent setting stored directly in one scope.
+  */
   getResearchAgentsSetting(scope: ConfigScope): boolean | undefined {
     return z.boolean().optional().parse(this.getOrCreateScopedConfig(scope).sandbox?.researchAgentsEnabled);
   }
 
-  /** Returns the project override, global default, or disabled fallback. */
+  /**
+  Returns the project override, global default, or disabled fallback.
+  */
   areResearchAgentsEnabled(): boolean {
     return this.getResearchAgentsSetting('project') ?? this.getResearchAgentsSetting('global') ?? false;
   }
 
-  /** Persists or clears research-agent delegation in one scope. */
+  /**
+  Persists or clears research-agent delegation in one scope.
+  */
   async setResearchAgentsEnabled(scope: ConfigScope, isEnabled: boolean | undefined): Promise<void> {
     await this.reload();
     const scopedConfig = this.getOrCreateScopedConfig(scope);
@@ -381,7 +406,9 @@ export class ConfigStore {
     await this.save();
   }
 
-  /** Sets whether blocked network requests prompt for access in the selected scope. */
+  /**
+  Sets whether blocked network requests prompt for access in the selected scope.
+  */
   async setPrompting(scope: ConfigScope, isEnabled: boolean): Promise<void> {
     await this.reload();
     const scopedConfig = this.getOrCreateScopedConfig(scope);
@@ -447,11 +474,9 @@ export class ConfigStore {
     const sandboxConfig = scopedConfig.sandbox ?? {};
     const policies = requestPoliciesSchema.parse(sandboxConfig.requestPolicies ?? [])
       .filter(entry => ![previousDestination, setting.destination].includes(entry.destination));
-    if (setting.permission === 'allow' && policy !== undefined) {
-      policies.push(policy);
-    }
-
-    sandboxConfig.requestPolicies = policies;
+    sandboxConfig.requestPolicies = policy !== undefined && setting.permission === 'allow'
+      ? [...policies, policy]
+      : policies;
     scopedConfig.network = network;
     scopedConfig.sandbox = sandboxConfig;
     await this.save();
@@ -545,7 +570,9 @@ export class ConfigStore {
     await this.save();
   }
 
-  /** Returns the current project's prompt setting, falling back to global and then true. */
+  /**
+  Returns the current project's prompt setting, falling back to global and then true.
+  */
   shouldPrompt(): boolean {
     const globalPromptSetting = this.config.sandbox?.promptOnNetworkDeny;
     const projectConfig = this.getOrCreateScopedConfig('project');
@@ -555,7 +582,9 @@ export class ConfigStore {
       : (typeof globalPromptSetting === 'boolean' ? globalPromptSetting : true);
   }
 
-  /** Checks whether an SRT domain pattern allows a host and optional port. */
+  /**
+  Checks whether an SRT domain pattern allows a host and optional port.
+  */
   isDomainAllowed(domain: string): boolean {
     const separator = domain.lastIndexOf(':');
     const host = separator === -1 ? domain : domain.slice(0, separator);

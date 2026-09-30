@@ -127,7 +127,6 @@ Sloppi filesystem, network, credential, and host-service restrictions do not app
 
       this.isPromptInProgress = true;
       try {
-        // eslint-disable-next-line @stylistic/max-len
         const projectChoice = `Allow ${suggestedDomain} for this project? This will permanently alter the sandbox configuration for this project only. Use the "/sandbox" command to further customize sandbox settings.`;
         const customChoice = 'Customize the SRT domain pattern…';
         const choice = await ctx.ui.select('Sandbox blocked a network request', [

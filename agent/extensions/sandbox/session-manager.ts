@@ -129,7 +129,9 @@ export class SandboxSessionManager {
     this.config = config;
   }
 
-  /** Creates a private sandbox session after loading its configuration. */
+  /**
+  Creates a private sandbox session after loading its configuration.
+  */
   async startSession() {
     if (this.session !== undefined) {
       throw new Error('Sandbox session is already running.');
@@ -278,7 +280,9 @@ export class SandboxSessionManager {
     }
   }
 
-  /** Runs a shell command in the active session. */
+  /**
+  Runs a shell command in the active session.
+  */
   run(strings: TemplateStringsArray, ...values: CommandValue[]): Promise<CommandResult>;
   run(options: RunOptions): (strings: TemplateStringsArray, ...values: CommandValue[]) => Promise<CommandResult>;
   run(stringsOrOptions: TemplateStringsArray | RunOptions, ...values: CommandValue[]) {
@@ -291,7 +295,7 @@ export class SandboxSessionManager {
       }
 
       const currentSession = this.session;
-      if (this.isEnabled && currentSession === undefined) {
+      if (currentSession === undefined && this.isEnabled) {
         throw new Error('Sandbox session has not started.');
       }
 
@@ -324,7 +328,7 @@ export class SandboxSessionManager {
       }
 
       let sandboxEnvironment: {env: Record<string, string>; extendEnv: false} | undefined;
-      if (this.isEnabled && currentSession !== undefined) {
+      if (currentSession !== undefined && this.isEnabled) {
         const env: Record<string, string> = {
           CLAUDE_CODE_TMPDIR: currentSession.scratchPath,
           HOME: currentSession.scratchPath,
@@ -472,14 +476,18 @@ export class SandboxSessionManager {
       : run(stringsOrOptions, values, {cwd: this.cwd});
   }
 
-  /** Consumes proof of a network denial once so printed or replayed text cannot grant access. */
+  /**
+  Consumes proof of a network denial once so printed or replayed text cannot grant access.
+  */
   consumeNetworkDenial(reference: string): string | undefined {
     const denial = this.networkDenials.get(reference);
     this.networkDenials.delete(reference);
     return denial;
   }
 
-  /** Enables or disables SRT routing for the current Pi session. */
+  /**
+  Enables or disables SRT routing for the current Pi session.
+  */
   async setEnabled(isEnabled: boolean): Promise<void> {
     if (isEnabled === this.isEnabled) {
       return;
@@ -500,7 +508,9 @@ export class SandboxSessionManager {
     }
   }
 
-  /** Recreates the session so persisted configuration changes take effect. */
+  /**
+  Recreates the session so persisted configuration changes take effect.
+  */
   async restartSession() {
     if (!this.isEnabled) {
       return;
@@ -510,7 +520,9 @@ export class SandboxSessionManager {
     return this.startSession();
   }
 
-  /** Deletes the current session directory and clears its cached state. */
+  /**
+  Deletes the current session directory and clears its cached state.
+  */
   async stopSession() {
     if (this.session === undefined) {
       return;
