@@ -64,7 +64,7 @@ pi install npm:pi-web-access
 - `ask-mode.ts` — `/ask on|off|toggle|status` controls modes; `/ask <prompt>` toggles modes before submitting the prompt; `/implement` switches to agent mode and starts implementation.
 - `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input; `/commit model` selects its model.
 - `permissions/` — applies literal allow, ask, deny, or stage rules to shell commands; `/permissions` manages project rules.
-- `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox on|off|toggle|status` controls it for the current session, while `/sandbox` manages its access. Its `research_scout` tool runs isolated scout, planner, reviewer, or user-defined profiles with only read, grep, find, and list access. Select the default model with `/sandbox global` → `Research agents` → `Default model`.
+- `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox on|off|toggle|status` controls it for the current session, while `/sandbox` manages its access. Its `research_scout` tool runs isolated scout, planner, reviewer, or user-defined profiles with only read, grep, find, and list access. Configure delegation under `/sandbox` → `Advanced`.
 - `startup-banner.ts` — replaces Pi's TUI header.
 - `shell-ui.ts` — adds a Powerlevel10k-inspired prompt and status area to Pi's terminal UI.
 - `zshrc.ts` — loads zsh aliases for host-side `!` commands.
@@ -92,7 +92,7 @@ playwright-cli snapshot
 /playwright off
 ```
 
-Playwright is off by default. Use `/playwright on|off|status` for explicit control. Enable `network.allowLocalBinding` under `/sandbox` → `Advanced SRT options` before using a local development server. Playwright CLI blocks direct `file:` navigation by default; serve local files from inside the sandbox instead. The browser control endpoint is visible inside the sandbox while enabled, so this bridge is not equivalent to running Chrome itself under SRT.
+Playwright is off by default. Use `/playwright on|off|status` for explicit control. Enable local connections under `/sandbox` → `Network Access` before using a local development server. Playwright CLI blocks direct `file:` navigation by default; serve local files from inside the sandbox instead. The browser control endpoint is visible inside the sandbox while enabled, so this bridge is not equivalent to running Chrome itself under SRT.
 
 ### Rendered web fallback
 
@@ -102,7 +102,7 @@ Each call launches disposable headless Chrome directly on the host, extracts vis
 
 ### Research agent profiles
 
-Research agents are off by default. Enable them persistently with `/sandbox global` → `Research agents` → `Turn on`. While one runs, its activity panel shows the current phase, elapsed time, read/search counters, usage, and cancel hint; `Ctrl+O` expands the detailed transcript. The `research_scout` tool includes `scout`, `planner`, and `reviewer` profiles. Add user profiles under `~/.pi/agent/agents/*.md`:
+Research agents are off by default. Enable them persistently with `/sandbox global` → `Advanced` → `Research agents`. While one runs, its activity panel shows the current phase, elapsed time, read/search counters, usage, and cancel hint; `Ctrl+O` expands the detailed transcript. The `research_scout` tool includes `scout`, `planner`, and `reviewer` profiles. Add user profiles under `~/.pi/agent/agents/*.md`:
 
 ```md
 ---
@@ -115,7 +115,7 @@ model: anthropic/claude-sonnet-4-6
 Review the requested architecture using repository evidence. Cite relevant files.
 ```
 
-The `model` and `tools` fields are optional. Profiles without a model use the Research Scout model selected in `/sandbox global`. Tool choices are always restricted to `read`, `grep`, `find`, and `ls`; listing another tool does not grant it. User profiles with a built-in name override that profile. Existing calls without an `agent` continue to use `scout`.
+The `model` and `tools` fields are optional. Profiles without a model use the Research Scout model selected under `/sandbox` → `Advanced`; a local model overrides the global model. Tool choices are always restricted to `read`, `grep`, `find`, and `ls`; listing another tool does not grant it. User profiles with a built-in name override that profile. Existing calls without an `agent` continue to use `scout`.
 
 ## Sandbox configuration
 
@@ -145,7 +145,7 @@ Global SRT options live at the root. Project overrides live under `projects["/ab
 }
 ```
 
-`exposeEnv` contains host environment variable names, not values. Global and project lists combine; missing variables are ignored. Exposing `HOME` opts into the host home directory for tool configuration lookup, but filesystem rules still control access to it. Sloppi's fixed `PATH`, `LANG`, `TMPDIR`, and `USER` values cannot be overridden.
+`exposeEnv` contains host environment variable names, not values. Manage it under `/sandbox` → `Advanced` → `Environment Variables`. Global and project lists combine; missing variables are ignored. Use the separate `Share host home directory` option to expose `HOME`; otherwise the sandbox supplies a private scratch home. Filesystem rules still control access to the host home directory. Sloppi's fixed `PATH`, `LANG`, `TMPDIR`, and `USER` values cannot be overridden.
 
 Request policies add method, path, and exact header-value restrictions to an allowed destination:
 

@@ -3,6 +3,7 @@ import {getKeybindings} from '@earendil-works/pi-tui';
 import type {ConfigScope, ConfigStore} from '../config.ts';
 import type {PlaywrightBridge} from '../playwright.ts';
 import type {SandboxSessionManager} from '../session-manager.ts';
+import {SandboxAdvancedCommand} from './advanced.ts';
 import {SandboxFilesystemCommand} from './filesystem.ts';
 import {SandboxNetworkCommand} from './network.ts';
 import {SandboxOptionsCommand} from './options.ts';
@@ -10,25 +11,29 @@ import {SandboxOptionsCommand} from './options.ts';
 export class SandboxCommand {
   config: ConfigStore;
   sandbox: SandboxSessionManager;
+  advanced: SandboxAdvancedCommand;
   filesystem: SandboxFilesystemCommand;
   network: SandboxNetworkCommand;
   options: SandboxOptionsCommand;
 
   /**
-   Composes the option-specific commands behind the public /sandbox command.
+   Composes the scoped access and advanced settings screens behind the public
+   `/sandbox` command while sharing one configuration and session manager.
    */
   constructor(config: ConfigStore, sandbox: SandboxSessionManager, playwright?: PlaywrightBridge) {
     this.config = config;
     this.sandbox = sandbox;
+    this.advanced = new SandboxAdvancedCommand(config);
     this.filesystem = new SandboxFilesystemCommand(config, sandbox);
     this.network = new SandboxNetworkCommand(config, sandbox);
     this.options = new SandboxOptionsCommand(config, sandbox, playwright);
   }
 
   /**
-   Keeps the settings browser open until Escape is pressed at its top level.
+   Keeps the settings browser open until Escape is pressed at its top level and
+   carries the selected global or local scope into every child screen.
    */
-  async manage(ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
+  async manage(pi: ExtensionAPI, ctx: ExtensionCommandContext, scope: ConfigScope): Promise<void> {
     const keybindings = getKeybindings();
     const userBindings = keybindings.getUserBindings();
     keybindings.setUserBindings({
@@ -50,6 +55,7 @@ export class SandboxCommand {
         const action = await ctx.ui.select(title, [
           'Filesystem Access',
           'Network Access',
+          'Advanced',
           toggleAction,
           '',
           activeScope === 'project' ? '← Manage global settings' : '← Manage local settings',
@@ -75,6 +81,11 @@ export class SandboxCommand {
             break;
           }
 
+          case 'Advanced': {
+            await this.advanced.manage(pi, ctx, activeScope);
+            break;
+          }
+
           case '← Manage global settings': {
             activeScope = 'global';
             break;
@@ -97,7 +108,8 @@ export class SandboxCommand {
   }
 
   /**
-   Registers the interactive settings command and its non-interactive shortcuts.
+   Registers the interactive settings command and its non-interactive session
+   shortcuts, reporting configuration failures through Pi's notification UI.
    */
   register(pi: ExtensionAPI): void {
     pi.registerCommand('sandbox', {
@@ -121,7 +133,7 @@ export class SandboxCommand {
             return;
           }
 
-          await this.manage(ctx, argument === 'global' ? 'global' : 'project');
+          await this.manage(pi, ctx, argument === 'global' ? 'global' : 'project');
         } catch (error) {
           ctx.ui.notify(error instanceof Error ? error.message : String(error), 'error');
         }

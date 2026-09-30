@@ -28,6 +28,7 @@ const researchScoutModelSchema = z.strictObject({
   provider: nonEmptyStringSchema,
   id: nonEmptyStringSchema,
 });
+const environmentVariableNameSchema = z.string().regex(/^[A-Z_a-z]\w*$/v);
 const pathSchema = nonEmptyStringSchema.refine(path => path.startsWith('/'), 'paths must start with /');
 const headerValuesSchema = z.array(z.string()).min(1);
 const headersSchema = z.record(nonEmptyStringSchema, headerValuesSchema).transform(headers => {
@@ -83,6 +84,7 @@ const requestPoliciesSchema = z.array(requestPolicySchema);
 
 export type RequestAllowRule = z.infer<typeof requestAllowRuleSchema>;
 export type RequestPolicy = z.infer<typeof requestPolicySchema>;
+export type ResearchScoutModel = z.infer<typeof researchScoutModelSchema>;
 
 export type Config = PartialWithUndefined<SandboxRuntimeConfig> & {
   projects?: Record<string, Config> | undefined;
@@ -343,22 +345,37 @@ export class ConfigStore {
     await this.save();
   }
 
-  /** Returns the default model for research profiles that do not select one. */
-  getResearchScoutModel(): z.infer<typeof researchScoutModelSchema> | undefined {
-    return researchScoutModelSchema.optional().parse(this.config.sandbox?.researchScoutModel);
+  /**
+   Returns the Research Scout model stored directly in one scope so settings
+   screens can distinguish an editable value from an inherited value.
+   */
+  getResearchScoutModelSetting(scope: ConfigScope): ResearchScoutModel | undefined {
+    return researchScoutModelSchema.optional().parse(this.getScopedConfig(scope).sandbox?.researchScoutModel);
   }
 
-  /** Persists the default model used by profiles without a model. */
-  async setResearchScoutModel(model: z.infer<typeof researchScoutModelSchema> | undefined): Promise<void> {
+  /**
+   Resolves the model used by profiles without their own model. Project
+   configuration wins over the global default, matching the other scoped settings.
+   */
+  getResearchScoutModel(): ResearchScoutModel | undefined {
+    return this.getResearchScoutModelSetting('project') ?? this.getResearchScoutModelSetting('global');
+  }
+
+  /**
+   Persists or clears the fallback Research Scout model in one scope while
+   preserving unrelated sandbox metadata in that scope.
+   */
+  async setResearchScoutModel(scope: ConfigScope, model: ResearchScoutModel | undefined): Promise<void> {
     await this.reload();
-    const sandboxConfig = this.config.sandbox ?? {};
+    const scopedConfig = this.getScopedConfig(scope);
+    const sandboxConfig = scopedConfig.sandbox ?? {};
     if (model === undefined) {
       delete sandboxConfig.researchScoutModel;
     } else {
       sandboxConfig.researchScoutModel = researchScoutModelSchema.parse(model);
     }
 
-    this.config.sandbox = sandboxConfig;
+    scopedConfig.sandbox = sandboxConfig;
     await this.save();
   }
 
@@ -519,19 +536,50 @@ export class ConfigStore {
     await this.save();
   }
 
-  /** Returns host environment variable names explicitly exposed by global or project configuration. */
-  getExposedEnv(): string[] {
-    const projectConfig = this.getScopedConfig('project');
-    const names = [...new Set([
-      ...(this.config.sandbox?.exposeEnv ?? []),
-      ...(projectConfig.sandbox?.exposeEnv ?? []),
-    ])];
-    const invalidName = names.find(name => !/^[A-Z_a-z]\w*$/v.test(name));
+  /**
+   Returns validated host environment variable names stored directly in one
+   scope, without folding inherited names into the editable list.
+   */
+  getScopedExposedEnv(scope: ConfigScope): string[] {
+    const names = this.getScopedConfig(scope).sandbox?.exposeEnv ?? [];
+    const invalidName = names.find(name => !environmentVariableNameSchema.safeParse(name).success);
     if (invalidName !== undefined) {
       throw new Error(`Invalid sandbox.exposeEnv variable name: ${invalidName}`);
     }
 
-    return names;
+    return [...new Set(names)];
+  }
+
+  /**
+   Returns the effective exposed-variable names. Global and project lists combine
+   because environment exposure is additive rather than an overriding scalar.
+   */
+  getExposedEnv(): string[] {
+    return [...new Set([
+      ...this.getScopedExposedEnv('global'),
+      ...this.getScopedExposedEnv('project'),
+    ])];
+  }
+
+  /**
+   Adds or removes one validated environment-variable name in the selected
+   scope, leaving exposure owned by the other scope untouched.
+   */
+  async updateExposedEnv(scope: ConfigScope, action: ListAction, name: string): Promise<void> {
+    const parsedName = environmentVariableNameSchema.safeParse(name);
+    if (!parsedName.success) {
+      throw new Error(`Invalid sandbox.exposeEnv variable name: ${name}`);
+    }
+
+    await this.reload();
+    const scopedConfig = this.getScopedConfig(scope);
+    const sandboxConfig = scopedConfig.sandbox ?? {};
+    const names = this.getScopedExposedEnv(scope);
+    sandboxConfig.exposeEnv = action === 'add'
+      ? [...new Set([...names, parsedName.data])]
+      : names.filter(entry => entry !== parsedName.data);
+    scopedConfig.sandbox = sandboxConfig;
+    await this.save();
   }
 
   /** Returns the current project's prompt setting, falling back to global and then true. */

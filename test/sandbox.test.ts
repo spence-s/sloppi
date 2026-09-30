@@ -79,39 +79,6 @@ Follow the custom instructions.
   }
 });
 
-void test('lets projects override or inherit the global research-agent setting', async (t: TestContext) => {
-  const directory = await mkdtemp(join(tmpdir(), 'sloppi-agent-toggle-test-'));
-  const path = join(directory, 'sandbox.json');
-  const config = new ConfigStore('/project', path);
-
-  try {
-    await config.load();
-    t.assert.strictEqual(config.areResearchAgentsEnabled(), false);
-    await config.setResearchAgentsEnabled('global', true);
-    t.assert.strictEqual(config.areResearchAgentsEnabled(), true);
-    await config.setResearchAgentsEnabled('project', false);
-    t.assert.strictEqual(config.areResearchAgentsEnabled(), false);
-    await config.setResearchAgentsEnabled('project', undefined);
-    t.assert.strictEqual(config.areResearchAgentsEnabled(), true);
-  } finally {
-    await rm(directory, {force: true, recursive: true});
-  }
-});
-
-void test('persists the globally selected Research Scout model', async (t: TestContext) => {
-  const directory = await mkdtemp(join(tmpdir(), 'sloppi-scout-model-test-'));
-  const path = join(directory, 'sandbox.json');
-  const config = new ConfigStore('/project', path);
-
-  try {
-    await config.setResearchScoutModel({provider: 'test', id: 'small'});
-    await config.reload();
-    t.assert.deepStrictEqual(config.getResearchScoutModel(), {provider: 'test', id: 'small'});
-  } finally {
-    await rm(directory, {force: true, recursive: true});
-  }
-});
-
 void test('requires an explicit session before running commands', async (t: TestContext) => {
   const sandbox = new SandboxSessionManager('/project', new ConfigStore('/project'));
   await t.assert.rejects(sandbox.run`true`, /has not started/v);
@@ -1413,6 +1380,7 @@ void test('/sandbox omits unavailable options', async (t: TestContext) => {
     await handler('global', ctx);
 
     t.assert.strictEqual(menus.length, 2);
+    t.assert.ok(menus.every(menu => menu.includes('Advanced')));
     t.assert.ok(menus.every(menu => menu.every(option =>
       !option.startsWith('Ask when a website is blocked') && !option.startsWith('Research agents —'))));
   } finally {

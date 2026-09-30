@@ -49,7 +49,7 @@ outside it or seek a workaround.
       await config.load();
 
       if (!config.areResearchAgentsEnabled()) {
-        pi.setActiveTools(pi.getActiveTools());
+        pi.setActiveTools(pi.getActiveTools().filter(name => name !== 'research_scout'));
       }
 
       if (!sandbox.isEnabled) {
