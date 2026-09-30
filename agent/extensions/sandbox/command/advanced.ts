@@ -53,21 +53,19 @@ export class SandboxAdvancedCommand {
     /* eslint-disable no-await-in-loop -- The list reloads after each persisted edit. */
     while (true) {
       await this.config.reload();
-      const globalNames = new Set(this.config.getScopedExposedEnv('global'));
-      const projectNames = new Set(this.config.getScopedExposedEnv('project'));
+      const globalNames = new Set(this.config.getScopedExposedEnv('global').filter(name => name !== 'HOME'));
+      const projectNames = new Set(this.config.getScopedExposedEnv('project').filter(name => name !== 'HOME'));
       const configuredNames = globalNames.union(projectNames);
       const names = [...builtInEnvironment.union(configuredNames)].toSorted((a, b) => a.localeCompare(b));
       const editableNames = scope === 'global' ? globalNames : projectNames;
       const result = await ctx.ui.custom<EnvironmentAction | undefined>((tui, theme, _keybindings, done) => {
         const items: SettingItem[] = names.map(name => {
-          const sources = name === 'HOME'
-            ? ['Built in']
-            : [
-              builtInEnvironment.has(name) ? 'Built in' : '',
-              globalNames.has(name) ? 'Global' : '',
-              projectNames.has(name) ? 'Local' : '',
-            ].filter(Boolean);
-          const isEditable = name !== 'HOME' && editableNames.has(name);
+          const sources = [
+            builtInEnvironment.has(name) ? 'Built in' : '',
+            globalNames.has(name) ? 'Global' : '',
+            projectNames.has(name) ? 'Local' : '',
+          ].filter(Boolean);
+          const isEditable = editableNames.has(name);
           const isAvailable = builtInEnvironment.has(name) || process.env[name] !== undefined;
           const currentValue = `${(isAvailable ? 'Available' : 'Missing').padEnd(12)}${sources.join(' + ')}`;
           let description = isAvailable
@@ -277,26 +275,32 @@ export class SandboxAdvancedCommand {
     /* eslint-disable no-await-in-loop, unicorn/no-break-in-nested-loop -- Each completed child screen may change the next menu. */
     while (true) {
       await this.config.reload();
+      const scopeLabel = scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
+
+      const exposedCount = this.config.getExposedEnv().filter(name => name !== 'HOME').length;
+      const environmentAction = `Environment Variables — ${exposedCount} exposed`;
+
+      const globalEnvironment = this.config.getScopedExposedEnv('global');
+      const localEnvironment = this.config.getScopedExposedEnv('project');
+      const isHomeSharedGlobally = globalEnvironment.includes('HOME');
+      const isHomeSharedLocally = localEnvironment.includes('HOME');
+      const isHostHomeShared = scope === 'global'
+        ? isHomeSharedGlobally
+        : isHomeSharedGlobally || isHomeSharedLocally;
+      const homeSource = scope === 'project' && isHomeSharedLocally ? 'Local' : 'Global';
+      const hostHomeAction = `Share host home directory — ${isHostHomeShared ? 'On' : 'Off'} (${homeSource})`;
+
       const scopedResearch = this.config.getResearchAgentsSetting(scope);
       const isResearchEnabled = scope === 'global'
         ? (scopedResearch ?? false)
         : this.config.areResearchAgentsEnabled();
       const researchSource = scope === 'global' || scopedResearch === undefined ? 'Global' : 'Local';
       const researchAction = `Research agents — ${isResearchEnabled ? 'On' : 'Off'} (${researchSource})`;
-      const globalEnvironment = this.config.getScopedExposedEnv('global');
-      const localEnvironment = this.config.getScopedExposedEnv('project');
-      const exposedCount = this.config.getExposedEnv().filter(name => name !== 'HOME').length;
-      const environmentAction = `Environment Variables — ${exposedCount} exposed`;
-      const isHostHomeShared = scope === 'global'
-        ? globalEnvironment.includes('HOME')
-        : globalEnvironment.includes('HOME') || localEnvironment.includes('HOME');
-      const homeSource = scope === 'project' && localEnvironment.includes('HOME') ? 'Local' : 'Global';
-      const hostHomeAction = `Share host home directory — ${isHostHomeShared ? 'On' : 'Off'} (${homeSource})`;
+
       const scopedModel = this.config.getResearchScoutModelSetting(scope);
       const effectiveModel = scope === 'global' ? scopedModel : this.config.getResearchScoutModel();
       const modelSource = scope === 'global' || scopedModel === undefined ? 'Global' : 'Local';
       const modelAction = `Research Scout model — ${effectiveModel === undefined ? 'Not selected' : `${effectiveModel.provider}/${effectiveModel.id}`} (${modelSource})`;
-      const scopeLabel = scope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
       const action = await ctx.ui.select(`Advanced — ${scopeLabel}`, [
         environmentAction,
         hostHomeAction,

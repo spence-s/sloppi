@@ -6,27 +6,63 @@ import type {SandboxSessionManager} from '../session-manager.ts';
 import {SandboxAdvancedCommand} from './advanced.ts';
 import {SandboxFilesystemCommand} from './filesystem.ts';
 import {SandboxNetworkCommand} from './network.ts';
-import {SandboxOptionsCommand} from './options.ts';
 
 export class SandboxCommand {
-  config: ConfigStore;
   sandbox: SandboxSessionManager;
   advanced: SandboxAdvancedCommand;
   filesystem: SandboxFilesystemCommand;
   network: SandboxNetworkCommand;
-  options: SandboxOptionsCommand;
+  playwright: PlaywrightBridge | undefined;
 
   /**
    Composes the scoped access and advanced settings screens behind the public
    `/sandbox` command while sharing one configuration and session manager.
    */
   constructor(config: ConfigStore, sandbox: SandboxSessionManager, playwright?: PlaywrightBridge) {
-    this.config = config;
     this.sandbox = sandbox;
     this.advanced = new SandboxAdvancedCommand(config);
     this.filesystem = new SandboxFilesystemCommand(config, sandbox);
     this.network = new SandboxNetworkCommand(config, sandbox);
-    this.options = new SandboxOptionsCommand(config, sandbox, playwright);
+    this.playwright = playwright;
+  }
+
+  /**
+   Shows the current tool-execution boundary in Pi's shared status area so
+   command shortcuts and interactive changes report state consistently.
+   */
+  setStatus(ctx: ExtensionCommandContext): void {
+    ctx.ui.setStatus(
+      'sandbox',
+      this.sandbox.isEnabled
+        ? `${ctx.ui.theme.bold(ctx.ui.theme.fg('success', '󰕥'))} ${ctx.ui.theme.fg('muted', 'sandbox')}`
+        : `${ctx.ui.theme.bold(ctx.ui.theme.fg('warning', '󰒲'))} ${ctx.ui.theme.fg('warning', 'sandbox off')}`,
+    );
+  }
+
+  /**
+   Switches tool execution between SRT and the host for this session. Disabling
+   protection requires confirmation and also closes the sandbox browser bridge.
+   */
+  async setEnabled(ctx: ExtensionCommandContext, isEnabled: boolean): Promise<void> {
+    if (isEnabled === this.sandbox.isEnabled) {
+      ctx.ui.notify(`Sandbox is already ${isEnabled ? 'on' : 'off'}.`, 'info');
+      return;
+    }
+
+    if (!isEnabled && !await ctx.ui.confirm(
+      'Turn off session protection?',
+      'Are you sure? All tool calls will execute directly on the host with your user permissions for this session.',
+    )) {
+      return;
+    }
+
+    await this.sandbox.setEnabled(isEnabled);
+    if (!isEnabled) {
+      await this.playwright?.stop();
+    }
+
+    this.setStatus(ctx);
+    ctx.ui.notify(`Sandbox is ${isEnabled ? 'on' : 'off'} for this session.`, isEnabled ? 'info' : 'warning');
   }
 
   /**
@@ -46,7 +82,6 @@ export class SandboxCommand {
       let activeScope = scope;
       /* eslint-disable no-await-in-loop, unicorn/no-break-in-nested-loop -- Each menu must finish before the next reflects its changes. */
       while (true) {
-        await this.config.reload();
         const scopeLabel = activeScope === 'project' ? '󰉋 LOCAL · This project' : '󰖟 GLOBAL · All projects';
         const toggleAction = this.sandbox.isEnabled ? 'Turn off session protection' : 'Turn on session protection';
         const statusIcon = this.sandbox.isEnabled ? '󰕥' : '󰒲';
@@ -67,7 +102,7 @@ export class SandboxCommand {
         switch (action) {
           case 'Turn off session protection':
           case 'Turn on session protection': {
-            await this.options.setEnabled(ctx, !this.sandbox.isEnabled);
+            await this.setEnabled(ctx, !this.sandbox.isEnabled);
             break;
           }
 
@@ -118,12 +153,12 @@ export class SandboxCommand {
         const argument = rawArguments.trim();
         try {
           if (['on', 'off', 'toggle'].includes(argument)) {
-            await this.options.setEnabled(ctx, argument === 'toggle' ? !this.sandbox.isEnabled : argument === 'on');
+            await this.setEnabled(ctx, argument === 'toggle' ? !this.sandbox.isEnabled : argument === 'on');
             return;
           }
 
           if (argument === 'status') {
-            this.options.setStatus(ctx);
+            this.setStatus(ctx);
             ctx.ui.notify(`Sandbox is ${this.sandbox.isEnabled ? 'on' : 'off'} for this session.`, 'info');
             return;
           }

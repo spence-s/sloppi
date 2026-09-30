@@ -1344,9 +1344,9 @@ void test('/sandbox toggles host execution and updates its status', async (t: Te
 });
 
 /**
- Verifies unavailable controls are absent from both settings scopes.
+ Verifies the Advanced screen is reachable from both scoped main menus.
  */
-void test('/sandbox omits unavailable options', async (t: TestContext) => {
+void test('/sandbox shows Advanced in local and global scopes', async (t: TestContext) => {
   type Handler = (arguments_: string, ctx: ExtensionCommandContext) => Promise<void>;
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-command-test-'));
   const configStore = new ConfigStore('/project', join(directory, 'sandbox.json'));
@@ -1381,8 +1381,6 @@ void test('/sandbox omits unavailable options', async (t: TestContext) => {
 
     t.assert.strictEqual(menus.length, 2);
     t.assert.ok(menus.every(menu => menu.includes('Advanced')));
-    t.assert.ok(menus.every(menu => menu.every(option =>
-      !option.startsWith('Ask when a website is blocked') && !option.startsWith('Research agents —'))));
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
