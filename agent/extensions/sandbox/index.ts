@@ -37,27 +37,29 @@ export class Sandbox {
 
     pi.on('before_agent_start', async event => {
       const sandboxSystemPrompt = `
-      ## Sloppi Sandbox
+## Sandbox
 
-      Filesystem tools can write only to the paths listed below and private temporary
-      storage; global skills are read-only. Sandboxed network access is allowlisted, and
-      host credentials, signing agents, and other host services are unavailable unless
-      explicitly configured. Treat a sandbox denial as a real boundary: do not retry
-      outside it or seek a workaround.
+Filesystem tools can write only to the paths listed below and private temporary
+storage; global skills are read-only. Sandboxed network access is allowlisted, and
+host credentials, signing agents, and other host services are unavailable unless
+explicitly configured. Treat a sandbox denial as a real boundary: do not retry
+outside it or seek a workaround.
       `.trim();
 
       await config.load();
+
       if (!config.areResearchAgentsEnabled()) {
-        pi.setActiveTools(pi.getActiveTools().filter(name => name !== 'research_scout'));
+        pi.setActiveTools(pi.getActiveTools());
       }
 
       if (!sandbox.isEnabled) {
-        const hostPrompt = [
-          '## Sloppi Sandbox',
-          '',
-          'Sandbox is OFF. All tool calls execute directly on the host with the current user permissions.',
-          'Sloppi filesystem, network, credential, and host-service restrictions do not apply.',
-        ].join('\n');
+        const hostPrompt = `
+## Sloppi Sandbox
+
+Sandbox is OFF. All tool calls execute directly on the host with the current user permissions.
+Sloppi filesystem, network, credential, and host-service restrictions do not apply.
+        `.trim();
+
         return {systemPrompt: `${event.systemPrompt}\n\n${hostPrompt}`};
       }
 
@@ -120,7 +122,8 @@ export class Sandbox {
 
       this.isPromptInProgress = true;
       try {
-        const projectChoice = `Allow ${suggestedDomain} for this project. This will permanently alter the sandbox configuration for this project only. Use the "/sandbox" command to further customize sandbox settings.`;
+        // eslint-disable-next-line @stylistic/max-len
+        const projectChoice = `Allow ${suggestedDomain} for this project? This will permanently alter the sandbox configuration for this project only. Use the "/sandbox" command to further customize sandbox settings.`;
         const customChoice = 'Customize the SRT domain pattern…';
         const choice = await ctx.ui.select('Sandbox blocked a network request', [
           projectChoice,
