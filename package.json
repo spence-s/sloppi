@@ -35,10 +35,10 @@
   ],
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.78",
-    "@playwright/cli": "0.1.19",
+    "@playwright/cli": "0.1.22",
     "execa": "^10.0.1",
     "object-deep-merge": "^2.0.1",
-    "playwright": "1.63.0-alpha-2026-08-31",
+    "playwright": "1.64.0-alpha-1790635538000",
     "typebox": "^1.3.34",
     "unbash": "^5.0.0",
     "zod": "^4.6.5"
