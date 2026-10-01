@@ -174,6 +174,7 @@ export default function shellUi(pi: ExtensionAPI): void {
     }
 
     await refreshStatus(ctx);
+    let renderFullscreenTopStatus: ((width: number) => string) | undefined;
     ctx.ui.setFooter((tui, theme, footerData) => {
       requestRender = (): void => {
         tui.requestRender();
@@ -326,13 +327,34 @@ export default function shellUi(pi: ExtensionAPI): void {
       const unsubscribeUserBash = pi.events.on('sloppi:user-bash-end', () => {
         void refreshStatus(ctx);
       });
-      ctx.ui.setWidget('shell-ui-top', () => topStatus, {placement: 'belowEditor'});
+      /**
+       Returns the first status row for use inside fullscreen's mandatory
+       three-row editor allocation, avoiding a blank padded row.
+       */
+      renderFullscreenTopStatus = (width: number): string => topStatus.render(width)[0] ?? '';
+      ctx.ui.setWidget('shell-ui-top', widgetTui => ({
+        /**
+         Keeps the top status as a widget in regular mode, while fullscreen
+         renders it inside the editor's mandatory third dock row.
+         */
+        invalidate() {
+          topStatus.invalidate();
+        },
+        /**
+         Avoids duplicating the status line after the fullscreen editor has
+         consumed it to satisfy Pi's three-row editor minimum.
+         */
+        render(width: number): string[] {
+          return widgetTui.mode === 'fullscreen' ? [] : topStatus.render(width);
+        },
+      }), {placement: 'belowEditor'});
       ctx.ui.setWidget('shell-ui-bottom', () => bottomStatus, {placement: 'belowEditor'});
 
       return {
         dispose() {
           unsubscribe();
           unsubscribeUserBash();
+          renderFullscreenTopStatus = undefined;
           ctx.ui.setWidget('shell-ui-top', undefined);
           ctx.ui.setWidget('shell-ui-bottom', undefined);
         },
@@ -345,10 +367,22 @@ export default function shellUi(pi: ExtensionAPI): void {
     });
 
     class PromptEditor extends CustomEditor {
+      private readonly renderer: TUI;
+
+      /**
+       Retains Pi's editor behavior while keeping access to the live renderer
+       proxy so mode switches immediately use the matching layout.
+       */
       constructor(tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) {
         super(tui, theme, keybindings, {paddingX: 0});
+        this.renderer = tui;
       }
 
+      /**
+       Reframes Pi's bordered editor as the shell prompt. Fullscreen reserves
+       at least three editor rows, so its third row carries the top status
+       instead of becoming blank; regular mode keeps that status as a widget.
+       */
       render(width: number): string[] {
         const plainPrefix = truncateToWidth('╭─❯ ', Math.max(0, width - 1), '');
         const prefixWidth = visibleWidth(plainPrefix);
@@ -376,6 +410,9 @@ export default function shellUi(pi: ExtensionAPI): void {
           ...input,
           ...stripVTControlCharacters(bottomBorder).includes('↓') ? [`${indent}${bottomBorder}`] : [],
           ...autocomplete,
+          ...renderFullscreenTopStatus !== undefined && this.renderer.mode === 'fullscreen'
+            ? [renderFullscreenTopStatus(width)]
+            : [],
         ];
       }
     }

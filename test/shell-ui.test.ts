@@ -53,6 +53,7 @@ void describe('shell UI', () => {
     let sessionStart: Handler | undefined;
     let footerFactory: FooterFactory | undefined;
     const statusWidgets = new Map<string, Renderable>();
+    const statusWidgetFactories = new Map<string, WidgetFactory>();
     let editorFactory: EditorFactory | undefined;
     let userBashFinished: (() => void) | undefined;
     let gitStatusCalls = 0;
@@ -140,7 +141,9 @@ void describe('shell UI', () => {
           footerFactory = factory;
         },
         setWidget(id: string, factory: WidgetFactory, options?: {placement?: string}) {
-          statusWidgets.set(`${options?.placement}:${id}`, factory({}, theme));
+          const key = `${options?.placement}:${id}`;
+          statusWidgetFactories.set(key, factory);
+          statusWidgets.set(key, factory({mode: 'regular'}, theme));
         },
       },
     } as unknown as ExtensionContext;
@@ -183,16 +186,25 @@ void describe('shell UI', () => {
     }
 
     const lines = [...topStatus.render(180), ...bottomStatus.render(180)];
-    const editor = editorFactory({terminal: {rows: 40}}, {
+    const editor = editorFactory({mode: 'regular', terminal: {rows: 40}}, {
       borderColor: (text: string) => text,
       selectList: {},
     }, {matches: () => false});
     const editorLines = editor.render(80);
+    const fullscreenEditor = editorFactory({mode: 'fullscreen', terminal: {rows: 40}}, {
+      borderColor: (text: string) => text,
+      selectList: {},
+    }, {matches: () => false});
+    const fullscreenEditorLines = fullscreenEditor.render(80);
+    const fullscreenTopStatus = statusWidgetFactories.get('belowEditor:shell-ui-top')?.({mode: 'fullscreen'}, theme);
 
     t.assert.strictEqual(lines.length, 2);
     t.assert.match(lines[0] ?? '', /^├─ /v);
     t.assert.match(editorLines[0] ?? '', /^─+$/v);
     t.assert.match(editorLines[1] ?? '', /^╭─❯ /v);
+    t.assert.strictEqual(fullscreenEditorLines.length, 3);
+    t.assert.match(fullscreenEditorLines[2] ?? '', /^├─ /v);
+    t.assert.deepStrictEqual(fullscreenTopStatus?.render(80), []);
     t.assert.match(lines[1] ?? '', /^╰─ /v);
     editor.setText('This input is long enough to wrap onto several visual lines.');
     const wrappedEditorLines = editor.render(20);
