@@ -2,13 +2,17 @@ import {basename} from 'node:path';
 import {
   parse,
   type ArithmeticExpression,
+  type Assignment,
   type Command,
-  type Node,
   type ParsedScript,
-  type Redirect,
+  type PipelineNode,
+  type Redirection,
+  type Statement,
   type TestExpression,
   type Word,
   type WordPart,
+  type AndOr,
+  type CompoundList,
 } from 'unbash';
 import type {PermissionRule} from './config.ts';
 
@@ -82,21 +86,46 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
       }
 
       case 'ParameterExpansion': {
-        visitParts(part.indexParts);
-        if (part.operand !== undefined) {
-          visitWord(part.operand);
+        if (part.index !== undefined) {
+          visitWord(part.index);
         }
 
-        if (part.slice !== undefined) {
-          visitWord(part.slice.offset);
-          if (part.slice.length !== undefined) {
-            visitWord(part.slice.length);
+        switch (part.operation?.type) {
+          case 'Default':
+          case 'Remove':
+          case 'Transform': {
+            visitWord(part.operation.operand);
+            break;
           }
-        }
 
-        if (part.replace !== undefined) {
-          visitWord(part.replace.pattern);
-          visitWord(part.replace.replacement);
+          case 'CaseModification': {
+            if (part.operation.operand !== undefined) {
+              visitWord(part.operation.operand);
+            }
+
+            break;
+          }
+
+          case 'Replace': {
+            visitWord(part.operation.pattern);
+            visitWord(part.operation.replacement);
+            break;
+          }
+
+          case 'Slice': {
+            visitWord(part.operation.offset);
+            if (part.operation.length !== undefined) {
+              visitWord(part.operation.length);
+            }
+
+            break;
+          }
+
+          case 'Names':
+          case 'Unknown':
+          case undefined: {
+            break;
+          }
         }
 
         return;
@@ -122,7 +151,7 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
   /**
   Visits nested shell carried by every expansion-capable word part.
   */
-  function visitParts(parts: WordPart[] | undefined): void {
+  function visitParts(parts: readonly WordPart[] | undefined): void {
     for (const part of parts ?? []) {
       visitPart(part);
     }
@@ -222,15 +251,36 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
   }
 
   /**
-  Visits redirect words because process substitutions may execute there.
+  Visits redirect targets and heredoc bodies because either can contain process
+  substitutions or command expansions that execute independently of argv.
   */
-  function visitRedirect(redirect: Redirect): void {
+  function visitRedirect(redirect: Redirection): void {
+    if (redirect.type === 'HereDoc') {
+      visitParts(redirect.body.parts);
+      return;
+    }
+
     if (redirect.target !== undefined) {
       visitWord(redirect.target);
     }
+  }
 
-    if (redirect.body !== undefined) {
-      visitWord(redirect.body);
+  /**
+  Visits assignment indexes and values wherever unbash permits assignments in a
+  command, including array elements whose words can contain nested scripts.
+  */
+  function visitAssignment(assignment: Assignment): void {
+    if (assignment.index !== undefined) {
+      visitWord(assignment.index);
+    }
+
+    if (assignment.value.type === 'Word') {
+      visitWord(assignment.value);
+      return;
+    }
+
+    for (const element of assignment.value.elements) {
+      visitWord(element);
     }
   }
 
@@ -239,9 +289,8 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
   */
   function visitCommand(command: Command): void {
     if (command.name !== undefined) {
-      const words = [command.name, ...command.suffix];
-      const argv = words.map(word => word.value);
-      const literal = words.map(word => isLiteralWord(word));
+      const argv = [command.name.value, ...command.args.map(argument => argument.type === 'Word' ? argument.value : argument.text)];
+      const literal = [isLiteralWord(command.name), ...command.args.map(argument => argument.type === 'Word' && isLiteralWord(argument))];
       const commandName = basename(argv[0] ?? '');
       const matched = configuredRules
         .filter(rule => rule.commandWords.length <= argv.length
@@ -275,24 +324,14 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
       visitWord(command.name);
     }
 
-    for (const prefix of command.prefix) {
-      if (prefix.value !== undefined) {
-        visitWord(prefix.value);
+    for (const item of [...command.prefix, ...command.suffix]) {
+      if (item.type === 'Word') {
+        visitWord(item);
+      } else if (item.type === 'Assignment') {
+        visitAssignment(item);
+      } else {
+        visitRedirect(item);
       }
-
-      for (const word of prefix.array ?? []) {
-        visitWord(word);
-      }
-
-      visitParts(prefix.indexParts);
-    }
-
-    for (const word of command.suffix) {
-      visitWord(word);
-    }
-
-    for (const redirect of command.redirects) {
-      visitRedirect(redirect);
     }
   }
 
@@ -300,7 +339,7 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
   Traverses every executable AST position supported by unbash.
   */
   // Keeping exhaustive AST dispatch together makes security review simpler.
-  function visitNode(node: Node): void {
+  function visitNode(node: Statement | CompoundList | PipelineNode | AndOr): void {
     switch (node.type) {
       case 'Command': {
         visitCommand(node);
@@ -311,6 +350,24 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
       case 'AndOr': {
         for (const command of node.commands) {
           visitNode(command);
+        }
+
+        break;
+      }
+
+      case 'Time':
+      case 'Negation': {
+        if (node.command !== undefined) {
+          visitNode(node.command);
+        }
+
+        break;
+      }
+
+      case 'Redirected': {
+        visitNode(node.command);
+        for (const redirect of node.redirects) {
+          visitRedirect(redirect);
         }
 
         break;
@@ -329,7 +386,7 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
       case 'For':
       case 'Select': {
         visitWord(node.name);
-        for (const word of node.wordlist) {
+        for (const word of node.wordlist ?? []) {
           visitWord(word);
         }
 
@@ -367,10 +424,6 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
         }
 
         visitNode(node.body);
-        for (const redirect of node.redirects) {
-          visitRedirect(redirect);
-        }
-
         break;
       }
 
@@ -416,10 +469,6 @@ export function findPermissionInvocations(source: string, rules: PermissionRule[
 
       case 'Statement': {
         visitNode(node.command);
-        for (const redirect of node.redirects) {
-          visitRedirect(redirect);
-        }
-
         break;
       }
     }
