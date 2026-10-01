@@ -1063,6 +1063,12 @@ void test('writes a new file through the sandbox tool and creates missing parent
   }
 });
 
+/**
+Verifies that the sandbox publishes its effective access boundaries and only
+permits explicitly trusted host tools. The web activation loader is trusted
+because it only exposes the separately allowlisted web tools for the next
+model request; blocking it would make dynamic web activation unusable.
+*/
 void test('adds current sandbox access to the system prompt', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-prompt-test-'));
   const configPath = join(directory, 'sandbox.json');
@@ -1108,6 +1114,7 @@ void test('adds current sandbox access to the system prompt', async (t: TestCont
 
     const toolCall = handlers.get('tool_call');
     t.assert.strictEqual(await toolCall?.({toolName: 'rendered_fetch'}), undefined);
+    t.assert.strictEqual(await toolCall?.({toolName: 'web_enable'}), undefined);
     t.assert.deepStrictEqual(await toolCall?.({toolName: 'unapproved_extension_tool'}), {
       block: true,
       reason: 'Tool unapproved_extension_tool is not approved for host execution.',

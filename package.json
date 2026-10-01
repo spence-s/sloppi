@@ -8,6 +8,7 @@
   "bugs": "https://github.com/spence-s/sloppi/issues",
   "author": "Spencer Snyder <sasnyde2@gmail.com> (https://spencersnyder.io)",
   "type": "module",
+  "sideEffects": false,
   "engines": {
     "node": "^22.21.0 || >=24.5.0"
   },
