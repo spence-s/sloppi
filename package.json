@@ -46,9 +46,9 @@
   "devDependencies": {
     "@commitlint/cli": "^21.2.3",
     "@commitlint/config-conventional": "^21.2.3",
-    "@earendil-works/pi-coding-agent": "^0.99.2",
-    "@earendil-works/pi-tui": "^0.99.2",
-    "@types/node": "^26.6.3",
+    "@earendil-works/pi-coding-agent": "^1.0.0",
+    "@earendil-works/pi-tui": "^1.0.0",
+    "@types/node": "^26.6.4",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
     "np": "^12.1.1",
