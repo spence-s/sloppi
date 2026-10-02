@@ -65,7 +65,6 @@
     "extensions": [
       "./agent/extensions/ask-mode.ts",
       "./agent/extensions/capture-request.ts",
-      "./agent/extensions/clear.ts",
       "./agent/extensions/commit.ts",
       "./agent/extensions/permissions/index.ts",
       "./agent/extensions/rendered-fetch.ts",
