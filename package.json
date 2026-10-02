@@ -70,6 +70,7 @@
       "./agent/extensions/rendered-fetch.ts",
       "./agent/extensions/sandbox/index.ts",
       "./agent/extensions/startup-banner.ts",
+      "./agent/extensions/usage.ts",
       "./agent/extensions/shell-ui.ts",
       "./agent/extensions/zshrc.ts"
     ],

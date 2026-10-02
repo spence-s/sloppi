@@ -67,6 +67,7 @@ pi install npm:pi-web-access
 - `permissions/` — applies literal allow, ask, deny, or stage rules to shell commands; `/permissions` manages project rules.
 - `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox on|off|toggle|status` controls it for the current session, while `/sandbox` manages its access. Its `research_scout` tool runs isolated scout, planner, reviewer, or user-defined profiles with only read, grep, find, and list access. Configure delegation under `/sandbox` → `Advanced`.
 - `startup-banner.ts` — replaces Pi's TUI header.
+- `usage.ts` — `/usage` shows remaining OpenAI five-hour and weekly subscription usage plus GitHub Copilot quotas.
 - `shell-ui.ts` — adds a Powerlevel10k-inspired prompt and status area to Pi's terminal UI.
 - `zshrc.ts` — loads zsh aliases for host-side `!` commands.
 
