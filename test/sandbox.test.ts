@@ -591,7 +591,9 @@ void test('isolates reads and temporary Unix sockets', async (t: TestContext) =>
     }
 
     const deniedReadPaths = SandboxManager.getConfig()?.filesystem?.denyRead ?? [];
-    t.assert.ok(deniedReadPaths.some(path => [homeDirectory, homedir()].includes(path)));
+    t.assert.ok(deniedReadPaths.some(entry => [homeDirectory, homedir()].includes(
+      typeof entry === 'string' ? entry : entry.path,
+    )));
     t.assert.ok(SandboxManager.getConfig()?.network?.allowUnixSockets?.includes(scratchPath));
     t.assert.strictEqual(process.env.CLAUDE_CODE_TMPDIR, scratchPath);
     t.assert.strictEqual(process.env.TMPDIR, scratchPath);
@@ -623,10 +625,10 @@ void test('keeps built-in project and home access fixed', async (t: TestContext)
   const configStore = new ConfigStore(directory);
   configStore.config = {
     filesystem: {
-      allowRead: [home],
-      allowWrite: [home, root],
-      denyRead: [directory, root],
-      denyWrite: [directory, root],
+      allowRead: [{path: home, literal: true}],
+      allowWrite: [{path: home, literal: true}, {path: root, literal: true}],
+      denyRead: [{path: directory, literal: true}, {path: root, literal: true}],
+      denyWrite: [{path: directory, literal: true}, {path: root, literal: true}],
     },
   };
   configStore.hasLoaded = true;
@@ -1477,6 +1479,8 @@ void test('renders a stable live research dashboard and legacy results', (t: Tes
     expanded: false,
     isError: false,
     showImages: false,
+    durationMs: undefined,
+    outputPad: 0,
   };
   const partial = renderResult({
     content: [{type: 'text', text: 'final answer'}],

@@ -1,7 +1,7 @@
 import {realpathSync} from 'node:fs';
 import process from 'node:process';
 import type {ExtensionAPI} from '@earendil-works/pi-coding-agent';
-import {ConfigStore} from './config.ts';
+import {ConfigStore, filesystemPath} from './config.ts';
 import {SandboxCommand} from './command/index.ts';
 import {PlaywrightBridge} from './playwright.ts';
 import {SandboxSessionManager} from './session-manager.ts';
@@ -64,7 +64,10 @@ Sloppi filesystem, network, credential, and host-service restrictions do not app
       }
 
       const effectiveConfig = config.getEffectiveConfig();
-      const writePaths = [...new Set([cwd, ...(effectiveConfig.filesystem?.allowWrite ?? [])])];
+      const writePaths = [...new Set([
+        cwd,
+        ...(effectiveConfig.filesystem?.allowWrite ?? []).map(entry => filesystemPath(entry)),
+      ])];
       const allowedDomains = effectiveConfig.network?.allowedDomains ?? [];
       const requestPolicyDestinations = [...new Set(config.getRequestPolicies().map(policy => policy.destination))];
       const accessSummary = [

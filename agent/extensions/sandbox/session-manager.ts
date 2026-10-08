@@ -15,7 +15,7 @@ import {
   SandboxRuntimeConfigSchema,
 } from '@anthropic-ai/sandbox-runtime';
 import {merge} from 'object-deep-merge';
-import type {ConfigStore} from './config.ts';
+import {filesystemPath, type ConfigStore} from './config.ts';
 
 /**
  Evaluates a path to its real path, or returns the original path if it does not exist.
@@ -191,18 +191,30 @@ export class SandboxSessionManager {
     // The workspace must remain usable while the rest of the home folder stays private.
     const {filesystem} = parsedRuntimeConfig;
     filesystem.allowRead = [...new Set([
-      ...(filesystem.allowRead ?? []).filter(path => path !== homeDirectory || path === this.cwd),
+      ...(filesystem.allowRead ?? []).filter(entry => {
+        const path = filesystemPath(entry);
+        return path !== homeDirectory || path === this.cwd;
+      }),
       this.cwd,
     ])];
     filesystem.allowWrite = [...new Set([
-      ...(filesystem.allowWrite ?? []).filter(path => path !== homeDirectory && path !== systemRoot),
+      ...(filesystem.allowWrite ?? []).filter(entry => {
+        const path = filesystemPath(entry);
+        return path !== homeDirectory && path !== systemRoot;
+      }),
       this.cwd,
     ])];
     filesystem.denyRead = [...new Set([
-      ...(filesystem.denyRead ?? []).filter(path => path !== systemRoot && path !== this.cwd),
+      ...(filesystem.denyRead ?? []).filter(entry => {
+        const path = filesystemPath(entry);
+        return path !== systemRoot && path !== this.cwd;
+      }),
       ...([systemRoot, this.cwd].includes(homeDirectory) ? [] : [homeDirectory]),
     ])];
-    filesystem.denyWrite = (filesystem.denyWrite ?? []).filter(path => path !== systemRoot && path !== this.cwd);
+    filesystem.denyWrite = (filesystem.denyWrite ?? []).filter(entry => {
+      const path = filesystemPath(entry);
+      return path !== systemRoot && path !== this.cwd;
+    });
     if (requestPolicies.length > 0) {
       const excludedDomains = parsedRuntimeConfig.network.tlsTerminate?.excludeDomains ?? [];
       const excludedDestination = requestPolicies.find(policy =>

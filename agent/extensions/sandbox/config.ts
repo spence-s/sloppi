@@ -10,6 +10,7 @@ import {
 } from 'node:path';
 import process from 'node:process';
 import {
+  type FilesystemPathEntry,
   type SandboxRuntimeConfig,
   FilesystemConfigSchema,
   NetworkConfigSchema,
@@ -106,6 +107,23 @@ export type NetworkDestinationSetting = {
   permission: NetworkPermission;
   policy?: RequestPolicy;
   previousDestination?: string;
+};
+
+/**
+ Returns the path represented by either supported SRT filesystem entry form.
+ Literal markers must remain intact in stored/runtime configuration, while comparisons and display operate on their path.
+ Partially typed persisted configuration is rejected rather than accidentally treating an invalid entry as the project root.
+ */
+export const filesystemPath = (entry: PartialWithUndefined<FilesystemPathEntry>): string => {
+  if (typeof entry === 'string') {
+    return entry;
+  }
+
+  if (entry.path === undefined) {
+    throw new Error('Invalid SRT filesystem path entry.');
+  }
+
+  return entry.path;
 };
 
 export class ConfigStore {
@@ -227,7 +245,7 @@ export class ConfigStore {
       const entries = filesystem[key] ?? [];
       filesystem[key] = action === 'add'
         ? [...new Set([...entries, storedPath])]
-        : entries.filter(entry => resolve(this.cwd, entry) !== absolutePath);
+        : entries.filter(entry => resolve(this.cwd, filesystemPath(entry)) !== absolutePath);
     }
 
     scopedConfig.filesystem = filesystem;

@@ -23,7 +23,12 @@ import {
   truncateToWidth,
   visibleWidth,
 } from '@earendil-works/pi-tui';
-import type {ConfigScope, ConfigStore, FilesystemPermission} from '../config.ts';
+import {
+  filesystemPath,
+  type ConfigScope,
+  type ConfigStore,
+  type FilesystemPermission,
+} from '../config.ts';
 import type {SandboxSessionManager} from '../session-manager.ts';
 
 type FilesystemAccess = 'readWrite' | 'readOnly' | 'none';
@@ -78,28 +83,31 @@ export class SandboxFilesystemCommand {
       ...(globalFilesystem?.allowWrite ?? []),
       ...(globalFilesystem?.denyRead ?? []),
       ...(globalFilesystem?.denyWrite ?? []),
-    ].map(path => resolve(projectRoot, path)));
+    ].map(entry => resolve(projectRoot, filesystemPath(entry))));
     const projectPaths = new Set([
       ...(projectFilesystem?.allowRead ?? []),
       ...(projectFilesystem?.allowWrite ?? []),
       ...(projectFilesystem?.denyRead ?? []),
       ...(projectFilesystem?.denyWrite ?? []),
-    ].map(path => resolve(projectRoot, path)));
+    ].map(entry => resolve(projectRoot, filesystemPath(entry))));
     const readable = new Set([
       systemRoot,
       projectRoot,
-      ...(runtimeFilesystem?.allowRead ?? effectiveFilesystem?.allowRead ?? []).map(path => resolve(projectRoot, path)),
+      ...(runtimeFilesystem?.allowRead ?? effectiveFilesystem?.allowRead ?? [])
+        .map(entry => resolve(projectRoot, filesystemPath(entry))),
     ]);
     const writable = new Set([
       projectRoot,
-      ...(runtimeFilesystem?.allowWrite ?? effectiveFilesystem?.allowWrite ?? []).map(path => resolve(projectRoot, path)),
+      ...(runtimeFilesystem?.allowWrite ?? effectiveFilesystem?.allowWrite ?? [])
+        .map(entry => resolve(projectRoot, filesystemPath(entry))),
     ]);
     const hidden = new Set([
       home,
-      ...(runtimeFilesystem?.denyRead ?? effectiveFilesystem?.denyRead ?? []).map(path => resolve(projectRoot, path)),
+      ...(runtimeFilesystem?.denyRead ?? effectiveFilesystem?.denyRead ?? [])
+        .map(entry => resolve(projectRoot, filesystemPath(entry))),
     ]);
     const readOnlyEntries = runtimeFilesystem?.denyWrite ?? effectiveFilesystem?.denyWrite ?? [];
-    const readOnly = new Set(readOnlyEntries.map(path => resolve(projectRoot, path)));
+    const readOnly = new Set(readOnlyEntries.map(entry => resolve(projectRoot, filesystemPath(entry))));
     const allPaths = readable.union(writable).union(hidden).union(readOnly).union(globalPaths).union(projectPaths);
     const paths = [
       systemRoot,
