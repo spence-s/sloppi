@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 680 112" role="img" aria-labelledby="title description">
+  <title id="title">Sloppi</title>
+  <desc id="description">The Sloppi ASCII logo with the final Pi mark in its red, blue, and orange brand colors.</desc>
+  <style>
+    text {
+      fill: #1f2328;
+      font: 14px ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      white-space: pre;
+    }
+
+    .pi-red { fill: #f09082; }
+    .pi-blue { fill: #4d9abf; }
+    .pi-orange { fill: #f1be58; }
+
+    @media (prefers-color-scheme: dark) {
+      text { fill: #f0f6fc; }
+    }
+  </style>
+  <text x="0" y="16" xml:space="preserve"><tspan>  ███████╗██╗      ██████╗ ██████╗ </tspan><tspan class="pi-red">██████╗</tspan><tspan>           ╭╮  )(  ╭╮   )       ╲╲</tspan></text>
+  <text x="0" y="34" xml:space="preserve"><tspan>  ██╔════╝██║     ██╔═══██╗██╔══██╗</tspan><tspan class="pi-red">██╔══██╗</tspan><tspan>          ╰╯ (  ) ╰╯  (         ╲╲</tspan></text>
+  <text x="0" y="52" xml:space="preserve"><tspan>  ███████╗██║     ██║   ██║██████╔╝</tspan><tspan class="pi-red">██████╔╝</tspan><tspan>        ╔════════════════╗       ╲╲</tspan></text>
+  <text x="0" y="70" xml:space="preserve"><tspan>  ╚════██║██║     ██║   ██║██╔═══╝ </tspan><tspan class="pi-blue">██╔═══╝ </tspan><tspan class="pi-orange">██╗</tspan><tspan>     ║ ██  ≋≋≋  ██  ≋≋ ║       ╲╲</tspan></text>
+  <text x="0" y="88" xml:space="preserve"><tspan>  ███████║███████╗╚██████╔╝██║     </tspan><tspan class="pi-blue">██║     </tspan><tspan class="pi-orange">██║</tspan><tspan>      ╚██████████████╝</tspan></text>
+  <text x="0" y="106" xml:space="preserve"><tspan>  ╚══════╝╚══════╝ ╚═════╝ ╚═╝     </tspan><tspan class="pi-blue">╚═╝     </tspan><tspan class="pi-orange">╚═╝</tspan><tspan>        ████████████</tspan></text>
+</svg>

@@ -26,7 +26,8 @@
   "files": [
     "agent/extensions",
     "agent/skills",
-    "agent/themes"
+    "agent/themes",
+    "docs/logo.svg"
   ],
   "keywords": [
     "pi-package",
