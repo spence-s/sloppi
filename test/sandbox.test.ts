@@ -1066,11 +1066,10 @@ void test('writes a new file through the sandbox tool and creates missing parent
 });
 
 /**
-Verifies that the sandbox publishes its effective access boundaries and only
-permits explicitly trusted host tools. The web activation loader is trusted
-because it only exposes the separately allowlisted web tools for the next
-model request; blocking it would make dynamic web activation unusable.
-*/
+ Verifies that the sandbox publishes both its effective access rules and its
+ fixed tool boundary. Tools from unrelated extensions remain callable because
+ Sloppi cannot isolate code that executes inside Pi's host process.
+ */
 void test('adds current sandbox access to the system prompt', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-prompt-test-'));
   const configPath = join(directory, 'sandbox.json');
@@ -1113,20 +1112,16 @@ void test('adds current sandbox access to the system prompt', async (t: TestCont
     t.assert.match(result.systemPrompt, new RegExp(JSON.stringify(extension.cwd), 'v'));
     t.assert.match(result.systemPrompt, /"\/shared"/v);
     t.assert.match(result.systemPrompt, /"api\.example\.com"/v);
+    t.assert.match(result.systemPrompt, /Other Pi extensions and tools are outside this boundary/v);
 
     const toolCall = handlers.get('tool_call');
-    t.assert.strictEqual(await toolCall?.({toolName: 'rendered_fetch'}), undefined);
-    t.assert.strictEqual(await toolCall?.({toolName: 'web_enable'}), undefined);
-    t.assert.deepStrictEqual(await toolCall?.({toolName: 'unapproved_extension_tool'}), {
-      block: true,
-      reason: 'Tool unapproved_extension_tool is not approved for host execution.',
-    });
+    t.assert.strictEqual(await toolCall?.({toolName: 'third_party_tool'}), undefined);
 
     extension.sandbox.isEnabled = false;
     const hostResult = await handler({systemPrompt: 'base'}) as {systemPrompt: string};
     t.assert.match(hostResult.systemPrompt, /Sandbox is OFF/v);
     t.assert.match(hostResult.systemPrompt, /directly on the host/v);
-    t.assert.strictEqual(await toolCall?.({toolName: 'unapproved_extension_tool'}), undefined);
+    t.assert.strictEqual(await toolCall?.({toolName: 'third_party_tool'}), undefined);
   } finally {
     await rm(directory, {force: true, recursive: true});
   }

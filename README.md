@@ -64,7 +64,7 @@ pi install npm:pi-web-access
 - `shell-ui.ts` — adds a Powerlevel10k-inspired prompt and status area to Pi's terminal UI.
 - `zshrc.ts` — loads zsh aliases for host-side `!` commands.
 
-Sandbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. While enabled, it blocks unapproved extension tools from host execution; Pi web-access tools remain host-side so provider credentials are not exposed to sandboxed commands. Turning it off routes every tool directly through the host with your user permissions.
+Sandbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. It also uses those sandboxed operations for `research_scout` filesystem access. This is the complete Sloppi sandbox boundary: tools supplied by other Pi extensions run with their normal host permissions unless those extensions provide their own isolation. Installing or enabling another extension does not automatically put its tools inside Sloppi's sandbox. Turning the sandbox off routes Sloppi's managed tools directly through the host with your user permissions.
 
 ### Request context report
 
@@ -180,7 +180,7 @@ Use `/sandbox on|off|toggle|status` to control sandboxing for the current Pi ses
 
 By default, filesystem tools can write only the current project and private session scratch space. Global Pi skills and Git/npm package directories are readable. Network access is denied until allowed. A blocked network request can prompt to add a project domain rule.
 
-Sandbox is an additional experimental boundary, not a guarantee. Broad filesystem paths, domains, Unix sockets, Apple Events, or weaker SRT isolation options reduce its protection. See [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime) for platform limitations.
+Sandbox is an additional experimental boundary for the Sloppi-managed tools listed above, not a guarantee or a process-wide boundary around Pi. Review other extensions before installing them: extension code and its tools execute in Pi's host process by default. Broad filesystem paths, domains, Unix sockets, Apple Events, or weaker SRT isolation options reduce SRT's protection. See [Anthropic Sandbox Runtime](https://github.com/anthropic-experimental/sandbox-runtime) for platform limitations.
 
 ## Development
 

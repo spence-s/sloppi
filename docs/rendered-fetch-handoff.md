@@ -26,7 +26,7 @@ This is a fallback fetcher, not a crawler and not a general browser automation i
 Relevant files:
 
 - `agent/extensions/sandbox/playwright.ts` — existing interactive Playwright CLI bridge and hardened Chrome launch options.
-- `agent/extensions/sandbox/index.ts` — blocks extension tools from host execution unless their names are in `hostTools`.
+- `agent/extensions/sandbox/index.ts` — documents which Sloppi tools use SRT; unrelated extension tools remain outside that boundary.
 - `agent/extensions/ask-mode.ts` — controls which read-only tools remain active in ask mode.
 - `package.json` — Pi resource manifest, published files, and existing `playwright` dependency.
 - `test/sandbox.test.ts` — examples of mocking Playwright and capturing registered extension handlers.
@@ -120,11 +120,9 @@ Update `package.json`:
 
 ### 4. Sloppi tool policies
 
-Update `agent/extensions/sandbox/index.ts`:
-
-- Add `rendered_fetch` to `hostTools`.
-- Keep it host-side. It must not be routed through `SandboxSessionManager`.
-- Do not broaden approval to other tools.
+`rendered_fetch` remains host-side and must not be routed through
+`SandboxSessionManager`. Sloppi does not gate or claim to sandbox tools supplied by
+other extensions, so no sandbox allowlist entry is needed.
 
 Update `agent/extensions/ask-mode.ts`:
 
@@ -323,7 +321,7 @@ At minimum verify:
 9. Oversized output is truncated and reports truncation.
 10. The browser closes after success and after navigation/extraction failure.
 11. Cancellation closes the browser.
-12. `rendered_fetch` remains available in ask mode and is approved as an explicit host tool while sandboxing is enabled.
+12. `rendered_fetch` remains available in ask mode while the separate Sloppi sandbox is enabled.
 
 Do not make the default test suite depend on internet access or installed Chrome. Mock Playwright for deterministic tests.
 
@@ -358,14 +356,14 @@ Start Pi from the package and verify:
 - The `rendered_fetch` tool is active.
 - `/skill:rendered-fetch` is discoverable without warnings.
 - Ask mode retains `rendered_fetch`.
-- With sandboxing enabled, the sandbox host-tool gate does not block it.
+- With sandboxing enabled, `rendered_fetch` remains callable and clearly documented as outside the SRT boundary.
 - Ordinary `fetch_content` remains the first choice.
 - The exact JavaScript-rendering error leads the agent to retry with `rendered_fetch`.
 
 ## Implementation order
 
 1. Implement and test the narrow `rendered_fetch` extension.
-2. Add it to the sandbox host-tool allowlist and ask-mode read-only set.
+2. Add it to the ask-mode read-only set; no sandbox registration is needed for an unrelated extension tool.
 3. Add package manifest and published-file entries.
 4. Create the fallback skill.
 5. Update README documentation.

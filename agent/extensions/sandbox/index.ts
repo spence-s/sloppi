@@ -8,10 +8,8 @@ import {SandboxSessionManager} from './session-manager.ts';
 import {SandboxSubagent} from './subagent.ts';
 import {SandboxTools} from './tools.ts';
 
-// Only these tools may execute commands; everything else stays explicitly allowlisted.
+// Sloppi replaces these tools with implementations backed by the SRT session.
 const sandboxedTools = new Set(['bash', 'edit', 'find', 'grep', 'ls', 'read', 'write']);
-// Provider-backed tools and delegation keep model credentials on the host; delegation filesystem access is SRT-backed.
-const hostTools = new Set(['research_scout', 'fetch_content', 'get_search_content', 'rendered_fetch', 'source_check', 'web_enable', 'web_search']);
 
 export class Sandbox {
   pi: ExtensionAPI;
@@ -27,6 +25,14 @@ export class Sandbox {
     this.sandbox = new SandboxSessionManager(this.cwd, this.config);
   }
 
+  /**
+   Registers the tools and lifecycle hooks that Sloppi can actually isolate.
+
+   Pi extensions themselves share Pi's host process and permissions. This extension
+   therefore replaces a fixed set of tools rather than claiming to sandbox tools
+   registered by unrelated extensions. The prompt below makes that boundary visible
+   to the model, while users remain responsible for trusting additional extensions.
+   */
   register(): void {
     const {pi, cwd, config, sandbox} = this;
     new SandboxTools(pi, cwd, sandbox).register();
@@ -39,11 +45,15 @@ export class Sandbox {
       const sandboxSystemPrompt = `
 ## Sandbox
 
-Filesystem tools can write only to the paths listed below and private temporary
-storage; global skills are read-only. Sandboxed network access is allowlisted, and
-host credentials, signing agents, and other host services are unavailable unless
-explicitly configured. Treat a sandbox denial as a real boundary: do not retry
-outside it or seek a workaround.
+Sloppi sandboxes its replacements for bash, edit, find, grep, ls, read, and write,
+plus filesystem operations performed by research_scout. Their filesystem access is
+limited to the paths listed below and private temporary storage; global skills are
+read-only. Their network access is allowlisted, and host credentials, signing agents,
+and other host services are unavailable unless explicitly configured.
+
+Other Pi extensions and tools are outside this boundary and run with their normal
+host permissions unless they provide their own isolation. Treat a sandbox denial as
+a real boundary: do not retry outside it or seek a workaround.
       `.trim();
 
       await config.load();
@@ -56,7 +66,7 @@ outside it or seek a workaround.
         const hostPrompt = `
 ## Sloppi Sandbox
 
-Sandbox is OFF. All tool calls execute directly on the host with the current user permissions.
+Sandbox is OFF. Sloppi's managed tools execute directly on the host with the current user permissions.
 Sloppi filesystem, network, credential, and host-service restrictions do not apply.
         `.trim();
 
@@ -95,10 +105,6 @@ Sloppi filesystem, network, credential, and host-service restrictions do not app
 
       if (event.toolName === 'research_scout' && !config.areResearchAgentsEnabled()) {
         return {block: true, reason: 'Research agents are disabled in sandbox configuration.'};
-      }
-
-      if (!sandboxedTools.has(event.toolName) && !hostTools.has(event.toolName)) {
-        return {block: true, reason: `Tool ${event.toolName} is not approved for host execution.`};
       }
     });
 
