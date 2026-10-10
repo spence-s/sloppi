@@ -87,6 +87,11 @@ export function parseGitStatus(output: string): GitStatus {
   return status;
 }
 
+/**
+Installs Sloppi's shell-inspired editor, footer, and status widgets. The editor
+also routes Up and Down through Atuin while the user is composing a host command,
+so shell history stays separate from Pi's ordinary prompt history.
+*/
 export default function shellUi(pi: ExtensionAPI): void {
   let gitStatus: GitStatus | undefined;
   let sessionCost = 0;
@@ -368,14 +373,131 @@ export default function shellUi(pi: ExtensionAPI): void {
 
     class PromptEditor extends CustomEditor {
       private readonly renderer: TUI;
+      private readonly editorKeybindings: KeybindingsManager;
+      private shellHistory: {
+        commands: string[];
+        draft: string;
+        index: number;
+        prefix: '!' | '!!';
+      } | undefined;
+
+      private shellHistoryRequest = 0;
+
+      private atuinWarningShown = false;
 
       /**
        Retains Pi's editor behavior while keeping access to the live renderer
-       proxy so mode switches immediately use the matching layout.
+       proxy so mode switches immediately use the matching layout. The keybinding
+       manager is retained so shell history follows remapped Up and Down actions.
        */
       constructor(tui: TUI, theme: EditorTheme, keybindings: KeybindingsManager) {
         super(tui, theme, keybindings, {paddingX: 0});
         this.renderer = tui;
+        this.editorKeybindings = keybindings;
+      }
+
+      /**
+       Searches Atuin when Up is pressed in a `!` or `!!` command and then keeps
+       navigation local to the returned snapshot. A request number prevents a
+       slow search from replacing text the user edited while it was running.
+       All other keys remain owned by CustomEditor so Pi shortcuts, completion,
+       paste handling, and ordinary prompt history continue to work unchanged.
+       */
+      handleInput(data: string): void {
+        const isUp = this.editorKeybindings.matches(data, 'tui.editor.cursorUp')
+          || this.editorKeybindings.matches(data, 'tui.editor.historyPrevious');
+        const isDown = this.editorKeybindings.matches(data, 'tui.editor.cursorDown')
+          || this.editorKeybindings.matches(data, 'tui.editor.historyNext');
+        const currentText = this.getText();
+        const currentHistoryText = this.shellHistory === undefined
+          ? undefined
+          : (this.shellHistory.index === -1
+            ? this.shellHistory.draft
+            : `${this.shellHistory.prefix}${this.shellHistory.commands[this.shellHistory.index] ?? ''}`);
+
+        if (currentText !== currentHistoryText && this.shellHistory !== undefined) {
+          this.shellHistory = undefined;
+          this.shellHistoryRequest += 1;
+        }
+
+        if ((isUp || isDown) && this.shellHistory !== undefined) {
+          const nextIndex = this.shellHistory.index + (isUp ? 1 : -1);
+          if (nextIndex >= this.shellHistory.commands.length) {
+            return;
+          }
+
+          if (nextIndex < 0) {
+            this.shellHistory.index = -1;
+            this.setText(this.shellHistory.draft);
+          } else {
+            this.shellHistory.index = nextIndex;
+            this.setText(`${this.shellHistory.prefix}${this.shellHistory.commands[nextIndex] ?? ''}`);
+          }
+
+          this.renderer.requestRender();
+          return;
+        }
+
+        const match = /^(?<prefix>!!|!)(?<query>[^\n]*)$/v.exec(currentText);
+        if (isUp && match?.groups !== undefined) {
+          const prefix: '!' | '!!' = currentText.startsWith('!!') ? '!!' : '!';
+          const query = match.groups.query ?? '';
+          const request = ++this.shellHistoryRequest;
+          const arguments_ = [
+            'search',
+            '--cmd-only',
+            '--print0',
+            '--limit',
+            '100',
+            '--search-mode',
+            'prefix',
+            ...query.length > 0 ? ['--', query] : [],
+          ];
+
+          void pi.exec('atuin', arguments_, {cwd: ctx.cwd, timeout: 2000}).then(result => {
+            if (request !== this.shellHistoryRequest || this.getText() !== currentText) {
+              return;
+            }
+
+            if (result.code !== 0) {
+              if (result.code !== 1 && !this.atuinWarningShown) {
+                this.atuinWarningShown = true;
+                ctx.ui.notify('Atuin history is unavailable.', 'warning');
+              }
+
+              return;
+            }
+
+            const commands = result.stdout.split('\0').filter(command => command.length > 0);
+            if (commands.length === 0) {
+              return;
+            }
+
+            this.shellHistory = {
+              commands,
+              draft: currentText,
+              index: 0,
+              prefix,
+            };
+            this.setText(`${prefix}${commands[0] ?? ''}`);
+            this.renderer.requestRender();
+          }).catch(() => {
+            if (request !== this.shellHistoryRequest || this.atuinWarningShown) {
+              return;
+            }
+
+            this.atuinWarningShown = true;
+            ctx.ui.notify('Atuin history is unavailable.', 'warning');
+          });
+          return;
+        }
+
+        if (!isUp && !isDown) {
+          this.shellHistory = undefined;
+          this.shellHistoryRequest += 1;
+        }
+
+        super.handleInput(data);
       }
 
       /**

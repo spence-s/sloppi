@@ -58,7 +58,9 @@ void describe('shell UI', () => {
     let userBashFinished: (() => void) | undefined;
     let gitStatusCalls = 0;
     let contextPercent = 25;
+    const atuinCalls: string[][] = [];
     const foregrounds: Array<[string, string]> = [];
+    const notifications: string[] = [];
 
     shellUi({
       events: {
@@ -70,7 +72,12 @@ void describe('shell UI', () => {
           return () => undefined;
         },
       },
-      async exec(_command: string, arguments_: string[]) {
+      async exec(command: string, arguments_: string[]) {
+        if (command === 'atuin') {
+          atuinCalls.push(arguments_);
+          return {code: 0, stdout: 'git status\0git log --oneline\0'};
+        }
+
         if (arguments_[0] === 'status') {
           gitStatusCalls += 1;
           return {
@@ -134,6 +141,9 @@ void describe('shell UI', () => {
       },
       ui: {
         theme,
+        notify(message: string) {
+          notifications.push(message);
+        },
         setEditorComponent(factory: EditorFactory) {
           editorFactory = factory;
         },
@@ -186,10 +196,22 @@ void describe('shell UI', () => {
     }
 
     const lines = [...topStatus.render(180), ...bottomStatus.render(180)];
-    const editor = editorFactory({mode: 'regular', terminal: {rows: 40}}, {
+    const keybindings = {
+      matches(data: string, action: string) {
+        return (data === '\u{1B}[A' && action === 'tui.editor.cursorUp')
+          || (data === '\u{1B}[B' && action === 'tui.editor.cursorDown');
+      },
+    };
+    const editor = editorFactory({
+      mode: 'regular',
+      requestRender() {
+        return undefined;
+      },
+      terminal: {rows: 40},
+    }, {
       borderColor: (text: string) => text,
       selectList: {},
-    }, {matches: () => false});
+    }, keybindings);
     const editorLines = editor.render(80);
     const fullscreenEditor = editorFactory({mode: 'fullscreen', terminal: {rows: 40}}, {
       borderColor: (text: string) => text,
@@ -214,6 +236,31 @@ void describe('shell UI', () => {
     editor.handleInput('\u{1B}[13;2u');
     editor.handleInput('\u{1B}[200~pasted\nlines\u{1B}[201~');
     t.assert.strictEqual(editor.getText(), 'first\npasted\nlines');
+
+    editor.setText('!g');
+    editor.handleInput('\u{1B}[A');
+    await new Promise<void>(resolve => {
+      setImmediate(resolve);
+    });
+    t.assert.strictEqual(editor.getText(), '!git status');
+    editor.handleInput('\u{1B}[A');
+    t.assert.strictEqual(editor.getText(), '!git log --oneline');
+    editor.handleInput('\u{1B}[B');
+    t.assert.strictEqual(editor.getText(), '!git status');
+    editor.handleInput('\u{1B}[B');
+    t.assert.strictEqual(editor.getText(), '!g');
+
+    editor.setText('!!g');
+    editor.handleInput('\u{1B}[A');
+    await new Promise<void>(resolve => {
+      setImmediate(resolve);
+    });
+    t.assert.strictEqual(editor.getText(), '!!git status');
+    t.assert.deepStrictEqual(atuinCalls, [
+      ['search', '--cmd-only', '--print0', '--limit', '100', '--search-mode', 'prefix', '--', 'g'],
+      ['search', '--cmd-only', '--print0', '--limit', '100', '--search-mode', 'prefix', '--', 'g'],
+    ]);
+    t.assert.deepStrictEqual(notifications, []);
     t.assert.ok(lines.every(line => visibleWidth(line) === 180));
     t.assert.match(lines[0] ?? '', /repo.* {2} main !1/v);
     t.assert.match(lines[0] ?? '', /─/v);

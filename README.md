@@ -43,6 +43,7 @@ Sloppi does not change Pi's project trust behavior.
 - Google Chrome for optional Playwright CLI browser automation
 - macOS: `brew install ripgrep`
 - Linux: install `bubblewrap`, `socat`, `ripgrep`, and `fd`
+- Optional: install [Atuin](https://atuin.sh/) to browse shell history with Up and Down while composing `!` or `!!` host commands
 
 Sandbox currently supports macOS and Linux. Its shell UI uses Nerd Font icons but remains usable without them.
 
@@ -61,7 +62,7 @@ pi install npm:pi-web-access
 - `sandbox/` — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox on|off|toggle|status` controls it for the current session, while `/sandbox` manages its access. Its `research_scout` tool runs isolated scout, planner, reviewer, or user-defined profiles with only read, grep, find, and list access. Configure delegation under `/sandbox` → `Advanced`.
 - `startup-banner.ts` — replaces Pi's TUI header.
 - `usage.ts` — `/usage` shows remaining OpenAI five-hour and weekly subscription usage plus GitHub Copilot quotas.
-- `shell-ui.ts` — adds a Powerlevel10k-inspired prompt and status area to Pi's terminal UI.
+- `shell-ui.ts` — adds a Powerlevel10k-inspired prompt and status area to Pi's terminal UI. With Atuin installed, Up and Down browse matching shell history while the editor contains a `!` or `!!` host command; text after the marker is used as a prefix query.
 - `zshrc.ts` — loads zsh aliases for host-side `!` commands.
 
 Sandbox overrides Pi's built-in `bash`, `edit`, `find`, `grep`, `ls`, `read`, and `write` tools. It also uses those sandboxed operations for `research_scout` filesystem access. This is the complete Sloppi sandbox boundary: tools supplied by other Pi extensions run with their normal host permissions unless those extensions provide their own isolation. Installing or enabling another extension does not automatically put its tools inside Sloppi's sandbox. Turning the sandbox off routes Sloppi's managed tools directly through the host with your user permissions.
