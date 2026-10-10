@@ -1,7 +1,7 @@
 import type {XoConfigItem} from 'xo';
 
 const xoConfig: XoConfigItem[] = [
-  {ignores: ['test/temp', 'coverage', '*.md']},
+  {ignores: ['test/temp', 'coverage']},
   {
     space: true,
     rules: {
