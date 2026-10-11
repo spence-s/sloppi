@@ -1,6 +1,6 @@
 # Sloppi
 
-![Sloppi](./media/logo.svg)
+![Sloppi](https://raw.githubusercontent.com/spence-s/sloppi/main/media/logo.svg)
 
 A shareable [Pi](https://pi.dev) package that sandboxes filesystem tools, adds a read-only ask mode, and customizes the terminal header and footer.
 
