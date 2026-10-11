@@ -56,7 +56,7 @@ pi install npm:pi-web-access
 ## Extensions
 
 - `ask-mode.ts` — `/ask on|off|toggle|status` controls modes; `/ask <prompt>` toggles modes before submitting the prompt; `/implement` switches to agent mode and starts implementation.
-- `atuin.ts` — records agent Bash tool calls and user-entered `!`/`!!` commands in Atuin history with their final exit status.
+- `atuin.ts` — records agent Bash tool calls as agent history and user-entered `!`/`!!` commands as user history, with their final exit status. User commands remain visible in Atuin's default interactive search; Atuin's configured privacy filters still apply.
 - `capture-request.ts` — `/capture-request` saves the next provider payload and a private, offline HTML context-cost report.
 - `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input; `/commit model` selects its model.
 - `permissions/` — applies literal allow, ask, deny, or stage rules to shell commands; `/permissions` manages project rules.

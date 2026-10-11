@@ -2,6 +2,7 @@ import {basename} from 'node:path';
 import process from 'node:process';
 import {
   createLocalBashOperations,
+  type BashOperations,
   type ExtensionAPI,
 } from '@earendil-works/pi-coding-agent';
 
@@ -13,10 +14,9 @@ type PendingHistory = {
   id: string;
 };
 
-type UserBashResult = {
+type UserBashOperations = {
   command: string;
-  cwd: string;
-  exitCode: number;
+  operations: BashOperations;
 };
 
 /**
@@ -24,15 +24,14 @@ Starts an Atuin history entry without making Atuin a prerequisite for command
 execution. An unavailable or unconfigured Atuin installation is treated as an
 optional integration failure, while a non-empty ID is retained for completion.
 */
-async function startHistory(pi: ExtensionAPI, cwd: string, command: string): Promise<PendingHistory | undefined> {
+async function startHistory(pi: ExtensionAPI, cwd: string, command: string, authorKind: 'agent' | 'user'): Promise<PendingHistory | undefined> {
   try {
     const result = await pi.exec('atuin', [
       'history',
       'start',
-      '--author',
-      atuinAuthor,
+      ...authorKind === 'agent' ? ['--author', atuinAuthor] : [],
       '--author-kind',
-      'agent',
+      authorKind,
       '--',
       command,
     ], {cwd, timeout: atuinTimeout});
@@ -96,30 +95,61 @@ function exitCodeFromToolResult(result: unknown, isError: boolean): number {
 }
 
 /**
-Validates the private completion event emitted by Sloppi's zsh wrapper. Custom
-event payloads are untyped at the extension boundary, so malformed events are
-ignored rather than risking an incorrect history update.
+Wraps the actual user-command execution rather than a propagation-sensitive Pi
+observer. Both the zsh integration and ordinary local shell path use this boundary,
+so history records the original input, actual execution directory, and final code.
+The explicit user kind keeps these entries visible in Atuin's default search.
 */
-function isUserBashResult(value: unknown): value is UserBashResult {
+function recordUserBash(pi: ExtensionAPI, command: string, operations: BashOperations): BashOperations {
+  return {
+    /**
+    Starts history immediately before execution and awaits completion before
+    returning the shell result. Each execution retains its own ID, so repeated
+    commands do not depend on a shared FIFO or a fire-and-forget completion event.
+    */
+    async exec(prefixedCommand, cwd, options) {
+      const history = await startHistory(pi, cwd, command, 'user');
+      let exitCode = 1;
+
+      try {
+        const result = await operations.exec(prefixedCommand, cwd, options);
+        exitCode = result.exitCode ?? 1;
+        return result;
+      } finally {
+        if (history !== undefined) {
+          await endHistory(pi, history, exitCode);
+        }
+      }
+    },
+  };
+}
+
+/**
+Validates the mutable operations handoff from Sloppi's zsh extension. The event
+bus is synchronous, allowing the recorder to wrap execution before the handler
+returns operations to Pi, regardless of which extension was loaded first.
+*/
+function isUserBashOperations(value: unknown): value is UserBashOperations {
   return typeof value === 'object'
     && value !== null
     && 'command' in value
     && typeof value.command === 'string'
-    && 'cwd' in value
-    && typeof value.cwd === 'string'
-    && 'exitCode' in value
-    && typeof value.exitCode === 'number';
+    && 'operations' in value
+    && typeof value.operations === 'object'
+    && value.operations !== null
+    && 'exec' in value.operations
+    && typeof value.operations.exec === 'function';
 }
 
 /**
 Records both model-issued Bash tool calls and user-entered `!`/`!!` commands in
 Atuin. Tool calls are observed without replacing the active Bash tool. User
-commands under zsh are completed by Sloppi's existing wrapper; other shells are
-wrapped here because Pi does not expose a user-Bash completion lifecycle event.
+commands under zsh are wrapped through a synchronous operations handoff; other
+shells are wrapped here. This avoids relying on the order of user_bash handlers,
+because Pi stops dispatching as soon as one handler returns operations.
 */
 export default function atuin(pi: ExtensionAPI): void {
   const pendingTools = new Map<string, PendingHistory>();
-  const pendingUserCommands = new Map<string, PendingHistory[]>();
 
   pi.on('tool_call', async (event, ctx) => {
     if (event.toolName !== 'bash') {
@@ -131,7 +161,7 @@ export default function atuin(pi: ExtensionAPI): void {
       return;
     }
 
-    const history = await startHistory(pi, ctx.cwd, input.command);
+    const history = await startHistory(pi, ctx.cwd, input.command, 'agent');
     if (history !== undefined) {
       pendingTools.set(event.toolCallId, history);
     }
@@ -147,60 +177,21 @@ export default function atuin(pi: ExtensionAPI): void {
     await endHistory(pi, history, exitCodeFromToolResult(event.result, event.isError));
   });
 
-  pi.on('user_bash', async event => {
-    if (event.command.length === 0) {
-      return;
-    }
-
-    const history = await startHistory(pi, event.cwd, event.command);
-    if (history === undefined) {
-      return;
-    }
-
+  pi.on('user_bash', event => {
     const userShell = process.env.SHELL;
-    if (userShell !== undefined && basename(userShell) === 'zsh') {
-      const commands = pendingUserCommands.get(event.command) ?? [];
-      commands.push(history);
-      pendingUserCommands.set(event.command, commands);
+    if (event.command.length === 0 || (userShell !== undefined && basename(userShell) === 'zsh')) {
       return;
     }
 
     const local = createLocalBashOperations(userShell === undefined ? undefined : {shellPath: userShell});
-    return {
-      operations: {
-        async exec(command, cwd, options) {
-          try {
-            const result = await local.exec(command, cwd, options);
-            await endHistory(pi, history, result.exitCode ?? 1);
-            return result;
-          } catch (error) {
-            await endHistory(pi, history, 1);
-            throw error;
-          }
-        },
-      },
-    };
+    return {operations: recordUserBash(pi, event.command, local)};
   });
 
-  pi.events.on('sloppi:user-bash-result', value => {
-    if (!isUserBashResult(value)) {
+  pi.events.on('sloppi:user-bash-operations', value => {
+    if (!isUserBashOperations(value) || value.command.length === 0) {
       return;
     }
 
-    const commands = pendingUserCommands.get(value.command);
-    if (commands === undefined) {
-      return;
-    }
-
-    const history = commands.shift();
-    if (history === undefined) {
-      return;
-    }
-
-    if (commands.length === 0) {
-      pendingUserCommands.delete(value.command);
-    }
-
-    void endHistory(pi, history, value.exitCode);
+    value.operations = recordUserBash(pi, value.command, value.operations);
   });
 }
