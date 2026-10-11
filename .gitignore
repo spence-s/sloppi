@@ -21,6 +21,7 @@ agent/**/*.jsonl
 agent/**/*.log
 agent/models-store.json
 agent/settings.json
+agent/trust.json
 sandbox.json
 permissions.json
 web-search-cache
