@@ -402,6 +402,10 @@ export default function shellUi(pi: ExtensionAPI): void {
        slow search from replacing text the user edited while it was running.
        All other keys remain owned by CustomEditor so Pi shortcuts, completion,
        paste handling, and ordinary prompt history continue to work unchanged.
+       Atuin limits its default CLI query to the newest matches but prints them
+       oldest-first; reverse those rows locally rather than using --reverse,
+       which changes the database selection to the oldest matches before LIMIT.
+       User-only filtering keeps agent tool calls from displacing host inputs.
        */
       handleInput(data: string): void {
         const isUp = this.editorKeybindings.matches(data, 'tui.editor.cursorUp')
@@ -447,6 +451,8 @@ export default function shellUi(pi: ExtensionAPI): void {
             'search',
             '--cmd-only',
             '--print0',
+            '--author',
+            '$all-user',
             '--limit',
             '100',
             '--search-mode',
@@ -468,7 +474,7 @@ export default function shellUi(pi: ExtensionAPI): void {
               return;
             }
 
-            const commands = result.stdout.split('\0').filter(command => command.length > 0);
+            const commands = result.stdout.split('\0').filter(command => command.length > 0).toReversed();
             if (commands.length === 0) {
               return;
             }

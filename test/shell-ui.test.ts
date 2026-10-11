@@ -75,7 +75,8 @@ void describe('shell UI', () => {
       async exec(command: string, arguments_: string[]) {
         if (command === 'atuin') {
           atuinCalls.push(arguments_);
-          return {code: 0, stdout: 'git status\0git log --oneline\0'};
+          // Atuin prints the selected newest matches in chronological order.
+          return {code: 0, stdout: 'git log --oneline\0git status\0'};
         }
 
         if (arguments_[0] === 'status') {
@@ -257,8 +258,8 @@ void describe('shell UI', () => {
     });
     t.assert.strictEqual(editor.getText(), '!!git status');
     t.assert.deepStrictEqual(atuinCalls, [
-      ['search', '--cmd-only', '--print0', '--limit', '100', '--search-mode', 'prefix', '--', 'g'],
-      ['search', '--cmd-only', '--print0', '--limit', '100', '--search-mode', 'prefix', '--', 'g'],
+      ['search', '--cmd-only', '--print0', '--author', '$all-user', '--limit', '100', '--search-mode', 'prefix', '--', 'g'],
+      ['search', '--cmd-only', '--print0', '--author', '$all-user', '--limit', '100', '--search-mode', 'prefix', '--', 'g'],
     ]);
     t.assert.deepStrictEqual(notifications, []);
     t.assert.ok(lines.every(line => visibleWidth(line) === 180));
