@@ -43,7 +43,7 @@ Sloppi does not change Pi's project trust behavior.
 - Google Chrome for optional Playwright CLI browser automation
 - macOS: `brew install ripgrep`
 - Linux: install `bubblewrap`, `socat`, `ripgrep`, and `fd`
-- Optional: install [Atuin](https://atuin.sh/) to browse shell history with Up and Down while composing `!` or `!!` host commands
+- Optional: install [Atuin](https://atuin.sh/) to record agent and user shell commands and browse matching history with Up and Down while composing `!` or `!!` host commands
 
 Sandbox currently supports macOS and Linux. Its shell UI uses Nerd Font icons but remains usable without them.
 
@@ -56,6 +56,7 @@ pi install npm:pi-web-access
 ## Extensions
 
 - `ask-mode.ts` — `/ask on|off|toggle|status` controls modes; `/ask <prompt>` toggles modes before submitting the prompt; `/implement` switches to agent mode and starts implementation.
+- `atuin.ts` — records agent Bash tool calls and user-entered `!`/`!!` commands in Atuin history with their final exit status.
 - `capture-request.ts` — `/capture-request` saves the next provider payload and a private, offline HTML context-cost report.
 - `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input; `/commit model` selects its model.
 - `permissions/` — applies literal allow, ask, deny, or stage rules to shell commands; `/permissions` manages project rules.

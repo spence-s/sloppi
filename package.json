@@ -65,6 +65,7 @@
   "pi": {
     "extensions": [
       "./agent/extensions/ask-mode.ts",
+      "./agent/extensions/atuin.ts",
       "./agent/extensions/capture-request.ts",
       "./agent/extensions/commit.ts",
       "./agent/extensions/permissions/index.ts",

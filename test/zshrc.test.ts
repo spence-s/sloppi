@@ -17,6 +17,7 @@ void test('loads zsh aliases before parsing host user commands', async (t: TestC
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-user-shell-test-'));
   const shellPath = join(directory, 'zsh');
   let completedCommand: unknown;
+  let completedResult: unknown;
   let handler: Handler | undefined;
 
   try {
@@ -29,6 +30,8 @@ void test('loads zsh aliases before parsing host user commands', async (t: TestC
         emit(channel: string, data: unknown) {
           if (channel === 'sloppi:user-bash-end') {
             completedCommand = data;
+          } else if (channel === 'sloppi:user-bash-result') {
+            completedResult = data;
           }
         },
       },
@@ -56,6 +59,11 @@ void test('loads zsh aliases before parsing host user commands', async (t: TestC
     t.assert.doesNotMatch(output, /ignored prefix/v);
     await waitForImmediate();
     t.assert.strictEqual(completedCommand, 'glol \'quoted\'');
+    t.assert.deepStrictEqual(completedResult, {
+      command: 'glol \'quoted\'',
+      cwd: process.cwd(),
+      exitCode: 0,
+    });
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
