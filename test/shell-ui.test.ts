@@ -1,3 +1,4 @@
+import process from 'node:process';
 import {describe, test, type TestContext} from 'node:test';
 import {initTheme, type ExtensionContext} from '@earendil-works/pi-coding-agent';
 import {visibleWidth} from '@earendil-works/pi-tui';
@@ -58,11 +59,12 @@ void describe('shell UI', () => {
     let userBashFinished: (() => void) | undefined;
     let gitStatusCalls = 0;
     let contextPercent = 25;
-    const atuinCalls: string[][] = [];
+    const historyCalls: string[][] = [];
     const foregrounds: Array<[string, string]> = [];
     const notifications: string[] = [];
 
     shellUi({
+      getSettings: () => ({shellPath: '/bin/zsh'}),
       events: {
         on(channel: string, handler: () => void) {
           if (channel === 'sloppi:user-bash-end') {
@@ -73,10 +75,12 @@ void describe('shell UI', () => {
         },
       },
       async exec(command: string, arguments_: string[]) {
-        if (command === 'atuin') {
-          atuinCalls.push(arguments_);
-          // Atuin prints the selected newest matches in chronological order.
-          return {code: 0, stdout: 'git log --oneline\0git status\0'};
+        if (command !== 'git') {
+          historyCalls.push(arguments_);
+          // Native history returns complete entries newest-first.
+          return {
+            code: 0, stdout: 'startup output\0git status\0git log --oneline\0echo other\0', stderr: '', killed: false,
+          };
         }
 
         if (arguments_[0] === 'status') {
@@ -238,6 +242,7 @@ void describe('shell UI', () => {
     editor.handleInput('\u{1B}[200~pasted\nlines\u{1B}[201~');
     t.assert.strictEqual(editor.getText(), 'first\npasted\nlines');
 
+    t.mock.property(process, 'env', {...process.env, SHELL: '/bin/zsh'});
     editor.setText('!g');
     editor.handleInput('\u{1B}[A');
     await new Promise<void>(resolve => {
@@ -257,10 +262,8 @@ void describe('shell UI', () => {
       setImmediate(resolve);
     });
     t.assert.strictEqual(editor.getText(), '!!git status');
-    t.assert.deepStrictEqual(atuinCalls, [
-      ['search', '--cmd-only', '--print0', '--author', '$all-user', '--limit', '100', '--search-mode', 'prefix', '--', 'g'],
-      ['search', '--cmd-only', '--print0', '--author', '$all-user', '--limit', '100', '--search-mode', 'prefix', '--', 'g'],
-    ]);
+    t.assert.strictEqual(historyCalls.length, 2);
+    t.assert.ok(historyCalls.every(arguments_ => arguments_[0] === '-f' && arguments_[1] === '-c'));
     t.assert.deepStrictEqual(notifications, []);
     t.assert.ok(lines.every(line => visibleWidth(line) === 180));
     t.assert.match(lines[0] ?? '', /repo.* {2} main !1/v);

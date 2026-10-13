@@ -8,9 +8,12 @@ import {
 
 /**
 Runs user-entered host commands through the user's zsh startup file so aliases
-and shell functions behave as they do in an interactive terminal. Completion is
+and shell functions remain available without enabling interactive terminal UI.
+The shell stays non-interactive because Pi uses pipes, not a terminal; enabling
+interactive mode can trigger prompt plugins' job-control initialization errors.
+Completion is
 published after Pi can record the Bash result. A synchronous operations handoff
-lets optional integrations such as Atuin wrap execution without relying on the
+lets other extensions wrap execution without relying on the
 load order of Pi's short-circuiting user_bash handlers.
 */
 export default function zshrc(pi: ExtensionAPI): void {

@@ -15,6 +15,7 @@ import {
   type TUI,
   visibleWidth,
 } from '@earendil-works/pi-tui';
+import {readZshHistory} from './shell/history.ts';
 
 type GitStatus = {
   ahead: number;
@@ -89,8 +90,8 @@ export function parseGitStatus(output: string): GitStatus {
 
 /**
 Installs Sloppi's shell-inspired editor, footer, and status widgets. The editor
-also routes Up and Down through Atuin while the user is composing a host command,
-so shell history stays separate from Pi's ordinary prompt history.
+also routes Up and Down through native Zsh history while the user is composing
+a host command, so shell history stays separate from Pi's ordinary prompt history.
 */
 export default function shellUi(pi: ExtensionAPI): void {
   let gitStatus: GitStatus | undefined;
@@ -383,7 +384,7 @@ export default function shellUi(pi: ExtensionAPI): void {
 
       private shellHistoryRequest = 0;
 
-      private atuinWarningShown = false;
+      private historyWarningShown = false;
 
       /**
        Retains Pi's editor behavior while keeping access to the live renderer
@@ -397,15 +398,12 @@ export default function shellUi(pi: ExtensionAPI): void {
       }
 
       /**
-       Searches Atuin when Up is pressed in a `!` or `!!` command and then keeps
-       navigation local to the returned snapshot. A request number prevents a
-       slow search from replacing text the user edited while it was running.
-       All other keys remain owned by CustomEditor so Pi shortcuts, completion,
-       paste handling, and ordinary prompt history continue to work unchanged.
-       Atuin limits its default CLI query to the newest matches but prints them
-       oldest-first; reverse those rows locally rather than using --reverse,
-       which changes the database selection to the oldest matches before LIMIT.
-       User-only filtering keeps agent tool calls from displacing host inputs.
+       Reads native Zsh history when Up is pressed in a `!` or `!!` command,
+       then keeps navigation local to that snapshot. Literal prefix filtering
+       preserves the existing shell-search behavior without interpreting input
+       as a shell pattern. Zsh returns complete entries newest-first, including
+       multiline commands. A request number prevents slow reads from replacing
+       edited text; other keys retain Pi's shortcuts, completion, and paste flow.
        */
       handleInput(data: string): void {
         const isUp = this.editorKeybindings.matches(data, 'tui.editor.cursorUp')
@@ -447,34 +445,21 @@ export default function shellUi(pi: ExtensionAPI): void {
           const prefix: '!' | '!!' = currentText.startsWith('!!') ? '!!' : '!';
           const query = match.groups.query ?? '';
           const request = ++this.shellHistoryRequest;
-          const arguments_ = [
-            'search',
-            '--cmd-only',
-            '--print0',
-            '--author',
-            '$all-user',
-            '--limit',
-            '100',
-            '--search-mode',
-            'prefix',
-            ...query.length > 0 ? ['--', query] : [],
-          ];
-
-          void pi.exec('atuin', arguments_, {cwd: ctx.cwd, timeout: 2000}).then(result => {
+          void readZshHistory(pi, ctx.cwd).then(result => {
             if (request !== this.shellHistoryRequest || this.getText() !== currentText) {
               return;
             }
 
-            if (result.code !== 0) {
-              if (result.code !== 1 && !this.atuinWarningShown) {
-                this.atuinWarningShown = true;
-                ctx.ui.notify('Atuin history is unavailable.', 'warning');
+            if (result.code !== 0 || result.killed) {
+              if (!this.historyWarningShown) {
+                this.historyWarningShown = true;
+                ctx.ui.notify(`Zsh history is unavailable: ${result.stderr.trim().length > 0 ? result.stderr.trim() : `exit ${result.code}`}`, 'warning');
               }
 
               return;
             }
 
-            const commands = result.stdout.split('\0').filter(command => command.length > 0).toReversed();
+            const commands = result.stdout.split('\0').filter(command => command.length > 0 && command.startsWith(query)).slice(0, 100);
             if (commands.length === 0) {
               return;
             }
@@ -487,13 +472,13 @@ export default function shellUi(pi: ExtensionAPI): void {
             };
             this.setText(`${prefix}${commands[0] ?? ''}`);
             this.renderer.requestRender();
-          }).catch(() => {
-            if (request !== this.shellHistoryRequest || this.atuinWarningShown) {
+          }).catch((error: unknown) => {
+            if (request !== this.shellHistoryRequest || this.historyWarningShown) {
               return;
             }
 
-            this.atuinWarningShown = true;
-            ctx.ui.notify('Atuin history is unavailable.', 'warning');
+            this.historyWarningShown = true;
+            ctx.ui.notify(`Zsh history is unavailable: ${error instanceof Error ? error.message : String(error)}`, 'warning');
           });
           return;
         }
