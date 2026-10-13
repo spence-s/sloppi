@@ -24,13 +24,15 @@ import shellUi from '../agent/extensions/shell-ui.ts';
 import zshrc from '../agent/extensions/zshrc.ts';
 
 /**
-Exercises command execution, native history decoding, and editor recall across real Zsh processes
-with a private history file. History configuration is passed through environment
-variables because the sandbox forbids writing shell startup files, including test
-fixtures. The original wrapper test separately protects non-interactive alias-aware execution.
-Nothing in this test reads or changes the user's actual history or startup file.
+Exercises command recording, native history decoding, and editor recall across
+real Zsh processes with a private history file. Failed, exiting, multiline, and
+timed-out commands must be saved before execution without displacing older entries.
+History configuration is passed through environment variables because the sandbox
+forbids writing shell startup fixtures. The original wrapper test separately
+protects non-interactive alias-aware execution. Nothing in this test reads or
+changes the user's actual history or startup file.
 */
-void test('configured Zsh executes commands and the shell editor reads existing native history', async (t: TestContext) => {
+void test('configured Zsh records user commands and the shell editor recalls native history', async (t: TestContext) => {
   const resolved = spawnSync('which', ['zsh'], {encoding: 'utf8'});
   if (resolved.status !== 0) {
     t.skip('Zsh is not installed.');
@@ -158,7 +160,13 @@ void test('configured Zsh executes commands and the shell editor reads existing 
     const beforeRead = await readFile(historyFile, 'utf8');
     const recorded = await readZshHistory(api, directory);
     t.assert.strictEqual(recorded.code, 0, recorded.stderr);
-    t.assert.deepStrictEqual(recorded.stdout.split('\0').filter(Boolean), ['printf first\nsecond', 'printf older', 'echo [literal]', 'echo external']);
+    t.assert.deepStrictEqual(recorded.stdout.split('\0').filter(Boolean), [
+      ...commands.toReversed(),
+      'printf first\nsecond',
+      'printf older',
+      'echo [literal]',
+      'echo external',
+    ]);
     t.assert.strictEqual(await readFile(historyFile, 'utf8'), beforeRead);
 
     const cancelledCommand = 'sleep 10';
@@ -170,6 +178,12 @@ void test('configured Zsh executes commands and the shell editor reads existing 
     }
 
     await t.assert.rejects(cancelled.operations.exec(cancelledCommand, directory, {onData: () => undefined, timeout: 0.02}), /timeout/v);
+    const afterTimeout = await readZshHistory(api, directory);
+    t.assert.strictEqual(afterTimeout.code, 0, afterTimeout.stderr);
+    t.assert.deepStrictEqual(afterTimeout.stdout.split('\0').filter(Boolean), [
+      cancelledCommand,
+      ...recorded.stdout.split('\0').filter(Boolean),
+    ]);
     initTheme('dark', false);
     await sessionStart({}, ctx);
     if (editorFactory === undefined) {
@@ -188,9 +202,9 @@ void test('configured Zsh executes commands and the shell editor reads existing 
     editor.handleInput('\u{1B}[A');
     await search.promise;
     await waitForImmediate();
-    t.assert.strictEqual(editor.getText(), '!!printf first\nsecond');
+    t.assert.strictEqual(editor.getText(), `!!${commands.at(-1) ?? ''}`);
     editor.handleInput('\u{1B}[A');
-    t.assert.strictEqual(editor.getText(), '!!printf older');
+    t.assert.strictEqual(editor.getText(), `!!${commands[0] ?? ''}`);
     editor.handleInput('\u{1B}[B');
     editor.handleInput('\u{1B}[B');
     t.assert.strictEqual(editor.getText(), '!!printf');
@@ -220,7 +234,7 @@ eval -- "$1"
     const aliasHistory = await readZshHistory(api, directory);
     t.assert.strictEqual(aliasHistory.code, 0);
     t.assert.match(aliasHistory.stderr, /harmless startup diagnostic/v);
-    t.assert.strictEqual(aliasHistory.stdout.split('\0', 1)[0], 'printf first\nsecond');
+    t.assert.deepStrictEqual(aliasHistory.stdout.split('\0').filter(Boolean), afterTimeout.stdout.split('\0').filter(Boolean));
   } finally {
     await rm(directory, {recursive: true, force: true});
   }
