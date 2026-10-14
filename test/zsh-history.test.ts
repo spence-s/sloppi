@@ -177,7 +177,9 @@ void test('configured Zsh records user commands and the shell editor recalls nat
       throw new Error('User shell operations were not installed');
     }
 
-    await t.assert.rejects(cancelled.operations.exec(cancelledCommand, directory, {onData: () => undefined, timeout: 0.02}), /timeout/v);
+    // Allow shell startup and history recording to finish on slower CI runners
+    // before cancellation; sleep 10 still outlasts this one-second timeout.
+    await t.assert.rejects(cancelled.operations.exec(cancelledCommand, directory, {onData: () => undefined, timeout: 1}), /timeout/v);
     const afterTimeout = await readZshHistory(api, directory);
     t.assert.strictEqual(afterTimeout.code, 0, afterTimeout.stderr);
     t.assert.deepStrictEqual(afterTimeout.stdout.split('\0').filter(Boolean), [
