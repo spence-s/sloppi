@@ -498,6 +498,8 @@ void test('configures the sandboxed Playwright CLI for host Chrome', async (t: T
 
 /**
  Verifies the native Bash tool enables Playwright before invoking its CLI.
+ The generated shell command must also isolate daemon state from the host HOME,
+ which may be exposed by user configuration but is not writable in the sandbox.
  */
 void test('prepares Playwright on its first sandboxed CLI command', async (t: TestContext) => {
   const handlers = new Map<string, (...arguments_: unknown[]) => unknown>();
@@ -521,7 +523,7 @@ void test('prepares Playwright on its first sandboxed CLI command', async (t: Te
     throw new Error('tool_call handler was not registered');
   }
 
-  const input = {command: ['test', '-f', '"$PLAYWRIGHT_MCP_CONFIG"', '&&', 'printf', 'playwright-cli'].join(' ')};
+  const input = {command: ['test', '-f', '"$PLAYWRIGHT_MCP_CONFIG"', '&&', 'test', '"$PWTEST_DAEMON_SESSION_DIR"', '=', '"$TMPDIR/playwright-daemon"', '&&', 'printf', 'playwright-cli'].join(' ')};
   await handler({toolCallId: 'playwright', toolName: 'bash', input});
   t.assert.strictEqual(starts, 1);
   const command: unknown = Reflect.get(input, 'command');
@@ -531,7 +533,7 @@ void test('prepares Playwright on its first sandboxed CLI command', async (t: Te
 
   t.assert.match(command, /PLAYWRIGHT_MCP_CONFIG/v);
   t.assert.match(command, /ws:\/\/127\.0\.0\.1:4321\/session/v);
-  t.assert.match(command, /test -f "\$PLAYWRIGHT_MCP_CONFIG" && printf playwright-cli$/v);
+  t.assert.match(command, /test -f "\$PLAYWRIGHT_MCP_CONFIG" && test "\$PWTEST_DAEMON_SESSION_DIR" = "\$TMPDIR\/playwright-daemon" && printf playwright-cli$/v);
 
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-playwright-command-test-'));
   try {

@@ -21,6 +21,10 @@ export class PlaywrightBridge {
 
   /**
    Registers all user, agent, and session entry points for browser automation.
+   CLI configuration and daemon state stay in the sandbox's private temporary
+   directory, even when the user exposes their real HOME to sandboxed commands.
+   This avoids granting write access to host caches or sharing browser sessions
+   with CLI invocations outside this Pi session.
    */
   register(pi: ExtensionAPI): void {
     pi.registerCommand('playwright', {
@@ -83,6 +87,9 @@ export class PlaywrightBridge {
       event.input.command = [
         String.raw`printf '%s\n' ${cliConfig} > "$TMPDIR/playwright-cli.json"`,
         'export PLAYWRIGHT_MCP_CONFIG="$TMPDIR/playwright-cli.json"',
+        // The CLI otherwise writes to HOME/Library/Caches on macOS, even with TMPDIR set.
+        // shortcut: Playwright exposes this override under a test-prefixed name; use a public daemon-directory option if one becomes available.
+        'export PWTEST_DAEMON_SESSION_DIR="$TMPDIR/playwright-daemon"',
         event.input.command,
       ].join(' && ');
     });
