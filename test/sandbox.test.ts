@@ -598,9 +598,10 @@ void test('isolates reads and temporary Unix sockets', async (t: TestContext) =>
 
     const host = await execa(process.execPath, [
       '-e',
-      'process.stdout.write((process.env.TMPDIR ?? "") + String.fromCharCode(10) + (process.env.CLAUDE_CODE_TMPDIR ?? ""))',
+      'process.stdout.write(JSON.stringify([process.env.TMPDIR, process.env.CLAUDE_CODE_TMPDIR]))',
     ]);
-    t.assert.strictEqual(host.stdout, `${previousTmpdir ?? ''}\n${previousClaudeCodeTmpdir ?? ''}`);
+    // JSON preserves an absent final value that Execa would otherwise conflate with a trimmed newline.
+    t.assert.strictEqual(host.stdout, JSON.stringify([previousTmpdir, previousClaudeCodeTmpdir]));
     let sandboxEnvironment = `1\n${scratchPath}\n${scratchPath}`;
     if (process.env.USER !== 'sandbox') {
       const result = await sandbox.run`printf '%s\n%s\n%s' "$NODE_USE_ENV_PROXY" "$TMPDIR" "$CLAUDE_CODE_TMPDIR"`;
