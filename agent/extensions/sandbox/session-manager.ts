@@ -58,21 +58,7 @@ type CommandResult = {
 };
 
 type SandboxSession = {
-  previousClaudeCodeTmpdir: string | undefined;
   scratchPath: string;
-};
-
-/**
- Restores SRT's command-wrapper override after a sandbox stops or fails.
- TMPDIR is restored separately during startup so host children do not inherit
- the private directory for the lifetime of the Pi session.
- */
-const restoreEnvironment = (session: SandboxSession): void => {
-  if (session.previousClaudeCodeTmpdir === undefined) {
-    delete process.env.CLAUDE_CODE_TMPDIR;
-  } else {
-    process.env.CLAUDE_CODE_TMPDIR = session.previousClaudeCodeTmpdir;
-  }
 };
 
 /**
@@ -126,10 +112,10 @@ export class SandboxSessionManager {
 
   /**
   Creates a private sandbox session after loading its configuration. SRT reads
-  process-level temporary directory settings rather than accepting them as
-  initialization options. Keep TMPDIR redirected only until its proxy sockets
-  exist, then restore it before host commands and other extensions can use it.
-  Sandboxed commands receive their own explicit TMPDIR in run().
+  TMPDIR rather than accepting a path for its initialization sockets, so keep
+  that variable redirected only until the sockets exist. Sandboxed commands
+  receive both temporary-directory variables inside their payload in run(),
+  avoiding process-level state that could leak into host commands.
   */
   async startSession() {
     if (this.session !== undefined) {
@@ -270,25 +256,19 @@ export class SandboxSessionManager {
     }
 
     /*
-     * With filesystem isolation enabled, SRT ignores TMPDIR when wrapping a
-     * command. It reads CLAUDE_CODE_TMPDIR from this parent process and otherwise
-     * falls back to the shared /tmp/claude path. SRT's own proxy separately uses
-     * os.tmpdir() during initialization, so TMPDIR must temporarily match too.
-     * Only CLAUDE_CODE_TMPDIR must remain set for subsequent command wrapping.
-     * Keeping TMPDIR set for the session leaks the sandbox path to host children
-     * (including user shells), and those children can propagate it further.
-     * Child sandboxes get the private directory explicitly, keeping nested SRT
-     * sockets within the narrow Unix socket allowance without changing host TMPDIR.
+     * SRT's proxy creates Unix sockets through os.tmpdir() during initialization.
+     * Redirect TMPDIR only for that operation so the sockets land in the private
+     * writable directory covered by allowUnixSockets. SRT otherwise reads
+     * CLAUDE_CODE_TMPDIR while wrapping each command, but keeping either variable
+     * changed for the session leaks sandbox state to host children. run() instead
+     * exports both variables after entering the sandbox and before the payload.
      */
-    const previousClaudeCodeTmpdir = process.env.CLAUDE_CODE_TMPDIR;
     const previousTmpdir = process.env.TMPDIR;
-    process.env.CLAUDE_CODE_TMPDIR = scratchPath;
     process.env.TMPDIR = scratchPath;
     try {
       await SandboxManager.initialize(parsedRuntimeConfig);
-      this.session = {previousClaudeCodeTmpdir, scratchPath};
+      this.session = {scratchPath};
     } catch (error) {
-      restoreEnvironment({previousClaudeCodeTmpdir, scratchPath});
       await rm(scratchPath, {force: true, recursive: true});
       throw error;
     } finally {
@@ -325,16 +305,33 @@ export class SandboxSessionManager {
       const commandId = randomUUID();
       const pipeId = randomUUID();
       try {
-        if (this.isEnabled) {
-          executable = await SandboxManager.wrapWithSandbox(command, undefined, undefined, undefined, {commandId});
+        if (currentSession !== undefined && this.isEnabled) {
+          const temporaryEnvironment = `export CLAUDE_CODE_TMPDIR='${currentSession.scratchPath.replaceAll('\'', '\'"\'"\'')}' TMPDIR='${currentSession.scratchPath.replaceAll('\'', '\'"\'"\'')}'`;
+          executable = await SandboxManager.wrapWithSandbox(
+            `${temporaryEnvironment}\n${command}`,
+            undefined,
+            undefined,
+            undefined,
+            {commandId, commandText: command},
+          );
           wrappedCommandCount++;
         }
 
         const pipeCommand = options.pipe?.map(argument => `'${String(argument).replaceAll('\'', '\'"\'"\'')}'`).join(' ');
         if (pipeCommand !== undefined) {
-          pipedExecutable = this.isEnabled
-            ? await SandboxManager.wrapWithSandbox(pipeCommand, undefined, undefined, undefined, {commandId: pipeId})
-            : pipeCommand;
+          if (currentSession !== undefined && this.isEnabled) {
+            const temporaryEnvironment = `export CLAUDE_CODE_TMPDIR='${currentSession.scratchPath.replaceAll('\'', '\'"\'"\'')}' TMPDIR='${currentSession.scratchPath.replaceAll('\'', '\'"\'"\'')}'`;
+            pipedExecutable = await SandboxManager.wrapWithSandbox(
+              `${temporaryEnvironment}\n${pipeCommand}`,
+              undefined,
+              undefined,
+              undefined,
+              {commandId: pipeId, commandText: pipeCommand},
+            );
+          } else {
+            pipedExecutable = pipeCommand;
+          }
+
           if (this.isEnabled) {
             wrappedCommandCount++;
           }
@@ -552,7 +549,6 @@ export class SandboxSessionManager {
     try {
       await SandboxManager.reset();
     } finally {
-      restoreEnvironment(session);
       this.networkDenials.clear();
       this.session = undefined;
       await rm(session.scratchPath, {force: true, recursive: true});

@@ -99,13 +99,12 @@ void test('runs commands directly on the host while sandboxing is off', async (t
 void test('balances sandbox wrapper cleanup', async (t: TestContext) => {
   const sandbox = new SandboxSessionManager(process.cwd(), new ConfigStore(process.cwd()));
   sandbox.session = {
-    previousClaudeCodeTmpdir: undefined,
     scratchPath: process.cwd(),
   };
   let cleanupCount = 0;
   let shouldFailPipeWrap = false;
   t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => {
-    if (shouldFailPipeWrap && command === '\'cat\'') {
+    if (shouldFailPipeWrap && command.endsWith('\n\'cat\'')) {
       throw new Error('pipe wrap failed');
     }
 
@@ -150,7 +149,6 @@ void test('reports attributed network denials without mislabeling application 40
   const cwd = process.cwd();
   const sandbox = new SandboxSessionManager(cwd, new ConfigStore(cwd));
   sandbox.session = {
-    previousClaudeCodeTmpdir: undefined,
     scratchPath: cwd,
   };
   t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => command);
@@ -198,7 +196,6 @@ void test('streams, times out, and cancels sandboxed commands', async (t: TestCo
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-command-test-'));
   const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory));
   sandbox.session = {
-    previousClaudeCodeTmpdir: undefined,
     scratchPath: directory,
   };
   t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => command);
@@ -275,7 +272,6 @@ void test('lists 500 entries with one sandbox wrapper', async (t: TestContext) =
   const directory = await mkdtemp(join(process.cwd(), '.sloppi-ls-test-'));
   const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory));
   sandbox.session = {
-    previousClaudeCodeTmpdir: undefined,
     scratchPath: directory,
   };
   let wrapperCount = 0;
@@ -332,7 +328,6 @@ void test('matches brace globs with sandboxed find', async (t: TestContext) => {
   const directory = await mkdtemp(join(process.cwd(), '.sloppi-find-test-'));
   const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory));
   sandbox.session = {
-    previousClaudeCodeTmpdir: undefined,
     scratchPath: directory,
   };
   const commands: string[] = [];
@@ -358,7 +353,7 @@ void test('matches brace globs with sandboxed find', async (t: TestContext) => {
 
     const nested = await operations.glob('src/**/*.ts', directory, {...options, limit: 1});
     t.assert.deepStrictEqual(nested, ['src/app.ts']);
-    t.assert.ok(commands.includes('\'head\' \'-n\' \'1\''));
+    t.assert.ok(commands.some(command => command.endsWith('\n\'head\' \'-n\' \'1\'')));
 
     const emptyDirectory = join(directory, 'empty');
     await mkdir(emptyDirectory);
@@ -376,7 +371,6 @@ void test('bounds and cancels sandboxed grep', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-grep-test-'));
   const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory));
   sandbox.session = {
-    previousClaudeCodeTmpdir: undefined,
     scratchPath: directory,
   };
   let shouldBlockRipgrep = false;
@@ -384,7 +378,7 @@ void test('bounds and cancels sandboxed grep', async (t: TestContext) => {
   const {promise: ripgrepStarted, resolve: markRipgrepStarted} = Promise.withResolvers<void>();
   t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => {
     commands.push(command);
-    if (shouldBlockRipgrep && command.startsWith('\'rg\' ')) {
+    if (shouldBlockRipgrep && command.includes('\n\'rg\' ')) {
       markRipgrepStarted();
       return 'sleep 10';
     }
@@ -406,7 +400,7 @@ void test('bounds and cancels sandboxed grep', async (t: TestContext) => {
     }, undefined);
     const limitedText = limited.content.find(entry => entry.type === 'text')?.text ?? '';
     t.assert.strictEqual(limitedText.matchAll(/:\d+:/gv).toArray().length, 2);
-    t.assert.ok(commands.includes('\'head\' \'-n\' \'2\''));
+    t.assert.ok(commands.some(command => command.endsWith('\n\'head\' \'-n\' \'2\'')));
     t.assert.match(limitedText, /\[truncated\]/v);
     t.assert.doesNotMatch(limitedText, new RegExp('x'.repeat(600), 'v'));
 
@@ -599,20 +593,21 @@ void test('isolates reads and temporary Unix sockets', async (t: TestContext) =>
       typeof entry === 'string' ? entry : entry.path,
     )));
     t.assert.ok(SandboxManager.getConfig()?.network?.allowUnixSockets?.includes(scratchPath));
-    t.assert.strictEqual(process.env.CLAUDE_CODE_TMPDIR, scratchPath);
+    t.assert.strictEqual(process.env.CLAUDE_CODE_TMPDIR, previousClaudeCodeTmpdir);
     t.assert.strictEqual(process.env.TMPDIR, previousTmpdir);
 
-    const wrapped = await SandboxManager.wrapWithSandbox('true');
-    t.assert.match(wrapped, new RegExp(`TMPDIR=${scratchPath}`, 'v'));
-    const host = await execa(process.execPath, ['-e', 'process.stdout.write(process.env.TMPDIR ?? "")']);
-    t.assert.strictEqual(host.stdout, previousTmpdir ?? '');
-    let sandboxEnvironment = `1\n${scratchPath}`;
+    const host = await execa(process.execPath, [
+      '-e',
+      'process.stdout.write((process.env.TMPDIR ?? "") + String.fromCharCode(10) + (process.env.CLAUDE_CODE_TMPDIR ?? ""))',
+    ]);
+    t.assert.strictEqual(host.stdout, `${previousTmpdir ?? ''}\n${previousClaudeCodeTmpdir ?? ''}`);
+    let sandboxEnvironment = `1\n${scratchPath}\n${scratchPath}`;
     if (process.env.USER !== 'sandbox') {
-      const result = await sandbox.run`printf '%s\n%s' "$NODE_USE_ENV_PROXY" "$TMPDIR"`;
+      const result = await sandbox.run`printf '%s\n%s\n%s' "$NODE_USE_ENV_PROXY" "$TMPDIR" "$CLAUDE_CODE_TMPDIR"`;
       sandboxEnvironment = result.stdout;
     }
 
-    t.assert.strictEqual(sandboxEnvironment, `1\n${scratchPath}`);
+    t.assert.strictEqual(sandboxEnvironment, `1\n${scratchPath}\n${scratchPath}`);
   } finally {
     await sandbox.stopSession();
   }
