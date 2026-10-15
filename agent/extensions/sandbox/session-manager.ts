@@ -59,24 +59,19 @@ type CommandResult = {
 
 type SandboxSession = {
   previousClaudeCodeTmpdir: string | undefined;
-  previousTmpdir: string | undefined;
   scratchPath: string;
 };
 
 /**
- Restores process-level temporary directory overrides after a sandbox stops or fails.
+ Restores SRT's command-wrapper override after a sandbox stops or fails.
+ TMPDIR is restored separately during startup so host children do not inherit
+ the private directory for the lifetime of the Pi session.
  */
 const restoreEnvironment = (session: SandboxSession): void => {
   if (session.previousClaudeCodeTmpdir === undefined) {
     delete process.env.CLAUDE_CODE_TMPDIR;
   } else {
     process.env.CLAUDE_CODE_TMPDIR = session.previousClaudeCodeTmpdir;
-  }
-
-  if (session.previousTmpdir === undefined) {
-    delete process.env.TMPDIR;
-  } else {
-    process.env.TMPDIR = session.previousTmpdir;
   }
 };
 
@@ -130,7 +125,11 @@ export class SandboxSessionManager {
   }
 
   /**
-  Creates a private sandbox session after loading its configuration.
+  Creates a private sandbox session after loading its configuration. SRT reads
+  process-level temporary directory settings rather than accepting them as
+  initialization options. Keep TMPDIR redirected only until its proxy sockets
+  exist, then restore it before host commands and other extensions can use it.
+  Sandboxed commands receive their own explicit TMPDIR in run().
   */
   async startSession() {
     if (this.session !== undefined) {
@@ -274,9 +273,12 @@ export class SandboxSessionManager {
      * With filesystem isolation enabled, SRT ignores TMPDIR when wrapping a
      * command. It reads CLAUDE_CODE_TMPDIR from this parent process and otherwise
      * falls back to the shared /tmp/claude path. SRT's own proxy separately uses
-     * os.tmpdir(), so TMPDIR must match too. Keep both overrides for the session
-     * so normal tools and nested SRT tests use our private writable directory,
-     * where Unix sockets are narrowly allowed instead of exposing host sockets.
+     * os.tmpdir() during initialization, so TMPDIR must temporarily match too.
+     * Only CLAUDE_CODE_TMPDIR must remain set for subsequent command wrapping.
+     * Keeping TMPDIR set for the session leaks the sandbox path to host children
+     * (including user shells), and those children can propagate it further.
+     * Child sandboxes get the private directory explicitly, keeping nested SRT
+     * sockets within the narrow Unix socket allowance without changing host TMPDIR.
      */
     const previousClaudeCodeTmpdir = process.env.CLAUDE_CODE_TMPDIR;
     const previousTmpdir = process.env.TMPDIR;
@@ -284,11 +286,17 @@ export class SandboxSessionManager {
     process.env.TMPDIR = scratchPath;
     try {
       await SandboxManager.initialize(parsedRuntimeConfig);
-      this.session = {previousClaudeCodeTmpdir, previousTmpdir, scratchPath};
+      this.session = {previousClaudeCodeTmpdir, scratchPath};
     } catch (error) {
-      restoreEnvironment({previousClaudeCodeTmpdir, previousTmpdir, scratchPath});
+      restoreEnvironment({previousClaudeCodeTmpdir, scratchPath});
       await rm(scratchPath, {force: true, recursive: true});
       throw error;
+    } finally {
+      if (previousTmpdir === undefined) {
+        delete process.env.TMPDIR;
+      } else {
+        process.env.TMPDIR = previousTmpdir;
+      }
     }
   }
 

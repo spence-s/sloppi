@@ -100,7 +100,6 @@ void test('balances sandbox wrapper cleanup', async (t: TestContext) => {
   const sandbox = new SandboxSessionManager(process.cwd(), new ConfigStore(process.cwd()));
   sandbox.session = {
     previousClaudeCodeTmpdir: undefined,
-    previousTmpdir: undefined,
     scratchPath: process.cwd(),
   };
   let cleanupCount = 0;
@@ -152,7 +151,6 @@ void test('reports attributed network denials without mislabeling application 40
   const sandbox = new SandboxSessionManager(cwd, new ConfigStore(cwd));
   sandbox.session = {
     previousClaudeCodeTmpdir: undefined,
-    previousTmpdir: undefined,
     scratchPath: cwd,
   };
   t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => command);
@@ -201,7 +199,6 @@ void test('streams, times out, and cancels sandboxed commands', async (t: TestCo
   const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory));
   sandbox.session = {
     previousClaudeCodeTmpdir: undefined,
-    previousTmpdir: undefined,
     scratchPath: directory,
   };
   t.mock.method(SandboxManager, 'wrapWithSandbox', async (command: string) => command);
@@ -279,7 +276,6 @@ void test('lists 500 entries with one sandbox wrapper', async (t: TestContext) =
   const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory));
   sandbox.session = {
     previousClaudeCodeTmpdir: undefined,
-    previousTmpdir: undefined,
     scratchPath: directory,
   };
   let wrapperCount = 0;
@@ -337,7 +333,6 @@ void test('matches brace globs with sandboxed find', async (t: TestContext) => {
   const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory));
   sandbox.session = {
     previousClaudeCodeTmpdir: undefined,
-    previousTmpdir: undefined,
     scratchPath: directory,
   };
   const commands: string[] = [];
@@ -382,7 +377,6 @@ void test('bounds and cancels sandboxed grep', async (t: TestContext) => {
   const sandbox = new SandboxSessionManager(directory, new ConfigStore(directory));
   sandbox.session = {
     previousClaudeCodeTmpdir: undefined,
-    previousTmpdir: undefined,
     scratchPath: directory,
   };
   let shouldBlockRipgrep = false;
@@ -559,7 +553,8 @@ void test('prepares Playwright on its first sandboxed CLI command', async (t: Te
 });
 
 /**
- Verifies failed startup removes its private scratch directory.
+ Verifies failed configuration validation removes its private scratch directory
+ without changing the host temporary directory.
  */
 void test('cleans up after sandbox configuration errors', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-startup-error-test-'));
@@ -572,11 +567,18 @@ void test('cleans up after sandbox configuration errors', async (t: TestContext)
   try {
     await t.assert.rejects(sandbox.startSession(), /Invalid domain pattern/v);
     t.assert.deepStrictEqual(await readdir(directory), []);
+    t.assert.strictEqual(process.env.TMPDIR, directory);
   } finally {
     await rm(directory, {force: true, recursive: true});
   }
 });
 
+/**
+ Verifies private filesystem and Unix socket access without leaking TMPDIR into
+ host children. The host child inheritance check always runs, but executing a
+ second macOS sandbox profile is unavailable inside the tool sandbox, so only
+ the sandboxed child-environment assertion requires running this suite on the host.
+ */
 void test('isolates reads and temporary Unix sockets', async (t: TestContext) => {
   const directory = realpathSync(process.cwd());
   const configStore = new ConfigStore(directory);
@@ -598,17 +600,19 @@ void test('isolates reads and temporary Unix sockets', async (t: TestContext) =>
     )));
     t.assert.ok(SandboxManager.getConfig()?.network?.allowUnixSockets?.includes(scratchPath));
     t.assert.strictEqual(process.env.CLAUDE_CODE_TMPDIR, scratchPath);
-    t.assert.strictEqual(process.env.TMPDIR, scratchPath);
+    t.assert.strictEqual(process.env.TMPDIR, previousTmpdir);
 
     const wrapped = await SandboxManager.wrapWithSandbox('true');
     t.assert.match(wrapped, new RegExp(`TMPDIR=${scratchPath}`, 'v'));
-    let nodeProxy = '1';
+    const host = await execa(process.execPath, ['-e', 'process.stdout.write(process.env.TMPDIR ?? "")']);
+    t.assert.strictEqual(host.stdout, previousTmpdir ?? '');
+    let sandboxEnvironment = `1\n${scratchPath}`;
     if (process.env.USER !== 'sandbox') {
-      const result = await sandbox.run`printf %s "$NODE_USE_ENV_PROXY"`;
-      nodeProxy = result.stdout;
+      const result = await sandbox.run`printf '%s\n%s' "$NODE_USE_ENV_PROXY" "$TMPDIR"`;
+      sandboxEnvironment = result.stdout;
     }
 
-    t.assert.strictEqual(nodeProxy, '1');
+    t.assert.strictEqual(sandboxEnvironment, `1\n${scratchPath}`);
   } finally {
     await sandbox.stopSession();
   }
