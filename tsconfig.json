@@ -43,5 +43,5 @@
     /** Show the entire type in intellisense if possible */
     "noErrorTruncation": true
   },
-  "exclude": ["node_modules", "dist"]
+  "exclude": ["node_modules", "dist", "agent/git", "agent/npm"]
 }
