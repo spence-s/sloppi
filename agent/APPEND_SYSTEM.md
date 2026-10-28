@@ -22,8 +22,6 @@ Inline implementation details at their point of use, even when that duplicates a
 
 ### Comments and JSDoc
 
-Always write substantive, multiline JSDoc comments above every function you add or modify. Explain why the function exists, how it fits into the surrounding flow, and any important assumptions, tradeoffs, side effects, or non-obvious behavior. Prefer complete sentences and enough context that a future reader can understand the intent without reconstructing it from the implementation or external discussion.
+Always write brief multiline JSDoc comments above every function you add or modify. 
 
-Add inline comments where they preserve reasoning that the code alone cannot communicate, especially around decisions, constraints, edge cases, and deliberate simplifications. Do not merely narrate obvious syntax, but err toward detailed explanation when context would otherwise be lost.
-
-Comment verbosity is explicitly exempt from all brevity, minimalism, deletion, density, shortest-code, and shortest-diff instructions, including those supplied by Ponytail or other skills. Apply those instructions to executable code and abstractions, not to comments or JSDoc. Never shorten, remove, or omit useful comments merely to make code, a diff, or a response briefer. If an instruction conflicts with this section, preserve the verbose comments while keeping the implementation itself minimal.
+Explain the _why_ of the function - not the _what_. Not intended to be a full documentation of the function, but rather to state or explain non-obvious decisions or behavior.
