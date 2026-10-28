@@ -1,0 +1,51 @@
+{
+  "name": "@sloppi/sandbox",
+  "version": "0.1.0",
+  "description": "Sandboxed Pi tools backed by Anthropic Sandbox Runtime.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/spence-s/sloppi.git",
+    "directory": "packages/sandbox"
+  },
+  "author": "Spencer Snyder <sasnyde2@gmail.com> (https://spencersnyder.io)",
+  "type": "module",
+  "sideEffects": false,
+  "engines": {
+    "node": "^22.21.0 || >=24.5.0"
+  },
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "test:coverage": "node --test --experimental-test-coverage test/*.test.ts"
+  },
+  "files": [
+    "src"
+  ],
+  "keywords": [
+    "pi-package",
+    "pi",
+    "sandbox"
+  ],
+  "dependencies": {
+    "@anthropic-ai/sandbox-runtime": "^0.0.81",
+    "execa": "^10.2.1",
+    "object-deep-merge": "^2.0.1",
+    "playwright": "1.64.0-alpha-1790635538000",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^1.4.0",
+    "@earendil-works/pi-tui": "^1.4.0",
+    "typebox": "^1.4.3"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "@earendil-works/pi-tui": "*",
+    "typebox": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./src/index.ts"
+    ]
+  }
+}

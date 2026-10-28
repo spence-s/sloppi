@@ -17,9 +17,9 @@
     "check": "tsc -p tsconfig.json",
     "lint": "xo",
     "release": "np",
-    "test": "node --test test/**/*",
-    "test:coverage": "node --test --experimental-test-coverage test/**/*",
-    "test:watch": "node --test --watch test/**/*",
+    "test": "node --test test/**/* && npm run test --workspaces --if-present",
+    "test:coverage": "node --test --experimental-test-coverage test/**/* && npm run test:coverage --workspaces --if-present",
+    "test:watch": "node --test --watch test/**/* packages/*/test/*.test.ts",
     "update": "ncu -i && npm run update:playwright",
     "update:playwright": "npm install --save-exact @playwright/cli@latest playwright@$(npm view @playwright/cli@latest dependencies.playwright)"
   },
@@ -28,16 +28,17 @@
     "agent/skills",
     "agent/themes"
   ],
+  "workspaces": [
+    "packages/*"
+  ],
   "keywords": [
     "pi-package",
     "pi",
     "sandbox"
   ],
   "dependencies": {
-    "@anthropic-ai/sandbox-runtime": "^0.0.81",
     "@playwright/cli": "0.1.22",
-    "execa": "^10.2.1",
-    "object-deep-merge": "^2.0.1",
+    "@sloppi/sandbox": "0.1.0",
     "playwright": "1.64.0-alpha-1790635538000",
     "typebox": "^1.4.3",
     "unbash": "^5.1.0",
@@ -49,6 +50,7 @@
     "@earendil-works/pi-coding-agent": "^1.4.0",
     "@earendil-works/pi-tui": "^1.4.0",
     "@types/node": "^26.6.5",
+    "execa": "^10.2.1",
     "husky": "^9.1.7",
     "lint-staged": "^17.6.0",
     "np": "^12.1.1",
@@ -61,6 +63,9 @@
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*"
   },
+  "bundledDependencies": [
+    "@sloppi/sandbox"
+  ],
   "pi": {
     "extensions": [
       "./agent/extensions/ask-mode.ts",
@@ -68,7 +73,7 @@
       "./agent/extensions/commit.ts",
       "./agent/extensions/permissions/index.ts",
       "./agent/extensions/rendered-fetch.ts",
-      "./agent/extensions/sandbox/index.ts",
+      "./node_modules/@sloppi/sandbox/src/index.ts",
       "./agent/extensions/startup-banner.ts",
       "./agent/extensions/usage.ts",
       "./agent/extensions/shell-ui.ts",

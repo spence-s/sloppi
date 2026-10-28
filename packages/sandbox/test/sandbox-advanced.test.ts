@@ -7,8 +7,8 @@ import {
   type ExtensionAPI,
   type ExtensionCommandContext,
 } from '@earendil-works/pi-coding-agent';
-import {SandboxAdvancedCommand} from '../agent/extensions/sandbox/command/advanced.ts';
-import {ConfigStore} from '../agent/extensions/sandbox/config.ts';
+import {SandboxAdvancedCommand} from '../src/command/advanced.ts';
+import {ConfigStore} from '../src/config.ts';
 
 void test('lets projects override or inherit global research settings', async (t: TestContext) => {
   const directory = await mkdtemp(join(tmpdir(), 'sloppi-research-settings-test-'));

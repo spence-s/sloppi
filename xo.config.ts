@@ -40,7 +40,7 @@ const xoConfig: XoConfigItem[] = [
     },
   },
   {
-    files: ['package.json'],
+    files: ['**/package.json'],
     rules: {
       // Pi packages use their `pi` manifest as the entry point, and Playwright is intentionally pinned.
       'package-json/require-entry-point': 'off',
@@ -48,7 +48,14 @@ const xoConfig: XoConfigItem[] = [
     },
   },
   {
-    files: ['test/**/*.ts'],
+    files: ['package.json'],
+    rules: {
+      // Sloppi remains a published bundle as well as the workspace root.
+      'package-json/require-private-when-workspaces': 'off',
+    },
+  },
+  {
+    files: ['test/**/*.ts', 'packages/*/test/**/*.ts'],
     rules: {
       '@typescript-eslint/no-unsafe-type-assertion': 'off',
     },

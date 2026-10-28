@@ -1,5 +1,12 @@
 {
   "extends": "./tsconfig.json",
-  "include": ["agent/extensions/**/*.ts"],
-  "exclude": ["node_modules", "dist"]
+  "include": [
+    "agent/extensions/**/*.ts",
+    "packages/**/*.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "packages/*/test"
+  ]
 }

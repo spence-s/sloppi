@@ -32,15 +32,15 @@ import {
   type ToolDefinition,
 } from '@earendil-works/pi-coding-agent';
 import {getKeybindings} from '@earendil-works/pi-tui';
-import {discoverResearchAgents} from '../agent/extensions/sandbox/agents.ts';
-import {SandboxFilesystemCommand} from '../agent/extensions/sandbox/command/filesystem.ts';
-import {SandboxCommand} from '../agent/extensions/sandbox/command/index.ts';
-import {ConfigStore} from '../agent/extensions/sandbox/config.ts';
-import sandboxExtension, {Sandbox as SandboxExtension} from '../agent/extensions/sandbox/index.ts';
-import {PlaywrightBridge} from '../agent/extensions/sandbox/playwright.ts';
-import {SandboxSessionManager} from '../agent/extensions/sandbox/session-manager.ts';
-import {SandboxSubagent} from '../agent/extensions/sandbox/subagent.ts';
-import {SandboxTools} from '../agent/extensions/sandbox/tools.ts';
+import {discoverResearchAgents} from '../src/agents.ts';
+import {SandboxFilesystemCommand} from '../src/command/filesystem.ts';
+import {SandboxCommand} from '../src/command/index.ts';
+import {ConfigStore} from '../src/config.ts';
+import sandboxExtension, {Sandbox as SandboxExtension} from '../src/index.ts';
+import {PlaywrightBridge} from '../src/playwright.ts';
+import {SandboxSessionManager} from '../src/session-manager.ts';
+import {SandboxSubagent} from '../src/subagent.ts';
+import {SandboxTools} from '../src/tools.ts';
 
 void test('uses no persisted sandbox access by default', (t: TestContext) => {
   const configStore = new ConfigStore('/Users/spencer/Projects/app');
