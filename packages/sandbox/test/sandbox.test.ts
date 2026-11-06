@@ -25,6 +25,8 @@ import {execa} from 'execa';
 import {chromium} from 'playwright';
 import {
   initTheme,
+  keyHint,
+  keyText,
   Theme,
   type ExtensionAPI,
   type ExtensionCommandContext,
@@ -1435,6 +1437,9 @@ void test('registers the read-only research scout', (t: TestContext) => {
   t.assert.deepStrictEqual(tools, [{name: 'research_scout', label: 'Research Scout'}]);
 });
 
+/**
+ Verifies that live activity stays separate from private progress and legacy output remains readable.
+ */
 void test('renders a stable live research dashboard and legacy results', (t: TestContext) => {
   let registered: ToolDefinition | undefined;
   const subagent = new SandboxSubagent({
@@ -1466,6 +1471,8 @@ void test('renders a stable live research dashboard and legacy results', (t: Tes
   const context: Parameters<typeof renderResult>[3] = {
     args: {},
     toolCallId: 'test-call',
+    keyText,
+    keyHint,
     invalidate: () => undefined,
     lastComponent: undefined,
     state: undefined,
