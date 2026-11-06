@@ -1,6 +1,6 @@
 {
-  "name": "@sloppi/sandbox",
-  "version": "0.1.0",
+  "name": "@sloppikit/sandbox",
+  "version": "0.0.1",
   "description": "Sandboxed Pi tools backed by Anthropic Sandbox Runtime.",
   "license": "MIT",
   "repository": {
@@ -13,6 +13,9 @@
   "sideEffects": false,
   "engines": {
     "node": "^22.21.0 || >=24.5.0"
+  },
+  "publishConfig": {
+    "access": "public"
   },
   "scripts": {
     "test": "node --test test/*.test.ts",

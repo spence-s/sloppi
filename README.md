@@ -58,7 +58,7 @@ pi install npm:pi-web-access
 - `capture-request.ts` — `/capture-request` saves the next provider payload and a private, offline HTML context-cost report.
 - `commit.ts` — `/commit` stages all changes and loads an editable, model-generated Conventional Commit command into Pi's input; `/commit model` selects its model.
 - `permissions/` — applies literal allow, ask, deny, or stage rules to shell commands; `/permissions` manages project rules.
-- [`@sloppi/sandbox`](packages/sandbox/) — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox on|off|toggle|status` controls it for the current session, while `/sandbox` manages its access. Its `research_scout` tool runs isolated scout, planner, reviewer, or user-defined profiles with only read, grep, find, and list access. Configure delegation under `/sandbox` → `Advanced`.
+- [`@sloppikit/sandbox`](packages/sandbox/) — runs Pi's filesystem tools inside Anthropic Sandbox Runtime; `/sandbox on|off|toggle|status` controls it for the current session, while `/sandbox` manages its access. Its `research_scout` tool runs isolated scout, planner, reviewer, or user-defined profiles with only read, grep, find, and list access. Configure delegation under `/sandbox` → `Advanced`.
 - `startup-banner.ts` — replaces Pi's TUI header.
 - `usage.ts` — `/usage` shows remaining OpenAI five-hour and weekly subscription usage plus GitHub Copilot quotas.
 - `shell-ui.ts` — adds a Powerlevel10k-inspired prompt and status area to Pi's terminal UI. Up and Down browse matching native Zsh history while the editor contains a `!` or `!!` host command; text after the marker is used as a literal prefix query.
@@ -208,18 +208,18 @@ npm test
 npm run build
 
 # Run only the sandbox tests
-npm test --workspace @sloppi/sandbox
+npm test --workspace @sloppikit/sandbox
 
 # Load only the sandbox in Pi
 pi -e ./packages/sandbox
 ```
 
-Versions are managed manually. To release the sandbox, edit its `version` and the
-root's `@sloppi/sandbox` dependency to match, run `npm install` to update the
-lockfile, and publish it with:
+The root uses `file:packages/sandbox`, so local installs do not fetch the sandbox
+from npm. Sloppi bundles it when published. To release the sandbox separately,
+edit its `version`, run `npm install` to update the lockfile, and publish it with:
 
 ```bash
-npm publish --workspace @sloppi/sandbox --access public
+npm publish --workspace @sloppikit/sandbox --access public
 ```
 
 Release the root Sloppi package separately with the existing release workflow.

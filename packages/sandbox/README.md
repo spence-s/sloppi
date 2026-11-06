@@ -10,7 +10,7 @@ npm install
 pi -e ./packages/sandbox
 ```
 
-Once published, install with `pi install npm:@sloppi/sandbox`. Sloppi already
+Once published, install with `pi install npm:@sloppikit/sandbox`. Sloppi already
 includes this extension; do not also enable a standalone copy in the same session.
 
 Use `/sandbox` to manage access and `/sandbox on|off|toggle|status` to control the
