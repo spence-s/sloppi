@@ -19,9 +19,7 @@ agent/sessions/
 agent/bin/
 agent/**/*.jsonl
 agent/**/*.log
-agent/models-store.json
-agent/settings.json
-agent/trust.json
+agent/*.json
 agent/pi-web-access
 sandbox.json
 permissions.json
